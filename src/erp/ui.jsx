@@ -1,8 +1,10 @@
 import { Children, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { C, btn, inp } from '../styles.js'
-import { initials } from './format.js'
+import { createAvatar } from '@dicebear/core'
+import * as notionists from '@dicebear/notionists'
 import Icon from './Icon.jsx'
+import { UPLOADS, acceptFor, checkFile, fileHead, fileSize, uploadHint } from '../../shared/files.js'
 
 // Building blocks shared by the ERP pages.
 
@@ -184,11 +186,20 @@ export function Pill({ tone = 'gray', children, dot = true, style, title }) {
 // A status pill; hovering it says what the status means (`help` in model.js).
 export const Status = ({ of, value }) => <Pill tone={of[value]?.tone} title={of[value]?.help || of[value]?.hint}>{of[value]?.label || value}</Pill>
 
-export function Avatar({ name, size = 32, tone = 'brand' }) {
-  const [fg, bg] = TONES[tone] || TONES.brand
+// A drawn face (Notionists, CC0) on the tone's tint. The name picks the face, so a
+// person looks the same everywhere; each face is drawn once and kept.
+const faces = new Map()
+const faceOf = name => {
+  if (!faces.has(name)) faces.set(name, createAvatar(notionists, { seed: name, scale: 125, translateY: 8, beardProbability: 0, gestureProbability: 0, bodyIconProbability: 0 }).toDataUri())
+  return faces.get(name)
+}
+
+// `photo` (a URL, e.g. from My profile) shows instead of the drawn face.
+export function Avatar({ name, size = 32, tone = 'brand', photo }) {
+  const [, bg] = TONES[tone] || TONES.brand
   return (
-    <span aria-hidden style={{ width: size, height: size, borderRadius: size / 2, background: bg, color: fg, flexShrink: 0,
-      display: 'inline-grid', placeItems: 'center', fontSize: size * 0.38, fontWeight: 700 }}>{initials(name)}</span>
+    <img src={photo || faceOf(String(name || '?'))} alt="" aria-hidden width={size} height={size} draggable={false}
+      style={{ width: size, height: size, borderRadius: '50%', background: bg, flexShrink: 0, display: 'inline-block', verticalAlign: 'middle', objectFit: 'cover' }} />
   )
 }
 
@@ -339,7 +350,8 @@ const splitCount = s => { const m = /^(.*?)\s*\((\d[\d,]*)\)$/.exec(String(s)); 
 // any other choice is a filter in use: the button turns crimson and shows the
 // label, so set filters are easy to spot.
 // `plain` (in forms) turns the filter colouring off.
-export function Select({ value, onChange, options, label, small: compact = false, block = false, plain = false }) {
+// `prefix={false}` drops the "Label: " in front of a set filter where space is tight.
+export function Select({ value, onChange, options, label, small: compact = false, block = false, plain = false, prefix = true }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [at, setAt] = useState(0)
@@ -387,7 +399,7 @@ export function Select({ value, onChange, options, label, small: compact = false
           ...(active ? { borderColor: '#f7a3b8', background: C.primaryBg, color: C.primaryDark } : null),
           ...(open ? { borderColor: C.primary, boxShadow: '0 0 0 4px rgba(236,0,63,0.12)' } : null) }}>
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {active && label && !compact && <span style={{ fontWeight: 500, opacity: 0.7 }}>{label}: </span>}
+          {active && label && prefix && !compact && <span style={{ fontWeight: 500, opacity: 0.7 }}>{label}: </span>}
           <span style={{ fontWeight: active ? 650 : 500 }}>{curLabel}</span>
           {curCount && <span style={{ color: active ? C.primary : C.muted, marginLeft: 6, fontSize: '0.9em', ...tabular }}>{curCount}</span>}
         </span>
@@ -902,3 +914,142 @@ export function FormField({ label, required, help, children, wide }) {
   )
 }
 export const field = { ...inp, width: '100%' }
+
+// ── File picker: a dashed box to click or drop files on. `kind` picks the
+// rule in shared/files.js (file types, size limit, how many files), and every
+// file is checked against it, first bytes included, before it is taken.
+// Shows the chosen file (a thumbnail for photos) with ✕ to remove it; a slot
+// that holds several lists them below. onChange gets the File objects. ──
+const ellipsis = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const tile = { width: 26, height: 26, borderRadius: 6, flexShrink: 0, display: 'grid', placeItems: 'center' }
+
+function FileThumb({ file }) {
+  const [url, setUrl] = useState(null)
+  useEffect(() => {
+    const u = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+    setUrl(u)
+    return () => { if (u) URL.revokeObjectURL(u) }
+  }, [file])
+  return url
+    ? <img src={url} alt="" onError={() => setUrl(null)} style={{ ...tile, objectFit: 'cover', border: `1px solid ${C.border}`, boxSizing: 'border-box' }} />
+    : <span style={{ ...tile, background: C.okBg, color: C.ok }}><Icon name="file" size={15} /></span>
+}
+
+function RemoveFile({ name, onClick }) {
+  return (
+    <button type="button" className="ssk-file-x" onClick={onClick} aria-label={`Remove ${name}`} title="Remove"
+      style={{ width: 26, height: 26, flexShrink: 0, display: 'grid', placeItems: 'center', border: 'none', borderRadius: 6, background: 'transparent', color: C.muted, cursor: 'pointer', padding: 0 }}>
+      <Icon name="close" size={14} />
+    </button>
+  )
+}
+
+export function FileInput({ kind = 'document', onChange, disabled = false, placeholder }) {
+  const { maxFiles, noun } = UPLOADS[kind]
+  const multiple = maxFiles > 1
+  const input = useRef(null)
+  const [files, setFiles] = useState([])
+  const [over, setOver] = useState(false)
+  const [problems, setProblems] = useState([])
+  // Narrow boxes drop the extra words so the file name keeps its room.
+  const [box, w] = useBoxWidth()
+  const roomy = w >= 420
+  const hint = uploadHint(kind)
+  const update = next => { setFiles(next); onChange?.(next) }
+  const pick = async list => {
+    const picked = [...list], ok = [], why = []
+    for (const f of picked) {
+      const problem = checkFile(f, kind, await fileHead(f).catch(() => null))
+      if (problem) why.push(problem); else ok.push(f)
+    }
+    let next = ok.slice(0, 1)
+    if (multiple) {
+      const key = f => `${f.name}|${f.size}`
+      const seen = new Set(files.map(key))
+      next = [...files, ...ok.filter(f => !seen.has(key(f)))]
+      if (next.length > maxFiles) { why.push(`Up to ${maxFiles} ${noun}s here: ${next.length - maxFiles} left out.`); next = next.slice(0, maxFiles) }
+    } else if (ok.length > 1) why.push(`One ${noun} only: the first was used.`)
+    setProblems(why)
+    if (ok.length) update(next)
+  }
+  const remove = next => { setProblems([]); update(next) }
+  const one = !multiple && files[0]
+  const full = multiple && files.length >= maxFiles
+  const muted = { color: C.muted, fontWeight: 400 }
+  // Clicks on the list and messages should not open the picker through FormField's <label>.
+  const quiet = e => e.preventDefault()
+
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div ref={box} className="ssk-file" data-drag={over || undefined} data-disabled={disabled || full || undefined}
+        onDragOver={e => { if (disabled || full) return; e.preventDefault(); setOver(true) }}
+        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setOver(false) }}
+        onDrop={e => { e.preventDefault(); setOver(false); if (!disabled && !full) pick(e.dataTransfer.files) }}
+        style={{ ...inp, width: '100%', display: 'flex', alignItems: 'center', gap: 4, padding: 5,
+          borderStyle: one ? 'solid' : 'dashed', background: disabled ? '#f9fafb' : one ? '#fff' : '#fcfcfd', opacity: disabled ? 0.6 : 1 }}>
+        <button type="button" disabled={disabled || full} onClick={() => input.current?.click()}
+          style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px 0 0', border: 'none', background: 'transparent',
+            font: 'inherit', color: C.text, textAlign: 'left', cursor: disabled || full ? 'not-allowed' : 'pointer' }}>
+          {one ? <>
+            <FileThumb file={one} />
+            <span style={{ ...ellipsis, fontWeight: 600 }} title={one.name}>{one.name}</span>
+            <span style={{ ...muted, fontSize: 12.5, whiteSpace: 'nowrap' }}>{fileSize(one.size)}</span>
+            <span style={{ flex: 1 }} />
+            {roomy && <span style={{ fontSize: 12.5, fontWeight: 600, color: C.primary, whiteSpace: 'nowrap' }}>Change</span>}
+          </> : <>
+            <span style={{ ...tile, background: C.primaryBg, color: C.primary }}><Icon name={full ? 'check' : 'upload'} size={15} /></span>
+            <span style={{ ...ellipsis, flexShrink: 0, maxWidth: '100%' }}>
+              <span style={{ fontWeight: 600 }}>{full ? `${maxFiles} ${noun}s, the most allowed` : files.length ? 'Add more' : placeholder || (multiple ? `Choose ${noun}s` : `Choose ${noun}`)}</span>
+              {roomy && !full && <span style={muted}> or drop {multiple ? 'them' : 'it'} here</span>}
+            </span>
+            <span style={{ flex: 1 }} />
+            {roomy && <span title={hint} style={{ ...ellipsis, fontSize: 12, color: C.faint }}>{hint}</span>}
+          </>}
+        </button>
+        {one && !disabled && <RemoveFile name={one.name} onClick={() => remove([])} />}
+        <input ref={input} type="file" hidden tabIndex={-1} accept={acceptFor(kind)} multiple={multiple} disabled={disabled}
+          onChange={e => { pick(e.target.files); e.target.value = '' }} />
+      </div>
+      {!roomy && !one && <span onClick={quiet} style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 4 }}>{hint}</span>}
+      {problems.length > 0 && (
+        <span onClick={quiet} role="alert" style={{ display: 'block', fontSize: 12, color: C.err, marginTop: 4, lineHeight: 1.45 }}>
+          {problems.slice(0, 3).map(p => <span key={p} style={{ display: 'block' }}>{p}</span>)}
+          {problems.length > 3 && <span style={{ display: 'block' }}>…and {problems.length - 3} more.</span>}
+        </span>
+      )}
+      {multiple && files.length > 0 && (
+        <div onClick={quiet} style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+          <span style={{ fontSize: 12, color: C.muted }}>{files.length} of {maxFiles} {noun}s</span>
+          {files.map((f, i) => (
+            <div key={`${f.name}|${f.size}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 5, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', minWidth: 0 }}>
+              <FileThumb file={f} />
+              <span style={{ ...ellipsis, fontSize: 13.5, fontWeight: 600 }} title={f.name}>{f.name}</span>
+              <span style={{ ...muted, fontSize: 12.5, whiteSpace: 'nowrap' }}>{fileSize(f.size)}</span>
+              <span style={{ flex: 1 }} />
+              <RemoveFile name={f.name} onClick={() => remove(files.filter((_, j) => j !== i))} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Multi-line box for remarks, reasons and notes: grows with its text, then
+// scrolls. ⌘/Ctrl+Enter runs onSubmit when given (Enter alone adds a line). ──
+export function TextArea({ rows = 2, onSubmit, onKeyDown, onInput, style, ...props }) {
+  const ref = useRef(null)
+  const fit = () => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`
+  }
+  useLayoutEffect(fit, [props.value])
+  return (
+    <textarea ref={ref} rows={rows} {...props}
+      onInput={e => { fit(); onInput?.(e) }}
+      onKeyDown={e => { onKeyDown?.(e); if (onSubmit && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSubmit() } }}
+      style={{ ...field, display: 'block', resize: 'vertical', maxHeight: 240, overflowY: 'auto', ...style }} />
+  )
+}

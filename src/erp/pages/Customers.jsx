@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { CUSTOMER_TRACK, CUSTOMER_ACTION, CUSTOMER_FROM } from '../model.js'
-import { Page, Card, Toolbar, SearchBox, Select, DataTable, Status, Who, Link, Drawer, KV, Block, Stat, Notice, FormField, cols, go, mono, field, useRecordNav } from '../ui.jsx'
+import { Page, Card, Toolbar, SearchBox, Select, DataTable, Status, Who, Link, Drawer, KV, Block, Stat, Notice, FormField, TextArea, Modal, cols, go, mono, field, useRecordNav } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm0, date, ago } from '../format.js'
-import { localToday } from '../../demo/erpSample.js'
+import { localToday, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
 
 // Customer Database: leads, with the current ERP's Action and Status per row.
 export default function Customers({ parts }) {
@@ -88,9 +88,24 @@ function Details({ c, erp }) {
   const { m } = erp
   const fb = useFeedback()
   const [remarks, setRemarks] = useState(c.remarks || '')
+  const [edit, setEdit] = useState(null)
+  const [fu, setFu] = useState(null)
+  const [error, setError] = useState(null)
+  const people = m.data.staff.filter(s => s.status === 'active' || s.id === c.ownerId).sort((a, b) => a.short.localeCompare(b.short))
+  const saveEdit = async () => {
+    setError(null)
+    try { await erp.updateCustomer(c.id, edit); fb.toast(`${edit.name} saved`); setEdit(null) } catch (e) { setError(e.message) }
+  }
+  const saveFu = async () => {
+    setError(null)
+    try { await erp.addCustomerFollowUp(c.id, fu); fb.toast('Follow-up saved'); setFu(null) } catch (e) { setError(e.message) }
+  }
+  const grid = { display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))' }
   return (
     <>
-      <Block title="Customer" right={<Status of={CUSTOMER_TRACK} value={c.track} />}>
+      <Block title="Customer" right={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Status of={CUSTOMER_TRACK} value={c.track} />
+        <button style={{ ...btn, fontSize: 12.5, padding: '3px 10px' }} onClick={() => { setError(null); setEdit({ date: c.date, name: c.name, phone: c.phone, area: c.area, type: c.type, from: c.from,
+          budgetMin: c.budgetMin, budgetMax: c.budgetMax, ownerId: String(c.ownerId) }) }}>Edit</button></span>}>
         <KV min={160} items={[
           ['Type', c.type], ['Area', c.area], ['Min. Budget', rm0(c.budgetMin)], ['Max. Budget', rm0(c.budgetMax)],
           ['Phone', c.phone], ['From Where', CUSTOMER_FROM[c.from] || c.from], ['Action', CUSTOMER_ACTION[c.action]],
@@ -100,23 +115,56 @@ function Details({ c, erp }) {
       </Block>
       <Block title="Remarks">
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input style={{ ...field, flex: '1 1 220px', width: 'auto' }} value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="e.g. Wants a corner lot, viewing on Saturday"
-            onKeyDown={e => { if (e.key === 'Enter' && remarks !== (c.remarks || '')) fb.run(() => erp.updateCustomer(c.id, { remarks }), 'Remarks saved') }} />
+          <TextArea style={{ flex: '1 1 220px', width: 'auto' }} value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="e.g. Wants a corner lot, viewing on Saturday"
+            onSubmit={() => { if (remarks !== (c.remarks || '')) fb.run(() => erp.updateCustomer(c.id, { remarks }), 'Remarks saved') }} />
           <button style={btn} disabled={remarks === (c.remarks || '')} onClick={() => fb.run(() => erp.updateCustomer(c.id, { remarks }), 'Remarks saved')}>Save</button>
         </div>
       </Block>
-      <Block title="Follow-up History">
+      <Block title="Follow-up History" right={<button style={{ ...btn, fontSize: 12.5, padding: '3px 10px' }} onClick={() => { setError(null); setFu({ date: m.today, action: FOLLOW_UP_ACTIONS[0], property: '', price: '', listingId: '', remark: '' }) }}>Add follow-up</button>}>
         {!c.followUps.length ? <p style={{ margin: 0, color: C.muted, fontSize: 13.5 }}>No follow-ups yet.</p> : (
           <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
             {[...c.followUps].reverse().map((f, i) => (
               <li key={i} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: `1px solid ${C.border}` }}>
                 <span style={{ fontSize: 12, color: C.muted, width: 52, flexShrink: 0 }}>{date(f.date, { short: true })}</span>
-                <span style={{ flex: 1, fontSize: 13.5 }}><b>{f.action}</b> · {f.note}</span>
+                <span style={{ flex: 1, fontSize: 13.5 }}><b>{f.action}</b> · {f.note}
+                  {(f.property || f.listingId || f.price) && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>
+                    {[f.property, f.price ? rm0(f.price) : null].filter(Boolean).join(' · ')}{f.listingId && m.listings[f.listingId] ? <> · <Link to={`listings/${f.listingId}`} style={mono}>{m.listings[f.listingId].code}</Link></> : null}</span>}</span>
               </li>
             ))}
           </ol>
         )}
       </Block>
+      <Modal open={!!edit} onClose={() => setEdit(null)} title={`Edit ${c.name}`} width={560}
+        footer={<><button style={btn} onClick={() => setEdit(null)}>Cancel</button><button style={btnPrimary} onClick={saveEdit}>Save</button></>}>
+        {error && <Notice tone="red">{error}</Notice>}
+        {edit && (
+          <div style={grid}>
+            <FormField label="Date"><input type="date" style={field} value={edit.date} onChange={e => setEdit({ ...edit, date: e.target.value })} /></FormField>
+            <FormField label="Name" required><input style={field} value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} /></FormField>
+            <FormField label="Phone" required><input style={field} type="tel" value={edit.phone} onChange={e => setEdit({ ...edit, phone: e.target.value })} /></FormField>
+            <FormField label="Area"><input style={field} value={edit.area} onChange={e => setEdit({ ...edit, area: e.target.value })} /></FormField>
+            <FormField label="Type"><Select block plain label="Type" value={edit.type} onChange={v => setEdit({ ...edit, type: v })} options={['Rent', 'Sale'].map(v => ({ value: v, label: v }))} /></FormField>
+            <FormField label="From Where"><Select block plain label="From Where" value={edit.from} onChange={v => setEdit({ ...edit, from: v })} options={Object.entries(CUSTOMER_FROM).map(([value, label]) => ({ value, label }))} /></FormField>
+            <FormField label="Min. Budget (RM)"><input type="number" style={field} value={edit.budgetMin} onChange={e => setEdit({ ...edit, budgetMin: e.target.value })} /></FormField>
+            <FormField label="Max. Budget (RM)"><input type="number" style={field} value={edit.budgetMax} onChange={e => setEdit({ ...edit, budgetMax: e.target.value })} /></FormField>
+            <FormField label="Staff"><Select block plain label="Staff" value={edit.ownerId} onChange={v => setEdit({ ...edit, ownerId: v })} options={people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))} /></FormField>
+          </div>
+        )}
+      </Modal>
+      <Modal open={!!fu} onClose={() => setFu(null)} title={`Follow-up · ${c.name}`} width={540}
+        footer={<><button style={btn} onClick={() => setFu(null)}>Cancel</button><button style={btnPrimary} onClick={saveFu}>Save</button></>}>
+        {error && <Notice tone="red">{error}</Notice>}
+        {fu && (
+          <div style={grid}>
+            <FormField label="Update Date"><input type="date" style={field} value={fu.date} max={m.today} onChange={e => setFu({ ...fu, date: e.target.value })} /></FormField>
+            <FormField label="Action"><Select block plain label="Action" value={fu.action} onChange={v => setFu({ ...fu, action: v })} options={[0, 1, 2, 3].map(k => ({ value: FOLLOW_UP_ACTIONS[k], label: FOLLOW_UP_ACTIONS[k] }))} /></FormField>
+            <FormField label="Property Name"><input style={field} value={fu.property} onChange={e => setFu({ ...fu, property: e.target.value })} /></FormField>
+            <FormField label="Price (RM)"><input type="number" style={field} value={fu.price} onChange={e => setFu({ ...fu, price: e.target.value })} /></FormField>
+            <FormField label="List ID" help="The listing shown, e.g. LIST-122345"><input style={field} value={fu.listingId} onChange={e => setFu({ ...fu, listingId: e.target.value })} /></FormField>
+            <FormField label="Remarks" wide><TextArea value={fu.remark} onChange={e => setFu({ ...fu, remark: e.target.value })} /></FormField>
+          </div>
+        )}
+      </Modal>
     </>
   )
 }
@@ -155,7 +203,7 @@ function AddName() {
           <FormField label="Staff">
             <Select block plain label="Staff" value={f.ownerId} onChange={v => setF({ ...f, ownerId: v })} options={people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))} />
           </FormField>
-          <FormField label="Remarks" wide><input style={field} value={f.remarks || ''} onChange={set('remarks')} /></FormField>
+          <FormField label="Remarks" wide><TextArea value={f.remarks || ''} onChange={set('remarks')} /></FormField>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
           <button style={btnPrimary} onClick={save}>Submit</button>

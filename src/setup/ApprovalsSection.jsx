@@ -4,6 +4,7 @@ import Section from './Section.jsx'
 import { useDraft } from './useDraft.js'
 import { Field, Group, Choice, rmHint } from './ui.jsx'
 import { NumberingFields } from './NumberingSection.jsx'
+import { ApprovalFlow, PayDays } from './visuals.jsx'
 
 // The choice marked Recommended on each question, all at once.
 const RECOMMENDED = { dealApprover: 'manager', bossAbove: '', refundApprover: 'boss', payWhen: 'full', payRun: 'weekly', payDay: 5 }
@@ -14,7 +15,6 @@ export default function ApprovalsSection({ setup, save, step, done }) {
   const [d, setD, aDirty, aReset] = useDraft(setup.approvals)
   const [n, setN, nDirty, nReset] = useDraft({ ...setup.numbering, branches: setup.numbering.branches || {} })
   const set = (k, v) => setD({ ...d, [k]: v })
-  const summary = P.describeApprovals(d)
   const numberErrors = P.validateNumbering(n, setup.dealTypes, setup.branches)
   const picked = ['dealApprover', 'refundApprover', 'payWhen', 'payRun'].filter(k => d[k]).length
 
@@ -70,13 +70,10 @@ export default function ApprovalsSection({ setup, save, step, done }) {
             <input style={{ ...inp, width: 90 }} type="number" min="1" max="28" value={d.payDay} onChange={e => set('payDay', e.target.value === '' ? '' : Number(e.target.value))} />
           </Field>
         )}
+        <PayDays a={d} />
       </Group>
 
-      {summary && (
-        <p style={{ marginTop: 20, padding: '10px 12px', borderRadius: 6, background: C.bg, fontSize: 13 }}>
-          <b>In short:</b> {summary}.
-        </p>
-      )}
+      <ApprovalFlow a={d} />
 
       <Group title="Case and voucher numbers" note="Every case and payment voucher gets a number: a prefix plus a running number.">
         <NumberingFields setup={setup} d={n} setD={setN} errors={numberErrors} />

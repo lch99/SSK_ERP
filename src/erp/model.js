@@ -92,6 +92,12 @@ export const TITLE_STATUS = {
   0: { label: 'Approved', tone: 'green', help: 'Agents can file listings under it.' },
   1: { label: 'Pending', tone: 'amber', help: 'Requested by an agent. Waiting for an admin.' },
   2: { label: 'Rejected', tone: 'red', help: 'Not added (usually a duplicate or misspelling).' },
+  3: { label: 'Disabled', tone: 'gray', help: 'Switched off: agents can no longer file new listings under it.' },
+}
+export const AREA_STATUS = {
+  0: { label: 'Approved', tone: 'green', help: 'Listings and titles can use this area.' },
+  1: { label: 'Disabled', tone: 'gray', help: 'Switched off: not offered for new listings.' },
+  2: { label: 'Pending', tone: 'amber', help: 'Requested by an agent. Waiting for an admin.' },
 }
 export const PURPOSES = { deposit: 'Cash Deposit', commission: 'Balance Commission', rental: 'Balance Rent', other: 'Others' }
 export const METHODS = { online: 'Online Transfer', cheque: 'Cheque', cash: 'Cash' }
@@ -101,7 +107,8 @@ export const PARTY = {
   rental: { buyer: 'Tenant', owner: 'Landlord' },
   project: { buyer: 'Purchaser', owner: 'Developer' },
 }
-export const ACCOUNT_TYPES = { staff: 'Agent', 'admin-staff': 'Admin (lv2)', 'admin-staff2': 'Admin (lv1)', account: 'Accounting', 'sale-staff': 'Sales Staff' }
+// Account types, named as in the client's new HR form (old names in brackets in the comments: Admin (lv2), Admin (lv1), Sales Agent).
+export const ACCOUNT_TYPES = { 'admin-staff': 'Admin Level 2', 'admin-staff2': 'Admin Level 1', account: 'Accounting', staff: 'Agent', 'sale-staff': 'Sales', marketing: 'Marketing', others: 'Others' }
 export const closeType = c => (!c.full ? 'Partial Close' : c.partNo > 1 ? 'Balance Close' : 'Full Close')
 
 export function buildModel(data, setup) {

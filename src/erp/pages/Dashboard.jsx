@@ -6,11 +6,11 @@ import { DEAL_STATUS, sum } from '../model.js'
 import { Card, Pill, Link, Progress, cols, go, tabular } from '../ui.jsx'
 import { CARD } from '../help.js'
 import { StackedBars } from '../charts.jsx'
-import { Hero, AreaTrend, DonutMix, Leaderboard, ActivityFeed, BranchRace, CountUp, rise } from './dashboardWidgets.jsx'
+import { Hero, AreaTrend, DealMix, Leaderboard, ActivityFeed, BranchRace, CountUp, rise } from './dashboardWidgets.jsx'
 import { getProjects } from '../../demo/projectsApi.js'
 import { FlowBar } from '../flow.jsx'
 import * as J from '../../../shared/projects.js'
-import { rm, rmShort, date, monthLabel, monthName, lastMonths, daysFrom, num } from '../format.js'
+import { rm, date, monthLabel, monthName, lastMonths, daysFrom, num } from '../format.js'
 import Icon from '../Icon.jsx'
 
 export default function Dashboard({ me }) {
@@ -77,7 +77,7 @@ export default function Dashboard({ me }) {
   const dayNo = Number(today.slice(8, 10))
   const daysIn = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate()
 
-  // This year's fees by deal type, for the ring.
+  // This year's fees by deal type, for the deal mix.
   const yearLive = live.filter(x => x.date.startsWith(m.year))
   const mix = enabled.map(t => ({ key: t, label: P.DEAL_TYPE_LABELS[t], color: C.series[P.DEAL_TYPES.indexOf(t)],
     value: sum(yearLive.filter(x => x.type === t), x => x.fee), count: yearLive.filter(x => x.type === t).length }))
@@ -85,12 +85,12 @@ export default function Dashboard({ me }) {
   // What happened lately: E-Forms in, cases closed, money in, people paid.
   const events = [
     ...submitted.filter(x => x.status !== 'cancelled').map(x => ({ date: x.submittedOn || x.date, icon: 'deals', fg: C.primary, bg: C.primaryBg, to: `deals/${x.id}`,
-      text: <><b>{m.staffName(x.agentId)}</b> submitted <b>{x.code}</b> · {x.property.title}</>, meta: P.DEAL_TYPE_LABELS[x.type], amount: rmShort(x.fee) })),
+      text: <><b>{m.staffName(x.agentId)}</b> submitted <b>{x.code}</b> · {x.property.title}</>, meta: P.DEAL_TYPE_LABELS[x.type], amount: rm(x.fee) })),
     ...d.closes.map(c => ({ date: c.date, icon: 'check', fg: C.ok, bg: C.okBg, to: `deals/${c.dealId}`,
-      text: <><b>{m.deals[c.dealId]?.code}</b> {c.full ? 'closed' : 'part-closed'} · {m.deals[c.dealId]?.property.title}</>, meta: 'Net commission', amount: rmShort(c.net), amountColor: C.ok })),
+      text: <><b>{m.deals[c.dealId]?.code}</b> {c.full ? 'closed' : 'part-closed'} · {m.deals[c.dealId]?.property.title}</>, meta: 'Net commission', amount: rm(c.net), amountColor: C.ok })),
     ...d.moneyIn.filter(t => t.status !== 'pending').map(t => ({ date: t.date, icon: t.status === 'returned' ? 'alert' : 'moneyIn',
       fg: t.status === 'returned' ? C.err : C.info, bg: t.status === 'returned' ? C.errBg : C.infoBg, to: 'money-in',
-      text: t.status === 'returned' ? <>Cheque <b>returned</b> from {t.payer}</> : <>Received from <b>{t.payer}</b></>, meta: t.code, amount: rmShort(t.amount) })),
+      text: t.status === 'returned' ? <>Cheque <b>returned</b> from {t.payer}</> : <>Received from <b>{t.payer}</b></>, meta: t.code, amount: rm(t.amount) })),
   ].filter(e => e.date && e.date <= today).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7)
 
   // Branch race: fees submitted this month, by branch.
@@ -132,10 +132,10 @@ export default function Dashboard({ me }) {
         {[
           <Kpi key="sub" tone="brand" icon="deals" label={`Total submission · ${monthName(ym)}`} value={billed(ym)} money
             delta={change(billed(ym), billed(prevYm))} spark={months.map(billed)} onClick={() => go('deals')}
-            foot={<>{num(thisMonth.length)} E-Forms · {rm(sum(thisMonth, x => x.fee))} fees<br />Year {m.year}: <b>{rmShort(sum(submitted.filter(x => x.date.startsWith(m.year)), x => x.money.billed))}</b> · last month {rmShort(billed(prevYm))}</>} />,
+            foot={<>{num(thisMonth.length)} E-Forms · {rm(sum(thisMonth, x => x.fee))} fees<br />Year {m.year}: <b>{rm(sum(submitted.filter(x => x.date.startsWith(m.year)), x => x.money.billed))}</b> · last month {rm(billed(prevYm))}</>} />,
           <Kpi key="net" tone="green" icon="check" label={`Net commission closed · ${monthName(ym).split(' ')[0]}`} value={sum(closedNow, c => c.net)} money
             delta={change(sum(closedNow, c => c.net), sum(closedBefore, c => c.net))} spark={months.map(mo => sum(d.closes.filter(c => c.date.startsWith(mo)), c => c.net))}
-            foot={<>{closedNow.length} close{closedNow.length === 1 ? '' : 's'} this month<br />All closed claims: <b>{rmShort(sum(d.closes, c => c.claim))}</b></>} />,
+            foot={<>{closedNow.length} close{closedNow.length === 1 ? '' : 's'} this month<br />All closed claims: <b>{rm(sum(d.closes, c => c.claim))}</b></>} />,
           <Kpi key="app" tone="amber" icon="payouts" label="Payouts to approve" value={sum(toApprove, p => p.amount)} money onClick={() => go('payouts')}
             foot={<>{new Set(toApprove.map(p => p.closeId)).size} closes waiting<br />{queried.length ? <span style={{ color: C.err, fontWeight: 600 }}>{queried.length} lines in Pending Queries</span> : 'None queried'}</>} />,
           <Kpi key="sal" tone="blue" icon="payRuns" label={payDay ? `Salary to pay · ${date(payDay, { short: true })}` : 'Salary to pay'} value={unpaidTotal} money onClick={() => go('salary')}
@@ -156,7 +156,7 @@ export default function Dashboard({ me }) {
         </div>
         <div {...rise(6)} style={{ ...rise(6).style, flex: '1 1 320px', minWidth: 0, display: 'grid' }}>
           <Card title={`Deal mix ${m.year}`} help={CARD.mix} sub="Share of fees by deal type">
-            <DonutMix parts={mix} total={sum(mix, p => p.value)} label="fees this year" />
+            <DealMix parts={mix} label="fees this year" />
           </Card>
         </div>
       </div>
@@ -217,11 +217,11 @@ export default function Dashboard({ me }) {
                   <a key={i.id} href={`#/projects/${p.id}`} style={{ textDecoration: 'none', color: C.text }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13.5 }}>
                       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b>{i.name}</b><span style={{ color: C.muted }}> · {p.name}</span></span>
-                      <b style={{ color: r.total ? C.ok : C.text, whiteSpace: 'nowrap', ...tabular }}>{rmShort(r.total)}</b>
+                      <b style={{ color: r.total ? C.ok : C.text, whiteSpace: 'nowrap', ...tabular }}>{rm(r.total)}</b>
                     </div>
                     <div style={{ marginTop: 6 }}><Progress value={goal ? (g?.units || 0) / goal.units : 1} tone={r.total ? 'green' : 'brand'} height={6} label={i.name} /></div>
                     <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
-                      {goal ? `${g?.units || 0} of ${goal.units} units for ${rmShort(goal.amount)}` : `${r.units} units sold · ${rmShort(i.perUnit)} each`}
+                      {goal ? `${g?.units || 0} of ${goal.units} units for ${rm(goal.amount)}` : `${r.units} units sold · ${rm(i.perUnit)} each`}
                     </div>
                   </a>
                 )
@@ -278,15 +278,17 @@ function Kpi({ tone, icon, label, value, money, delta, spark, foot, onClick }) {
   return (
     <Tag onClick={onClick} className={onClick ? 'ssk-lift' : undefined}
       style={{ textAlign: 'left', fontFamily: C.font, color: C.text, cursor: onClick ? 'pointer' : 'default', background: C.card, border: `1px solid ${C.border}`,
-        borderRadius: 14, padding: '16px 18px 14px', boxShadow: C.shadow, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', overflow: 'hidden' }}>
+        borderRadius: 14, padding: '16px 18px 14px', boxShadow: C.shadow, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', overflow: 'hidden', containerType: 'inline-size' }}>
       <span aria-hidden style={{ position: 'absolute', inset: '0 0 auto 0', height: 3, background: fg, opacity: 0.85 }} />
       <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ width: 34, height: 34, borderRadius: 9, background: bg, color: fg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon name={icon} size={18} /></span>
         <span style={{ fontSize: 13, color: C.muted, fontWeight: 500, lineHeight: 1.3 }}>{label}</span>
       </span>
       <span style={{ display: 'flex', alignItems: 'flex-end', gap: 10, justifyContent: 'space-between' }}>
-        <span style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums', overflowWrap: 'anywhere' }}>{money ? <CountUp value={value} format={rmShort} /> : value}</span>
+        {/* The amount never breaks; the sparkline gives up width first, and a
+            full amount (2 dp) shrinks with the tile so it always fits. */}
+        <span>
+          <span style={{ display: 'block', fontSize: 'clamp(18px, 11cqi, 28px)', fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{money ? <CountUp value={value} format={rm} /> : value}</span>
           {delta != null && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, color: C.muted, flexWrap: 'wrap' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 600, padding: '1px 7px', borderRadius: 999, whiteSpace: 'nowrap',
@@ -309,10 +311,10 @@ function Spark({ values, color }) {
   const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')
   const id = `spark-${color.replace('#', '')}`
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden style={{ flexShrink: 0, overflow: 'visible' }}>
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden style={{ flex: `0 1 ${w}px`, minWidth: 0, overflow: 'visible' }}>
       <defs><linearGradient id={id} x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor={color} stopOpacity="0.22" /><stop offset="1" stopColor={color} stopOpacity="0" /></linearGradient></defs>
       <path d={`${line} L${w},${h} L0,${h} Z`} fill={`url(#${id})`} />
-      <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
       <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="3" fill="#fff" stroke={color} strokeWidth="2" />
     </svg>
   )
@@ -338,7 +340,7 @@ function Pipeline({ pipeline, counts, collected, toCollect, year }) {
                   <span style={{ width: 8, height: 8, borderRadius: 4, background: PIPE_COLORS[p.s] }} />{DEAL_STATUS[p.s].label}
                 </span>
                 <span style={{ display: 'block', fontSize: 22, fontWeight: 700, marginTop: 4, ...tabular }}>{num(p.n)}</span>
-                <span style={{ display: 'block', fontSize: 12, color: C.muted, ...tabular }}>{rmShort(p.fee)}</span>
+                <span style={{ display: 'block', fontSize: 12, color: C.muted, ...tabular }}>{rm(p.fee)}</span>
               </a>
             ))}
           </div>

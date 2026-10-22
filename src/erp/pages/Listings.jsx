@@ -4,9 +4,11 @@ import { LISTING_SETTINGS, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { LISTING_STATUS, LISTING_CATEGORY, DEAL_STATUS, listingCategory } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, Chips, Segmented, DataTable, Status, Pill, Who, Link, Drawer, KV, Block, Empty, go, mono, small, useRecordNav } from '../ui.jsx'
-import { COLUMN, PAGE } from '../help.js'
+import { CARD, COLUMN, PAGE } from '../help.js'
 import { rm, rm0, date, num, ago, maskIc } from '../format.js'
 import Icon from '../Icon.jsx'
+import ListingActions, { PORTALS, photosOf } from './ListingActions.jsx'
+import { useFeedback } from '../feedback.jsx'
 
 // My Property Listing (Property menu) and the same list by role (Listing menu).
 const VIEWS = [
@@ -93,6 +95,7 @@ export default function Listings({ parts }) {
       </span>
     ) },
     { key: 'status', label: 'Status', render: l => <Status of={LISTING_STATUS} value={l.status} /> },
+    { key: 'actions', label: '', card: false, render: l => <ListingActions l={l} quiet /> },
   ]
   const cats = Object.entries(LISTING_CATEGORY).map(([k, label]) => ({ k, label, n: scoped.filter(l => listingCategory(l) === Number(k)).length })).filter(c => c.n)
   const { onOrder, nav } = useRecordNav(open?.id, id => `${base}/${id}`)
@@ -128,7 +131,8 @@ export default function Listings({ parts }) {
             empty={view === 'today' ? 'No listings added today' : 'No listings match'} onClear={filters || q ? clear : undefined} onOrder={onOrder} />
           : <CardGrid rows={rows} m={m} base={base} />}
       </Card>
-      <Drawer open={!!open} onClose={() => go(base)} width={620} title={open?.title} sub={open ? `${open.code} · ${open.category} · ${open.area}` : ''} nav={layout === 'table' ? nav : null}>
+      <Drawer open={!!open} onClose={() => go(base)} width={620} title={open?.title} sub={open ? `${open.code} · ${open.category} · ${open.area}` : ''} nav={layout === 'table' ? nav : null}
+        footer={open && <ListingActions key={open.id} l={open} />}>
         {open && <ListingDetails l={open} m={m} />}
       </Drawer>
     </Page>
@@ -176,19 +180,40 @@ function ListingCard({ l, m, base }) {
   )
 }
 
+// Ad Price can be changed right here (it saves when you press Save or Enter).
+function AdPrice({ l }) {
+  const erp = useErp()
+  const fb = useFeedback()
+  const [v, setV] = useState(String(l.askPrice))
+  const changed = Number(v) !== l.askPrice && Number(v) >= 0 && v !== ''
+  const save = () => changed && fb.run(() => erp.updateListing(l.id, { askPrice: Number(v) }), `${l.code} Ad Price set to ${rm(Number(v))}`)
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      <input type="number" min="0" value={v} onChange={e => setV(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save() }} aria-label="Ad Price"
+        style={{ width: 120, padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: 6, fontWeight: 700, fontFamily: C.font, fontSize: 13.5 }} />
+      {changed && <button style={{ ...small, padding: '3px 8px', fontSize: 12 }} onClick={save}>Save</button>}
+    </span>
+  )
+}
+
 export function ListingDetails({ l, m }) {
   const deal = l.dealId ? m.deals[l.dealId] : null
   const title = m.titles[l.titleId]
+  const share = l.share || { users: [], pmId: null, coPh: [] }
+  const photos = photosOf(l)
   return (
     <>
       <Block title="Listing" right={<Status of={LISTING_STATUS} value={l.status} />}>
         <KV min={160} items={[
-          [l.type === 'sale' ? 'Ad Price' : 'Ad Price (rent)', <b>{rm(l.askPrice)}</b>], ['Best Price', rm(l.bestPrice)],
+          [l.type === 'sale' ? 'Ad Price' : 'Ad Price (rent)', <AdPrice key={`${l.id}-${l.askPrice}`} l={l} />], ['Best Price', rm(l.bestPrice)],
           ['Market Value', l.marketValue ? rm(l.marketValue) : 'Not set'], ['Built-up', `${num(l.builtUp)} sq ft`], l.land && ['Land', `${l.land} ft`],
           ['Rooms', l.beds ? `${l.beds} bed · ${l.baths} bath` : `${l.baths} toilets`], ['Tenure', l.tenure], ['Furnishing', l.furnishing],
           ['Category', `${LISTING_CATEGORY[listingCategory(l)]} · ${l.category}`], ['Address', `${l.address}, ${l.postcode} ${l.city}, ${l.state}`],
-          ['C.Date', date(l.created)], ['U.Date', date(l.updated)],
+          ['C.Date', date(l.created)], ['U.Date', date(l.updated)], l.commission != null && ['Commission', `${l.commission}%`],
+          l.trackingPrice != null && l.status !== 'active' && ['Went for', rm(l.trackingPrice)],
         ]} />
+        {l.description && <p style={{ fontSize: 13, margin: '10px 0 0', whiteSpace: 'pre-wrap' }}>{l.description}</p>}
+        {l.remarks && <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>Personal use remarks: {l.remarks}</p>}
         {l.flags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>{l.flags.map(f => <Pill key={f} tone={f === 'Process Deal' ? 'blue' : 'gray'} dot={false}>{f}</Pill>)}</div>}
       </Block>
       {deal && (
@@ -208,6 +233,13 @@ export function ListingDetails({ l, m }) {
           {title?.handlerId && <Who name={m.staffName(title.handlerId)} sub={`Project Handler for ${title.name}`} />}
         </div>
       </Block>
+      <Block title="Share" help={CARD.share}>
+        <KV min={160} items={[
+          ['Shared users', share.users.length ? share.users.map(id => m.staffName(id)).join(', ') : 'Not shared'],
+          ['Project Manager', share.pmId ? m.staffName(share.pmId) : '—'],
+          ['Co-Product Handlers', share.coPh.length ? share.coPh.map(c => `${m.staffName(c.staffId)}${c.until ? ` (until ${date(c.until, { short: true })})` : ''}`).join(', ') : `${3 - share.coPh.length} of 3 slots free`],
+        ]} />
+      </Block>
       <Block title={l.type === 'sale' ? 'Owner' : 'Landlord'}>
         <KV min={160} items={[['Name', l.owner.name], ['IC no.', l.owner.ic ? maskIc(l.owner.ic) : '—'], ['Owner Contact', l.owner.phone]]} />
       </Block>
@@ -223,11 +255,14 @@ export function ListingDetails({ l, m }) {
           </ol>
         )}
       </Block>
-      <Block title="Marketing Tools">
-        <KV min={130} items={[['Views', num(l.views)], ['Enquiries', num(l.enquiries)], ['Photos', num(l.photos)]]} />
+      <Block title="Marketing Tools" help={CARD.marketing}>
+        <KV min={130} items={[['Views (website)', num(l.views - (l.viewsApp || 0))], ['Views (app)', num(l.viewsApp || 0)], ['Enquiries', num(l.enquiries)],
+          ['Photos', `${photos.filter(p => p.published).length} published of ${photos.length}`]]} />
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
-          {['iProperty', 'PropertyGuru', 'Mudah.my'].map(p => <Pill key={p} tone={l.portals.includes(p) ? 'green' : 'gray'}>{p}{l.portals.includes(p) ? '' : ' (off)'}</Pill>)}
+          {PORTALS.map(p => <Pill key={p} tone={l.portals.includes(p) ? 'green' : 'gray'}>{p}{l.portals.includes(p) ? '' : ' (off)'}</Pill>)}
         </div>
+        {l.marketingRemarks && <p style={{ fontSize: 13, margin: '10px 0 0' }}><Icon name={l.remarksPrivate !== false ? 'lock' : 'eye'} size={13} /> {l.marketingRemarks}
+          <span style={{ display: 'block', fontSize: 12, color: l.remarksPrivate !== false ? C.ok : C.warn }}>{l.remarksPrivate !== false ? 'Private' : 'Less Private'}</span></p>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
           <button style={btn} disabled title="Demo only">View Listing on Website</button>
           <button style={btn} disabled title="Demo only">WhatsApp share</button>

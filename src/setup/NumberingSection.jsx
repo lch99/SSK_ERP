@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import * as P from '../../shared/payout.js'
 import { C, inp, btn, th, td, label } from '../styles.js'
+import { NumberAnatomy } from './visuals.jsx'
 
 const mono = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }
 
@@ -25,24 +26,26 @@ export function NumberingFields({ setup, d, setD, errors = [] }) {
     setD({ ...d, branches: next })
   }
 
+  const anatomy = <NumberAnatomy numbering={d} branches={setup.branches} enabled={enabled} />
   if (!open) {
     return (
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 12px', borderRadius: 8, background: C.bg, fontSize: 13.5 }}>
+      <>
+      {anatomy}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13.5 }}>
         <span style={{ flex: '1 1 260px', lineHeight: 1.5 }}>
           {sample.name || 'A branch'}'s first numbers: <code style={mono}>{kinds.map(k => P.formatNumber(d, k, sample)).join(' · ')}</code>
           <span style={{ color: C.muted }}>{custom.length ? ` · ${custom.length} branch${custom.length === 1 ? ' has its' : 'es have their'} own` : ' · same format for every branch'}</span>
         </span>
         <button style={{ ...btn, fontSize: 13, padding: '5px 11px' }} onClick={() => setOpen(true)}>Change numbering</button>
       </div>
+      </>
     )
   }
 
   return (
     <>
-      <h3 style={{ fontSize: 14, margin: '0 0 4px' }}>Default format</h3>
-      <p style={{ fontSize: 13, color: C.muted, margin: '0 0 10px' }}>
-        Letter + branch code + running number. For example, a {P.DEAL_TYPE_LABELS[enabled[0] || 'sale']} case at {sample.name || 'a branch'} ({sample.code}) is <code style={mono}>{P.previewCaseNo(d, enabled[0] || 'sale', sample.code)}</code>.
-      </p>
+      {anatomy}
+      <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Default format</h3>
       <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 520 }}>
         <thead><tr><th style={th}>Number for</th><th style={th}>Letter(s)</th><th style={th}>Example</th></tr></thead>
         <tbody>

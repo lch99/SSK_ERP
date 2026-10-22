@@ -5,7 +5,7 @@ import { rm, rmShort, monthLabel, ago, num } from '../format.js'
 import Icon from '../Icon.jsx'
 
 // Building blocks for the dashboard: counting numbers, the hero banner, the
-// commission trend, the deal-mix ring, the leaderboard, the activity feed and
+// commission trend, the deal-mix bar, the leaderboard, the activity feed and
 // the branch race. Colours: brand crimson for money in, green for closed.
 
 const reduced = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -50,18 +50,19 @@ export function Hero({ greet, place, dateText, thisMonth, lastMonth, daysIn, day
       <div aria-hidden style={{ position: 'absolute', right: -120, top: -120, width: 360, height: 360, borderRadius: '50%',
         background: 'radial-gradient(circle, rgba(236,0,63,.45), rgba(236,0,63,0) 70%)' }} />
       <div style={{ position: 'relative', display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'center', padding: '26px 28px' }}>
-        <div style={{ flex: '1 1 380px', minWidth: 0 }}>
+        <div style={{ flex: '1 1 380px', minWidth: 0, containerType: 'inline-size' }}>
           <div style={{ fontSize: 13.5, color: 'rgba(255,255,255,.7)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <LiveDot /> {place} · {dateText}
           </div>
           <h1 style={{ fontSize: 30, margin: '8px 0 14px', color: '#fff', lineHeight: 1.15 }}>{greet}</h1>
           <div style={{ fontSize: 14, color: 'rgba(255,255,255,.72)' }}>Submitted so far in {monthName}</div>
-          <div style={{ fontSize: 42, fontWeight: 800, fontFamily: C.fontHead, letterSpacing: '-0.03em', lineHeight: 1.1, margin: '2px 0 8px' }}>
-            <CountUp value={thisMonth} format={rmShort} />
+          {/* Shrinks on narrow screens, so a full amount (2 dp) never runs off the card. */}
+          <div style={{ fontSize: 'clamp(24px, 10cqi, 42px)', fontWeight: 800, fontFamily: C.fontHead, letterSpacing: '-0.03em', lineHeight: 1.1, margin: '2px 0 8px', whiteSpace: 'nowrap' }}>
+            <CountUp value={thisMonth} format={rm} />
           </div>
           <div style={{ fontSize: 14, color: 'rgba(255,255,255,.85)', lineHeight: 1.5 }}>
-            On pace for <b style={{ color: '#fff' }}>{rmShort(pace)}</b> by month-end
-            {lastMonth > 0 && <> · last month <b style={{ color: '#fff' }}>{rmShort(lastMonth)}</b></>}
+            On pace for <b style={{ color: '#fff' }}>{rm(pace)}</b> by month-end
+            {lastMonth > 0 && <> · last month <b style={{ color: '#fff' }}>{rm(lastMonth)}</b></>}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             {stats.map(s => (
@@ -145,13 +146,24 @@ function useWidth() {
   }, [el])
   return [setEl, w]
 }
-// Smooth line through points (Catmull-Rom as cubic Béziers).
-const smooth = pts => pts.reduce((d, p, i, a) => {
-  if (!i) return `M${p[0]},${p[1]}`
-  const p0 = a[i - 2] || a[i - 1], p1 = a[i - 1], p3 = a[i + 1] || p
-  const c1 = [p1[0] + (p[0] - p0[0]) / 6, p1[1] + (p[1] - p0[1]) / 6], c2 = [p[0] - (p3[0] - p1[0]) / 6, p[1] - (p3[1] - p1[1]) / 6]
-  return `${d} C${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${p[0]},${p[1]}`
-}, '')
+// Smooth line through points that never overshoots them (monotone cubic, as
+// d3's curveMonotoneX), so a month at RM 0 never dips below the axis.
+const smooth = pts => {
+  const n = pts.length
+  if (n < 3) return pts.map((p, i) => `${i ? 'L' : 'M'}${p[0]},${p[1]}`).join(' ')
+  const slope = i => (pts[i + 1][1] - pts[i][1]) / (pts[i + 1][0] - pts[i][0])
+  const t = pts.map((_, i) => {
+    if (i === 0) return slope(0)
+    if (i === n - 1) return slope(n - 2)
+    const s0 = slope(i - 1), s1 = slope(i)
+    return (Math.sign(s0) + Math.sign(s1)) * Math.min(Math.abs(s0), Math.abs(s1), Math.abs(s0 + s1) / 4) || 0
+  })
+  return pts.reduce((d, p, i) => {
+    if (!i) return `M${p[0]},${p[1]}`
+    const q = pts[i - 1], h = (p[0] - q[0]) / 3
+    return `${d} C${q[0] + h},${q[1] + t[i - 1] * h} ${p[0] - h},${p[1] - t[i] * h} ${p[0]},${p[1]}`
+  }, '')
+}
 const niceMax = v => { if (v <= 0) return 1; const p = 10 ** Math.floor(Math.log10(v)); return [1, 2, 2.5, 5, 10].map(k => k * p).find(n => n >= v) }
 
 export function AreaTrend({ months, series, height = 250 }) {
@@ -176,12 +188,12 @@ export function AreaTrend({ months, series, height = 250 }) {
         {series.map(s => (
           <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, color: C.muted }}>
             <span style={{ width: 18, height: 3, borderRadius: 2, background: s.color }} />{s.label}
-            <b style={{ color: C.text, ...tabular }}>{rmShort(s.values.reduce((t, v) => t + v, 0))}</b>
+            <b style={{ color: C.text, ...tabular }}>{rm(s.values.reduce((t, v) => t + v, 0))}</b>
           </span>
         ))}
       </div>
       {width > 0 && (
-        <svg width={width} height={height} role="img" aria-label={series.map(s => `${s.label}: ${months.map((m, i) => `${monthLabel(m)} ${rmShort(s.values[i])}`).join(', ')}`).join('. ')}
+        <svg width={width} height={height} role="img" aria-label={series.map(s => `${s.label}: ${months.map((m, i) => `${monthLabel(m)} ${rm(s.values[i])}`).join(', ')}`).join('. ')}
           onMouseMove={onMove} onMouseLeave={() => setHover(null)} onClick={onMove} style={{ display: 'block', cursor: 'crosshair', touchAction: 'pan-y' }}>
           <defs>
             {series.map(s => (
@@ -236,41 +248,50 @@ export function AreaTrend({ months, series, height = 250 }) {
   )
 }
 
-// ── Deal mix: a ring of this year's fees by deal type ──
+// ── Deal mix: this year's fees as one bar split by deal type, then a row per
+// type (largest first). Pointing at a part or its row lights up both. ──
 
-export function DonutMix({ parts, total, label }) {
+const plural = (n, word) => `${num(n)} ${word}${n === 1 ? '' : 's'}`
+
+export function DealMix({ parts, label }) {
   const [on, setOn] = useState(reduced())
+  const [hot, setHot] = useState(null)
   useEffect(() => { const t = setTimeout(() => setOn(true), 120); return () => clearTimeout(t) }, [])
-  const size = 180, r = 70, c = 2 * Math.PI * r
-  let acc = 0
+  const total = parts.reduce((t, p) => t + p.value, 0)
+  if (!total) return <p style={{ color: C.muted, margin: 0 }}>No E-Forms yet this year.</p>
+  const rows = [...parts].sort((a, b) => b.value - a.value)
+  const share = p => Math.round((p.value / total) * 100)
+  const dim = p => hot && hot !== p.key
   return (
-    <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
-      <div style={{ position: 'relative', width: size, height: size }} role="img" aria-label={parts.map(p => `${p.label} ${Math.round(p.value / (total || 1) * 100)}%`).join(', ')}>
-        <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }} aria-hidden>
-          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.grayBg} strokeWidth="22" />
-          {parts.filter(p => p.value > 0).map(p => {
-            const len = (p.value / (total || 1)) * c
-            const el = <circle key={p.key} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={p.color} strokeWidth="22"
-              strokeDasharray={`${on ? Math.max(0, len - 3) : 0} ${c}`} strokeDashoffset={-acc} style={{ transition: 'stroke-dasharray 1s cubic-bezier(.2,.8,.2,1)' }} />
-            acc += len
-            return el
-          })}
-        </svg>
-        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 800, fontFamily: C.fontHead, ...tabular }}><CountUp value={total} format={rmShort} /></div>
-            <div style={{ fontSize: 12, color: C.muted }}>{label}</div>
-          </div>
-        </div>
+    <div onMouseLeave={() => setHot(null)} style={{ containerType: 'inline-size' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '4px 12px', flexWrap: 'wrap' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 'clamp(20px, 8cqi, 28px)', fontWeight: 800, fontFamily: C.fontHead, letterSpacing: '-0.02em', whiteSpace: 'nowrap', ...tabular }}><CountUp value={total} format={rm} /></span>
+          <span style={{ fontSize: 13, color: C.muted }}>{label}</span>
+        </span>
+        <span style={{ fontSize: 13, color: C.muted, ...tabular }}>{plural(parts.reduce((t, p) => t + p.count, 0), 'deal')}</span>
       </div>
-      <div style={{ display: 'grid', gap: 10, minWidth: 160, flex: '1 1 160px' }}>
-        {parts.map(p => (
-          <div key={p.key}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13.5 }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: p.color }} />{p.label}</span>
-              <b style={tabular}>{Math.round(p.value / (total || 1) * 100)}%</b>
-            </div>
-            <div style={{ fontSize: 12, color: C.muted, ...tabular }}>{rm(p.value)} · {num(p.count)} deals</div>
+      <div role="img" aria-label={rows.filter(p => p.value > 0).map(p => `${p.label} ${share(p)}%`).join(', ')}
+        style={{ display: 'flex', gap: 2, height: 14, margin: '12px 0 14px', borderRadius: 7, overflow: 'hidden', background: C.grayBg }}>
+        {rows.filter(p => p.value > 0).map(p => (
+          <span key={p.key} onMouseEnter={() => setHot(p.key)}
+            style={{ flex: `${on ? p.value : 0} 1 0`, minWidth: on ? 4 : 0, background: p.color, opacity: dim(p) ? 0.3 : 1, cursor: 'default',
+              transition: 'flex-grow 1s cubic-bezier(.2,.8,.2,1), opacity .15s ease' }} />
+        ))}
+      </div>
+      <div style={{ display: 'grid', gap: 2 }}>
+        {rows.map(p => (
+          <div key={p.key} onMouseEnter={() => setHot(p.key)}
+            style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: 10, alignItems: 'start', padding: '8px 10px', margin: '0 -10px', borderRadius: 10,
+              background: hot === p.key ? '#f6f7f9' : 'transparent', opacity: dim(p) ? 0.5 : 1, transition: 'background .15s ease, opacity .15s ease' }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, marginTop: 5 }} />
+            <span>
+              <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{p.label}</span>
+              <span style={{ display: 'block', fontSize: 12.5, color: C.muted, marginTop: 1, ...tabular }}>
+                {p.count ? <>{rm(p.value)} · {plural(p.count, 'deal')} · avg {rm(p.value / p.count)}</> : 'No deals yet this year'}
+              </span>
+            </span>
+            <b style={{ fontSize: 15, ...tabular }}>{share(p)}%</b>
           </div>
         ))}
       </div>
@@ -307,11 +328,12 @@ export function Leaderboard({ rows, m, showBranch }) {
           return (
             <button key={s.id} onClick={() => go(`staff/${s.id}`)} className="ssk-lift"
               style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', textAlign: 'center', borderRadius: 14, padding: i === 0 ? '18px 10px 14px' : '14px 10px 12px',
-                background: `linear-gradient(180deg, ${bg}, #fff)`, border: `1px solid ${C.border}`, minWidth: 0 }}>
+                background: `linear-gradient(180deg, ${bg}, #fff)`, border: `1px solid ${C.border}`, minWidth: 0, containerType: 'inline-size' }}>
               <div style={{ display: 'flex', justifyContent: 'center' }}><Medal place={i + 1} size={i === 0 ? 30 : 24} /></div>
               <div style={{ margin: '8px auto 6px', width: 'fit-content', borderRadius: '50%', boxShadow: `0 0 0 3px ${color}` }}><Avatar name={s.short} size={i === 0 ? 48 : 40} /></div>
               <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.short}</div>
-              <div style={{ fontSize: 15, fontWeight: 800, fontFamily: C.fontHead, marginTop: 2 }}><CountUp value={v} format={rmShort} /></div>
+              {/* Shrinks with the box, so a full amount (2 dp) fits even on a phone. */}
+              <div style={{ fontSize: 'clamp(10.5px, 10cqi, 15px)', fontWeight: 800, fontFamily: C.fontHead, marginTop: 2, whiteSpace: 'nowrap' }}><CountUp value={v} format={rm} /></div>
               <div style={{ marginTop: 4 }}><Pill tone="gray" dot={false}>{m.tierInfo(s.id).tier.name}</Pill></div>
             </button>
           )
@@ -327,10 +349,10 @@ export function Leaderboard({ rows, m, showBranch }) {
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13.5 }}>
                   <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><b>{s.short}</b>{showBranch && <span style={{ color: C.muted }}> · {m.branchName(s.branchId)}</span>}</span>
-                  <b style={tabular}>{rmShort(v)}</b>
+                  <b style={tabular}>{rm(v)}</b>
                 </span>
                 <span style={{ display: 'block', marginTop: 5 }}><Progress value={v / max} tone="brand" height={5} label={`${s.short} against the leader`} /></span>
-                {t.next && <span style={{ display: 'block', fontSize: 11.5, color: C.muted, marginTop: 3 }}>{rmShort(t.toNext)} to {t.next.name}</span>}
+                {t.next && <span style={{ display: 'block', fontSize: 11.5, color: C.muted, marginTop: 3 }}>{rm(t.toNext)} to {t.next.name}</span>}
               </span>
             </a>
           )
@@ -381,7 +403,7 @@ export function BranchRace({ rows }) {
                 color: i === 0 ? '#b07d00' : C.muted }}>{i === 0 ? '★' : i + 1}</span>
               <b>{r.label}</b><span style={{ color: C.muted }}>{r.sub}</span>
             </span>
-            <b style={tabular}>{rmShort(r.value)}</b>
+            <b style={tabular}>{rm(r.value)}</b>
           </div>
           <div style={{ height: 10, borderRadius: 5, background: C.grayBg, overflow: 'hidden' }}>
             <div style={{ width: on ? `${(r.value / max) * 100}%` : 0, height: '100%', borderRadius: 5, transition: `width 1s cubic-bezier(.2,.8,.2,1) ${i * 90}ms`,

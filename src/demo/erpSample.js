@@ -6,7 +6,7 @@
 // Every payout goes through shared/payout.js, never through maths of its own.
 import * as P from '../../shared/payout.js'
 
-export const ERP_VERSION = 4
+export const ERP_VERSION = 5
 const SEED = 20261021
 const r2 = n => Math.round(n * 100) / 100
 
@@ -153,6 +153,24 @@ const LEAD_SOURCES = ['iProperty', 'Mudah.my', 'Banner', 'Intro', 'others']
 const QUERIES = ['SPA stamping receipt not uploaded yet.', 'Co-broke letter is missing.', 'Buyer IC copy is unclear, please re-upload.',
   'Listing holder changed last month, please confirm who gets the listing side.', 'Please confirm the referral fee with the branch manager.']
 const CANCEL_REASONS = ["Buyer's loan was rejected.", 'Vendor withdrew from the sale.', 'Tenant withdrew before signing.', 'Buyer could not complete the SPA in time.']
+
+// The documents an E-Form needs before its case can close (Supporting Document Attachments).
+export function docNames(type, coBroke) {
+  return type === 'sale'
+    ? ['Letter of offer', 'Appointment letter', 'Receipts', 'SPA', 'Buyer IC', 'Vendor IC', ...(coBroke ? ['Co-broke letter'] : [])]
+    : type === 'rental'
+      ? ['Letter of offer', 'Appointment letter', 'Receipt', 'Tenancy agreement', 'Tenant IC', 'Landlord IC', ...(coBroke ? ['Co-broke letter'] : [])]
+      : ['Booking form', 'SPA', 'Buyer IC', 'Developer claim letter']
+}
+// Optional extra documents (the old form's "more documents" tick box).
+export const MORE_DOCS = { sale: ['Loan document 1', 'Loan document 2', 'Loan document 3', 'Vendor document 1', 'Vendor document 2', 'Vendor document 3'], rental: ['SMP file'], project: [] }
+
+// Staff access switches, as the client's new HR form names them.
+export const ACCESS = {
+  agent: 'Enable Agent Features', profilePage: 'Enable Agent Profile Page', profileDoc: 'Enable Agent Profile Document Generation Features',
+  addListing: 'Enable Add Listing Features', landlordVerify: 'Enable Landlord Verification Features', vendorRequests: 'Enable Vendor Requests/Listings Features',
+  tripIncentive: 'Enable Trip Incentive Listings Features',
+}
 
 // One close's payout: the commission `net` is split into the deal's sides, and
 // each side's earner is paid at the tier their commission has reached so far
@@ -518,11 +536,7 @@ export function makeErpSample(setup, asOf = localToday()) {
   }
 
   function docsFor(deal) {
-    const names = deal.type === 'sale'
-      ? ['Letter of offer', 'Appointment letter', 'Receipts', 'SPA', 'Buyer IC', 'Vendor IC', ...(deal.coBroke ? ['Co-broke letter'] : [])]
-      : deal.type === 'rental'
-        ? ['Letter of offer', 'Appointment letter', 'Receipt', 'Tenancy agreement', 'Tenant IC', 'Landlord IC', ...(deal.coBroke ? ['Co-broke letter'] : [])]
-        : ['Booking form', 'SPA', 'Buyer IC', 'Developer claim letter']
+    const names = docNames(deal.type, !!deal.coBroke)
     const age = daysBetween(deal.date, asOf)
     return Object.fromEntries(names.map((n, i) => [n, deal.status === 'draft' ? i < 2 : age > 45 || i < 3 || R.chance(0.6)]))
   }
@@ -883,9 +897,74 @@ export function makeErpSample(setup, asOf = localToday()) {
   }
   audit.sort((a, b) => b.at.localeCompare(a.at))
 
+  // ── Extras (own random stream, so the records above stay the same) ──
+  const X = makeRng(SEED + 7)
+  // Staff: access switches, public profile, documents, last activity and the
+  // yearly renewal of the account (the client's new HR form has all of these).
+  const nextAnniversary = from => {
+    let d = `${asOf.slice(0, 4)}${from.slice(4)}`
+    if (d.endsWith('02-29')) d = `${d.slice(0, 8)}28`
+    return d > asOf ? d : `${Number(d.slice(0, 4)) + 1}${d.slice(4)}`
+  }
+  const company = setup.company?.name || 'the agency'
+  for (const s of staff) {
+    const years = Math.max(1, Math.round(daysBetween(s.joined, asOf) / 365))
+    s.access = { agent: true, profilePage: s.status === 'active' && X.chance(0.75), profileDoc: s.status === 'active' && X.chance(0.5), addListing: s.status !== 'pending',
+      landlordVerify: !!s.role && X.chance(0.6), vendorRequests: !!s.role || X.chance(0.25), tripIncentive: X.chance(0.2) }
+    s.regType = 'REN'
+    s.regNo = String(s.renNo || '').replace(/^\D+\s*/, '')
+    const myAreas = [...new Set(listings.filter(l => l.holderId === s.id).map(l => l.area))].slice(0, 3)
+    s.bio = s.role || X.chance(0.3) ? `${years} year${years > 1 ? 's' : ''} in property${myAreas.length ? `, mostly around ${myAreas.join(', ')}` : ''}. Happy to help you buy, sell or rent.` : ''
+    s.socials = s.bio && X.chance(0.6) ? { facebook: `https://www.facebook.com/${s.username}`, instagram: X.chance(0.5) ? `https://www.instagram.com/${s.username}` : '' } : {}
+    s.awards = []
+    s.lastActive = s.status === 'inactive' ? s.leftOn : addDays(asOf, -X.int(0, s.status === 'pending' ? 4 : 25))
+    s.expiresOn = s.status === 'inactive' ? s.leftOn : nextAnniversary(s.joined)
+    s.docs = { 'NRIC Copy': true, 'Application Form': true, 'Joining Fee Receipt': s.status !== 'pending' || X.chance(0.4) }
+    s.marketing = []
+  }
+  const ranked = [...staff].sort((a, b) => b.openingLifetime - a.openingLifetime)
+  ranked.slice(0, 2).forEach((s, i) => s.awards.push({ name: i ? 'Top Negotiator' : 'Top Achiever', org: company, date: `${Number(asOf.slice(0, 4)) - 1}-12-${i ? 12 : 5}` }))
+  // Two leaders let an assistant see their customers and listings.
+  for (const s of staff.filter(x => x.role).slice(0, 2)) {
+    const helper = X.pick(staff.filter(x => x.id !== s.id && x.branchId === s.branchId && !x.role) || [])
+    if (helper) s.marketing.push({ staffId: helper.id, customers: true, listings: true, shared: X.chance(0.5) })
+  }
+  for (const l of listings) Object.assign(l, { share: { users: [], pmId: null, coPh: [] }, marketingRemarks: '', remarksPrivate: true, viewsApp: Math.round(l.views * 0.35) })
+  for (const d of deals) Object.assign(d, { otherBuyers: [], otherOwners: [], files: {} })
+  // Areas agents asked for, waiting for an admin.
+  for (let i = 0; i < 2; i++) {
+    const b = X.pick(setup.branches)
+    areas.push({ id: id(), name: X.pick(['Taman Bukit Indah', 'Bandar Baru Seri', 'Taman Mutiara Rini', 'Desa Aman Puri']) + (i ? ' 2' : ''), state: clusterOf[b.id].state, branchId: b.id,
+      managerId: null, status: 2, requestedBy: (X.pick(staff.filter(x => x.branchId === b.id)) || staff[0]).id, requestedOn: addDays(asOf, -X.int(0, 10)) })
+  }
+  const propertyTypes = Object.keys(CATEGORIES).map(name => ({ id: id(), name }))
+
+  // ── Old records from the first system (V1, 2016–2020): read only ──
+  const v1 = { eforms: [], overrides: [] }
+  const v1Seq = { sale: 0, rental: 0 }
+  for (let i = 0; i < 40; i++) {
+    const year = X.int(2016, 2020), month = String(X.int(1, 12)).padStart(2, '0')
+    const type = X.chance(0.6) ? 'sale' : 'rental'
+    const l = X.pick(listings)
+    const price = type === 'sale' ? Math.round(l.askPrice * X.int(70, 90) / 100 / 1000) * 1000 : Math.round(X.int(900, 3200) / 50) * 50
+    const fee = r2(type === 'sale' ? price * X.pick([2, 2.5, 3]) / 100 : price)
+    const status = X.weighted(['closed', 'partial', 'cancelled', 'submitted'], s => ({ closed: 14, partial: 2, cancelled: 2, submitted: 0.5 })[s])
+    v1Seq[type]++
+    v1.eforms.push({ id: id(), code: `${year}-${month}-${type === 'sale' ? 'SALE' : 'RENT'}-${String(v1Seq[type] + (type === 'sale' ? 1200 : 800)).padStart(5, '0')}`,
+      date: `${year}-${month}-${String(X.int(1, 28)).padStart(2, '0')}`, type, staffId: X.pick(staff).id, address: l.address, price, total: fee,
+      closing: status === 'closed' ? fee : status === 'partial' ? r2(fee / 2) : 0, status })
+  }
+  v1.eforms.sort((a, b) => b.date.localeCompare(a.date))
+  for (const year of [2016, 2017, 2018, 2019]) {
+    for (const s of staff.filter(x => x.role)) {
+      const sales = X.int(8, 60) * 10000
+      v1.overrides.push({ id: id(), year, staffId: s.id, cases: X.int(3, 30), sales, override: r2(sales * X.pick([1, 1.5, 2, 2.5]) / 100) })
+    }
+  }
+
   return {
     version: ERP_VERSION, sig: setupSignature(setup), asOf, start,
     staff, listings, customers, deals, moneyIn, closes, payouts, requests, archives, moneyOut,
-    vendorRequests, enquiries, titles, areas, videos, audit,
+    vendorRequests, enquiries, titles, areas, videos, audit, propertyTypes, v1,
   }
 }

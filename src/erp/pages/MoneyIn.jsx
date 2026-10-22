@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
-import { C, btn, btnPrimary, inp, sel } from '../../styles.js'
+import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, sum } from '../model.js'
-import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Link, Drawer, KV, Block, Notice, Stat, FormField, cols, go, mono, field, useRecordNav } from '../ui.jsx'
+import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Link, Drawer, KV, Block, Notice, Stat, FormField, FileInput, TextArea, cols, go, mono, field, useRecordNav } from '../ui.jsx'
 import { COLUMN, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { FlowBar } from '../flow.jsx'
@@ -67,13 +67,17 @@ function TransactionList({ openId }) {
       </div>
       <Card pad={16}>
         <Tabs value={tab} onChange={setTab} tabs={TABS.map(x => ({ key: x.key, label: x.label, count: match.filter(x.test).length }))} />
-        <Toolbar><SearchBox value={q} onChange={setQ} placeholder="ID, form, staff, payer or reference" /></Toolbar>
+        <Toolbar><SearchBox value={q} onChange={setQ} placeholder="ID, form, staff, payer or reference" /><span style={{ flex: 1 }} />
+          <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={() => downloadCsv(`transactions-${m.today}.csv`, ['ID', 'Staff', 'Date', 'Form ID', 'Amount', 'Method', 'Cash Method', 'Purpose', 'Bank-In Date', 'Remark', 'Status', 'Reason', 'Reference'],
+            rows.map(t => [t.code, m.staffName(m.deals[t.dealId].agentId), t.date, m.deals[t.dealId].code, t.amount, METHODS[t.method], t.cashMethod ? CASH_METHODS[t.cashMethod] : '', PURPOSES[t.purpose], t.bankOn, t.remark, MONEY_IN_STATUS[t.status].label, t.reason || '', t.ref]))}>Download</button>
+        </Toolbar>
         <DataTable columns={columns} rows={rows} onRow={t => go(`money-in/${t.id}`)} defaultSort={{ key: 'code', dir: 'desc' }} pageSize={20} narrowAt={940}
           empty={q ? `No transactions match “${q}”` : 'No transactions here'} onClear={q ? () => setQ('') : undefined} onOrder={onOrder} />
       </Card>
       <Drawer open={!!open} onClose={() => go('money-in')} title={open ? `${open.code} · ${rm(open.amount)}` : ''} sub={open ? `${PURPOSES[open.purpose]} from ${open.payer}` : ''}
         nav={nav} footer={open && <TxActions key={open.id} t={open} erp={erp} next={nav?.next} />}>
         {open && <TxDetails t={open} m={m} />}
+        {open && <TxEdit key={open.id} t={open} erp={erp} />}
       </Drawer>
     </Page>
   )
@@ -106,6 +110,65 @@ function TxDetails({ t, m }) {
   )
 }
 
+// Save rows as a CSV file (opens in Excel).
+function downloadCsv(name, head, rows) {
+  const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([[head, ...rows].map(r => r.map(cell).join(',')).join('\n')], { type: 'text/csv' })), download: name })
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+// Update Transaction / Delete: only while the payment has not been paid out on a close.
+function TxEdit({ t, erp }) {
+  const { m } = erp
+  const fb = useFeedback()
+  const [f, setF] = useState(null)
+  const [error, setError] = useState(null)
+  const used = t.status === 'cleared' && (m.closesByDeal[t.dealId] || []).length > 0
+  if (used) return <p style={{ fontSize: 12.5, color: C.muted, margin: 0 }}>This payment has been paid out on a close, so it can no longer be edited or deleted.</p>
+  const set = k => e => setF(v => ({ ...v, [k]: e.target.value }))
+  const forms = m.data.deals.filter(x => x.status === 'submitted' || x.status === 'partial' || x.status === 'closed' || x.id === t.dealId).sort((a, b) => b.date.localeCompare(a.date))
+  const save = async () => {
+    setError(null)
+    try { await erp.updateTransaction(t.id, f); fb.toast(`${t.code} updated`); setF(null) } catch (e) { setError(e.message) }
+  }
+  const remove = async () => {
+    if (await fb.confirm({ title: `Delete ${t.code}?`, body: `${rm(t.amount)} from ${t.payer} is removed from ${m.deals[t.dealId].code}. This cannot be undone.`, confirmLabel: 'Delete', danger: true })
+      && await fb.run(() => erp.deleteTransaction(t.id), `${t.code} deleted`)) go('money-in')
+  }
+  if (!f) {
+    return (
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button style={btn} onClick={() => setF({ dealId: String(t.dealId), date: t.date, bankOn: t.bankOn, amount: String(t.amount), method: t.method, purpose: t.purpose, remark: t.remark,
+          chequeNo: t.method === 'cheque' ? t.ref.replace(/^Cheque /, '') : '', reference: t.method === 'online' ? t.ref : '', cashMethod: t.cashMethod || 'cashtocompany' })}>Update Transaction</button>
+        <button style={{ ...btn, color: C.err }} onClick={remove}>Delete</button>
+      </div>
+    )
+  }
+  const grid = { display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))' }
+  return (
+    <Block title="Update Transaction">
+      {error && <Notice tone="red">{error}</Notice>}
+      <div style={grid}>
+        <FormField label="Select Submission" wide><Select block plain label="E-Form" value={f.dealId} onChange={v => setF({ ...f, dealId: v })} options={forms.map(x => ({ value: String(x.id), label: `${x.code} · ${x.property.title}` }))} /></FormField>
+        <FormField label="Date"><input type="date" style={field} value={f.date} onChange={set('date')} /></FormField>
+        <FormField label="Bank-In Date"><input type="date" style={field} value={f.bankOn} onChange={set('bankOn')} /></FormField>
+        <FormField label="Amount (RM)" required><input type="number" min="0" style={field} value={f.amount} onChange={set('amount')} /></FormField>
+        <FormField label="Method"><Select block plain label="Method" value={f.method} onChange={v => setF({ ...f, method: v })} options={Object.entries(METHODS).map(([value, label]) => ({ value, label }))} /></FormField>
+        {f.method === 'cheque' && <FormField label="Cheque Number" required><input style={field} value={f.chequeNo} onChange={set('chequeNo')} /></FormField>}
+        {f.method === 'online' && <FormField label="Recipient Reference"><input style={field} value={f.reference} onChange={set('reference')} /></FormField>}
+        {f.method === 'cash' && <FormField label="Cash Option"><Select block plain label="Cash" value={f.cashMethod} onChange={v => setF({ ...f, cashMethod: v })} options={Object.entries(CASH_METHODS).map(([value, label]) => ({ value, label }))} /></FormField>}
+        <FormField label="Purpose"><Select block plain label="Purpose" value={f.purpose} onChange={v => setF({ ...f, purpose: v })} options={Object.entries(PURPOSES).map(([value, label]) => ({ value, label }))} /></FormField>
+        <FormField label="Remark" required wide><TextArea value={f.remark} onChange={set('remark')} /></FormField>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button style={btnPrimary} onClick={save}>Submit</button>
+        <button style={btn} onClick={() => setF(null)}>Cancel</button>
+      </div>
+    </Block>
+  )
+}
+
 function TxActions({ t, erp, next }) {
   const fb = useFeedback()
   const [reason, setReason] = useState('')
@@ -124,7 +187,7 @@ function TxActions({ t, erp, next }) {
   if (asking) {
     return (
       <>
-        <input style={{ ...inp, flex: '1 1 220px' }} autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="Invalid reason" />
+        <TextArea style={{ flex: '1 1 220px', width: 'auto' }} autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="Invalid reason" />
         <button style={btn} onClick={() => setAsking(null)}>Cancel</button>
         <button style={btnPrimary} disabled={busy || !reason.trim()} onClick={() => set(asking, reason)}>Set {MONEY_IN_STATUS[asking].label}</button>
       </>
@@ -191,14 +254,14 @@ function AddTransaction({ dealId }) {
               </FormField>
             )}
             <FormField label="Attachment" required help="Must show the recipient reference, the amount and the date of the transaction.">
-              <input type="file" style={{ ...field, padding: 5 }} onChange={e => setF({ ...f, file: e.target.files?.[0]?.name || '' })} />
+              <FileInput kind="document" onChange={files => setF(v => ({ ...v, file: files[0]?.name || '' }))} />
             </FormField>
             <FormField label="Purpose" required>
               <select style={{ ...sel, width: '100%' }} value={f.purpose} onChange={set('purpose')}>
                 {Object.entries({ deposit: 'Cash Deposit', commission: 'Balance Commission', rental: 'Balance Rent', other: 'Others' }).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </FormField>
-            <FormField label="Remarks" required wide><input style={field} value={f.remark} onChange={set('remark')} placeholder="Remarks..." /></FormField>
+            <FormField label="Remarks" required wide><TextArea value={f.remark} onChange={set('remark')} placeholder="Remarks..." /></FormField>
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
             <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Submit'}</button>

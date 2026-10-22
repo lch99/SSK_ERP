@@ -5,6 +5,7 @@ import Section from './Section.jsx'
 import { useDraft } from './useDraft.js'
 import { Field, Group, Choice, grid } from './ui.jsx'
 import { useFeedback } from '../erp/feedback.jsx'
+import { MoneyFlow, BankTile, BranchTile, Manager, DealIcon, DealWalkthrough } from './visuals.jsx'
 
 const full = { ...inp, width: '100%' }
 const MY_BANKS = ['Maybank', 'CIMB Bank', 'Public Bank', 'RHB Bank', 'Hong Leong Bank', 'AmBank', 'UOB Malaysia', 'OCBC Bank',
@@ -55,9 +56,12 @@ export function CompanySection({ setup, save, step, done }) {
 
       <Group title="Bank accounts" note="Where money comes in and goes out. Agents are paid from the Operating account; clients' deposits sit in the Client account.">
         <datalist id="my-banks">{MY_BANKS.map(b => <option key={b} value={b} />)}</datalist>
+        <MoneyFlow accounts={accounts} />
         {accounts.map((a, i) => (
-          <div key={a.id ?? `new-${i}`} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
-            <div style={grid(180)}>
+          <div key={a.id ?? `new-${i}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+            <span style={{ paddingTop: 20 }}><BankTile bank={a.bank} purpose={a.purpose} /></span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={grid(170)}>
               <Field title="Bank"><input style={full} list="my-banks" value={a.bank} onChange={e => setAcc(i, 'bank', e.target.value)} placeholder="Choose or type" /></Field>
               <Field title="Account name"><input style={full} value={a.accountName} onChange={e => setAcc(i, 'accountName', e.target.value)} /></Field>
               <Field title="Account no."><input style={full} inputMode="numeric" value={a.accountNo} onChange={e => setAcc(i, 'accountNo', e.target.value)} /></Field>
@@ -71,6 +75,7 @@ export function CompanySection({ setup, save, step, done }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: C.muted }}>{P.BANK_PURPOSES.find(p => p.value === a.purpose)?.desc}</span>
               <button style={{ ...btn, fontSize: 13, padding: '4px 10px' }} onClick={() => setD({ ...d, bankAccounts: accounts.filter((_, j) => j !== i) })}>Remove</button>
+            </div>
             </div>
           </div>
         ))}
@@ -97,8 +102,9 @@ function BranchList({ setup, list, setList }) {
   return (
     <>
       {list.map((b, i) => (
-        <div key={b.id ?? `new-${i}`} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
+        <div key={b.id ?? `new-${i}`} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <BranchTile code={b.code} />
             <Field title="Branch name" style={{ flex: '1 1 200px' }}>
               <input style={full} value={b.name} onChange={e => edit(i, 'name', e.target.value)} placeholder="e.g. Taman Desa" />
             </Field>
@@ -109,7 +115,7 @@ function BranchList({ setup, list, setList }) {
             <button style={btn} onClick={() => remove(i)} title="Remove branch" aria-label={`Remove ${b.name || 'branch'}`}>✕</button>
           </div>
           {open !== i && (b.manager || b.phone) && (
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{[b.manager && `Manager: ${b.manager}`, b.phone].filter(Boolean).join(' · ')}</div>
+            <div style={{ display: 'flex', marginTop: 8, paddingLeft: 52, minWidth: 0 }}><Manager name={b.manager} phone={b.phone} /></div>
           )}
           {open === i && (
             <div style={{ ...grid(200), marginTop: 10 }}>
@@ -146,21 +152,32 @@ export function DealTypesSection({ setup, save, step, done }) {
       hint="What kinds of deals the company does, its usual fees, and the tax and sharing rules applied to every deal. All of these can still be changed on a single deal."
       errors={P.validateDealTypes(d)} onSave={() => save('deal-types', d)}>
 
+      {/* The rules on the left; the same rules applied to one deal on the right. */}
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <div style={{ flex: '1 1 400px', minWidth: 0 }}>
       <Group first title="Deal types and usual commission">
-        {P.DEAL_TYPES.map(dt => (
-          <div key={dt} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 150px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-              <input type="checkbox" checked={!!d[dt]?.enabled} onChange={e => edit(dt, 'enabled', e.target.checked)} style={{ accentColor: C.primary, width: 16, height: 16 }} />
-              {P.DEAL_TYPE_LABELS[dt]}
-            </label>
-            {d[dt]?.enabled ? (
-              <span style={{ fontSize: 13, color: C.muted, whiteSpace: 'nowrap' }}>
-                <input style={{ ...inp, width: 80 }} type="number" step="0.01" min="0" value={d[dt]?.defaultRate ?? ''}
-                  aria-label={`${P.DEAL_TYPE_LABELS[dt]} commission rate`} onChange={e => edit(dt, 'defaultRate', e.target.value)} /> % {RATE_BASIS[dt]}
-              </span>
-            ) : <span style={{ fontSize: 13, color: C.muted }}>Not used</span>}
-          </div>
-        ))}
+        <div style={grid(190)}>
+          {P.DEAL_TYPES.map(dt => {
+            const on = !!d[dt]?.enabled
+            return (
+              <div key={dt} style={{ border: `1.5px solid ${on ? C.primary : C.border}`, background: on ? '#fff' : C.bg, borderRadius: 10, padding: 12, minWidth: 0 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 9, display: 'grid', placeItems: 'center', flexShrink: 0, background: on ? C.primaryBg : C.grayBg, color: on ? C.primary : C.muted }}>
+                    <DealIcon type={dt} />
+                  </span>
+                  <span style={{ flex: 1, fontSize: 14, fontWeight: 650 }}>{P.DEAL_TYPE_LABELS[dt]}</span>
+                  <input type="checkbox" checked={on} onChange={e => edit(dt, 'enabled', e.target.checked)} style={{ accentColor: C.primary, width: 17, height: 17 }} />
+                </label>
+                <div style={{ marginTop: 10, fontSize: 13, color: C.muted }}>
+                  {on ? (
+                    <><span style={{ whiteSpace: 'nowrap' }}><input style={{ ...inp, width: 76 }} type="number" step="0.01" min="0" value={d[dt]?.defaultRate ?? ''}
+                      aria-label={`${P.DEAL_TYPE_LABELS[dt]} commission rate`} onChange={e => edit(dt, 'defaultRate', e.target.value)} /> %</span> {RATE_BASIS[dt]}</>
+                  ) : 'Not used'}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </Group>
 
       <Group title="SST on commission" note="Service tax charged on the agency's commission.">
@@ -183,6 +200,11 @@ export function DealTypesSection({ setup, save, step, done }) {
           <Field title="Referral fee" help="Paid to an outside person who brought the client, as a % of our commission.">{pct('referralPct')}</Field>
         </div>
       </Group>
+      </div>
+      <div style={{ flex: '1 1 300px', minWidth: 0 }}>
+        <DealWalkthrough d={d} />
+      </div>
+      </div>
     </Section>
   )
 }

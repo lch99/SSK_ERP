@@ -5,6 +5,7 @@ import Section from './Section.jsx'
 import OutlineTree from './OutlineTree.jsx'
 import TryDeal from './TryDeal.jsx'
 import { roleColor, AGENT_COLOR } from './colors.js'
+import { SetupGlance } from './visuals.jsx'
 
 const r2 = n => Math.round(n * 100) / 100
 const mono = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }
@@ -112,7 +113,8 @@ export default function ReviewSection({ setup, step, onGoTo }) {
 
   return (
     <Section id="review" step={step} title="Review" done={!todo.length}
-      hint="Everything you've set up, in one place. Open a tier plan to check its rates and totals, then try a deal to confirm the numbers.">
+      hint="Everything you've set up, in one place. Click a tile to change that step, open a tier plan to check its rates and totals, then try a deal to confirm the numbers.">
+      <SetupGlance setup={setup} onGoTo={onGoTo} />
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 8 }}>
         {enabled.length > 1 && (
           <label><span style={label}>Show totals for</span>

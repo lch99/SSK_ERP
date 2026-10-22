@@ -10,6 +10,8 @@ import ApprovalsSection from './ApprovalsSection.jsx'
 import { ErrorList, WizardNav } from './Section.jsx'
 import LogoMark from '../brand/Logo.jsx'
 import { useFeedback } from '../erp/feedback.jsx'
+import Icon from '../erp/Icon.jsx'
+import { ProgressRing, STEP_ICONS } from './visuals.jsx'
 
 // Order matches setupChecklist() in shared/payout.js; Review comes last.
 const SECTIONS = {
@@ -124,22 +126,28 @@ export default function SetupPage() {
       <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {wide ? (
           <aside style={{ flex: '0 0 260px', minWidth: 0, position: 'sticky', top: 76, maxHeight: 'calc(100vh - 92px)', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-              <h1 style={{ fontSize: 22, margin: 0 }}>Setup</h1>
-              <StatusPill remaining={remaining} total={setup.checklist.length} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <ProgressRing done={setup.checklist.length - remaining} total={setup.checklist.length} />
+              <span style={{ minWidth: 0 }}>
+                <h1 style={{ fontSize: 22, margin: '0 0 3px' }}>Setup</h1>
+                <StatusPill remaining={remaining} total={setup.checklist.length} />
+              </span>
             </div>
-            <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {steps.map((s, i) => {
+            <ol style={{ listStyle: 'none', padding: 0, margin: 0, position: 'relative' }}>
+              {steps.map(s => {
                 const active = s.key === key
                 return (
                   <li key={s.key}>
                     <button onClick={() => goTo(s.key)} title={s.detail} aria-current={active ? 'step' : undefined}
-                      style={{ display: 'flex', gap: 10, width: '100%', textAlign: 'left', padding: '8px 10px', marginBottom: 2, border: 'none',
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '7px 10px', marginBottom: 2, border: 'none',
                         borderLeft: `3px solid ${active ? C.primary : 'transparent'}`, borderRadius: 6, cursor: 'pointer', fontFamily: C.font,
                         background: active ? C.primaryBg : 'transparent', color: C.text }}>
-                      <span style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700,
-                        background: s.done ? C.okBg : active ? C.primary : C.bg, color: s.done ? C.ok : active ? '#fff' : C.muted }}>
-                        {s.done ? '✓' : i + 1}
+                      <span style={{ position: 'relative', width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: 'grid', placeItems: 'center',
+                        background: active ? C.primary : s.done ? '#fff' : C.grayBg, color: active ? '#fff' : s.done ? C.text : C.muted,
+                        border: active ? 'none' : `1px solid ${s.done ? C.border : 'transparent'}` }}>
+                        <Icon name={STEP_ICONS[s.key] || 'check'} size={15} />
+                        <span aria-label={s.done ? 'done' : 'to do'} style={{ position: 'absolute', right: -4, bottom: -4, width: 14, height: 14, borderRadius: 7, display: 'grid', placeItems: 'center',
+                          fontSize: 9, fontWeight: 800, boxShadow: '0 0 0 2px #fff', background: s.done ? C.ok : C.warn, color: '#fff' }}>{s.done ? '✓' : '!'}</span>
                       </span>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: 14, fontWeight: active ? 700 : 600, lineHeight: 1.3 }}>{s.title}</span>
@@ -178,15 +186,16 @@ function StatusPill({ remaining, total }) {
 
 // Phones: progress bar and a step picker instead of the side list.
 function MobileStepper({ steps, index, remaining, total, onGoTo }) {
-  const doneCount = steps.filter(s => s.done).length
   return (
     <div style={{ flex: '1 1 100%', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+        <ProgressRing done={total - remaining} total={total} size={40} />
         <h1 style={{ fontSize: 20, margin: 0 }}>Setup</h1>
         <StatusPill remaining={remaining} total={total} />
       </div>
-      <div style={{ height: 6, borderRadius: 3, background: C.border, overflow: 'hidden', marginBottom: 8 }} aria-hidden>
-        <div style={{ width: `${(doneCount / steps.length) * 100}%`, height: '100%', background: C.primary }} />
+      {/* One dot per step: green when done, crimson for this one. */}
+      <div aria-hidden style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        {steps.map((s, i) => <span key={s.key} style={{ flex: 1, height: 5, borderRadius: 3, background: i === index ? C.primary : s.done ? C.ok : C.border }} />)}
       </div>
       <select style={{ ...sel, width: '100%' }} value={steps[index].key} onChange={e => onGoTo(e.target.value)} aria-label="Go to step">
         {steps.map((s, i) => <option key={s.key} value={s.key}>{s.done ? '✓' : `${i + 1}.`} {s.title}</option>)}

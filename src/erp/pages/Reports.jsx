@@ -4,7 +4,7 @@ import { C, btn, btnPrimary, inp, sel } from '../../styles.js'
 import { payoutForClose } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { DEAL_STATUS, LANDLORD_STATUS, sum, r2 } from '../model.js'
-import { Page, Card, DataTable, Who, Pill, Link, Status, Modal, Notice, FormField, Toolbar, Select, cols, Stat, mono, tabular, field } from '../ui.jsx'
+import { Page, Card, DataTable, Who, Pill, Link, Status, Modal, Notice, FormField, TextArea, Toolbar, Select, cols, Stat, mono, tabular, field } from '../ui.jsx'
 import { RankBars } from '../charts.jsx'
 import { rm, pct, date, monthName, lastMonths, amt } from '../format.js'
 import { RoleTag } from './Staff.jsx'
@@ -286,7 +286,7 @@ function Landlord() {
               <option value={1}>Verified</option><option value={0}>Unable to verify</option>
             </select>
           </FormField>
-          <FormField label="Remarks" required={form.status === 0}><input style={field} value={form.remarks} onChange={e => setForm({ ...form, remarks: e.target.value })} /></FormField>
+          <FormField label="Remarks" required={form.status === 0}><TextArea value={form.remarks} onChange={e => setForm({ ...form, remarks: e.target.value })} /></FormField>
         </div>
       </Modal>
     </>

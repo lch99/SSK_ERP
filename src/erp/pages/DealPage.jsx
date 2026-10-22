@@ -1,10 +1,11 @@
 import * as P from '../../../shared/payout.js'
 import { useState } from 'react'
-import { C, btnPrimary } from '../../styles.js'
+import { C, btn, btnPrimary } from '../../styles.js'
 import { ROLE_COLORS, AGENT_COLOR, COMPANY_COLOR } from '../../setup/colors.js'
 import { useErp } from '../ErpContext.jsx'
 import { DEAL_STATUS, MONEY_IN_STATUS, MONEY_OUT_STATUS, PAYOUT_STATUS, MONEY_OUT_TYPES, PURPOSES, METHODS, PARTY, closeType, sum, r2 } from '../model.js'
-import { Page, Card, KV, Status, Pill, Progress, Who, Link, Empty, Notice, cols, mono, tabular } from '../ui.jsx'
+import { Page, Card, KV, Status, Pill, Progress, Who, Link, Empty, Notice, Modal, FormField, FileInput, cols, go, mono, small, tabular } from '../ui.jsx'
+import { useFeedback } from '../feedback.jsx'
 import { CARD, PAGE } from '../help.js'
 import { DealActions, useCloseDeal } from './Deals.jsx'
 import { DealProgress } from '../flow.jsx'
@@ -38,10 +39,11 @@ export default function DealPage({ id }) {
       title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         E-Form <span style={{ fontFamily: mono.fontFamily }}>{deal.code}</span><Status of={DEAL_STATUS} value={deal.status} />
       </span>}
-      actions={<DealActions deal={deal} />}
+      actions={<>{deal.status !== 'cancelled' && <button style={btn} onClick={() => go(`deals/${deal.id}/edit`)}>Edit E-Form</button>}<DealActions deal={deal} /></>}
       sub={<>{deal.property.address} · {P.DEAL_TYPE_LABELS[deal.type]} · {branch?.name}</>}>
 
       {deal.status === 'cancelled' && <Notice tone="red"><b>Abort/Cancel on {date(deal.cancelledOn)}.</b> {deal.cancelReason}</Notice>}
+      {deal.status === 'draft' && <Notice tone="amber"><b>This E-Form is a draft.</b> Payments can be recorded once it is submitted. <button style={{ ...small, marginLeft: 6 }} onClick={() => go(`deals/${deal.id}/edit`)}>Edit &amp; submit</button></Notice>}
       {deal.status !== 'cancelled' && <DealProgress deal={deal} busy={busy} onClose={async amount => { setBusy(true); await closeDeal(amount); setBusy(false) }} />}
 
       <div style={{ ...cols(150, 12), marginBottom: 16 }}>
@@ -72,12 +74,8 @@ export default function DealPage({ id }) {
           <MoneyOutCard deal={deal} m={m} />
         </div>
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
-          <Card title={party.buyer.toUpperCase()} help={CARD.parties}>
-            <KV min={160} items={[['Name', deal.buyer.name], ['NRIC No', maskIc(deal.buyer.ic)], ['Tel', deal.buyer.phone]]} />
-          </Card>
-          <Card title={party.owner.toUpperCase()}>
-            <KV min={160} items={[['Name', deal.owner.name], ['NRIC No', deal.owner.ic ? maskIc(deal.owner.ic) : '—'], ['Tel', deal.owner.phone]]} />
-          </Card>
+          <PartyCard title={party.buyer.toUpperCase()} p={deal.buyer} others={deal.otherBuyers} help={CARD.parties} />
+          <PartyCard title={party.owner.toUpperCase()} p={deal.owner} others={deal.otherOwners} />
           {rent && (
             <Card title="DEPOSIT / TENANCY AGREEMENT" help={CARD.tenancy}>
               <KV min={150} items={[
@@ -90,14 +88,16 @@ export default function DealPage({ id }) {
             <KV min={170} items={[
               ['Vendor Professional Fees', <>{rm(money.billed)}<Muted>Includes {pct(deal.sstPct)} SST · {pct(deal.feePct)} of price</Muted></>],
               ['Got Co-Bro Agency', deal.coBroke ? 'Yes' : 'No'],
-              deal.coBroke && ['Co-bro Agency', <>{deal.coBroke.agency}<Muted>{deal.coBroke.licence} · {deal.coBroke.agent}</Muted></>],
+              deal.coBroke && ['Co-bro Agency', <>{deal.coBroke.agency}<Muted>{[deal.coBroke.licence, deal.coBroke.agent, deal.coBroke.phone].filter(Boolean).join(' · ')}</Muted>{deal.coBroke.address && <Muted>{deal.coBroke.address}</Muted>}</>],
               ['Co-bro Fees', rm(money.coBroke)],
-              ['Introducer Fees', <>{rm(money.referral)}{deal.referral && <Muted>{deal.referral.name} · {deal.referral.bank}</Muted>}</>],
+              ['Introducer Fees', <>{rm(money.referral)}{deal.referral && <Muted>{deal.referral.name}{deal.referral.ic ? ` · IC ${maskIc(deal.referral.ic)}` : ''}{deal.referral.phone ? ` · ${deal.referral.phone}` : ''}</Muted>}{deal.referral && <Muted>{deal.referral.bank} {deal.referral.account}</Muted>}</>],
               ['SST Amount', rm(money.sst)], ['Pay By', deal.sstMode === 'included' ? 'Owner (SST included)' : `Agent (${pct(deal.sstPct)} SST)`],
               ['Total Commission', <b>{rm(total)}</b>], ['Net Total Commission', <b>{rm(money.net)}</b>],
             ]} />
           </Card>
           <Docs deal={deal} />
+          {deal.remark && <Card title="Remarks"><p style={{ margin: 0, fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{deal.remark}</p></Card>}
+          <Closes deal={deal} m={m} />
           <Timeline deal={deal} m={m} />
         </div>
       </div>
@@ -281,20 +281,81 @@ function MoneyOutCard({ deal, m }) {
   )
 }
 
+function PartyCard({ title, p, others = [], help }) {
+  return (
+    <Card title={title} help={help}>
+      <KV min={160} items={[['Name', p.name], ['NRIC No', p.ic ? maskIc(p.ic) : '—'], ['Tel', p.phone || '—'], p.email && ['Fax / E-mail', p.email], p.address && ['Address', p.address]]} />
+      {others.length > 0 && (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px dashed ${C.border}`, display: 'grid', gap: 4 }}>
+          {others.map((o, i) => <span key={i} style={{ fontSize: 13.5 }}>Other {title.toLowerCase().split(' / ')[0]} {i + 1}: <b>{o.name}</b> <span style={{ color: C.muted }}>{maskIc(o.ic)}</span></span>)}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// Supporting Document Attachments: each one can be uploaded (or replaced) here.
 function Docs({ deal }) {
+  const erp = useErp()
+  const fb = useFeedback()
+  const [upload, setUpload] = useState(null)
+  const [file, setFile] = useState('')
   const docs = Object.entries(deal.docs)
   const missing = docs.filter(([, ok]) => !ok).length
+  const open = name => { setFile(''); setUpload(name) }
+  const save = async () => { if (await fb.run(() => erp.setDealDoc(deal.id, upload, file), `${upload} uploaded`)) setUpload(null) }
   return (
     <Card title="Supporting Document Attachments" help={CARD.docs} sub={missing ? `${missing} must be uploaded to close the case` : 'Everything is uploaded'}>
-      <div style={{ display: 'grid', gap: 6, gridTemplateColumns: 'repeat(auto-fill, minmax(min(190px, 100%), 1fr))' }}>
+      <div style={{ display: 'grid', gap: 6, gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))' }}>
         {docs.map(([name, ok]) => (
-          <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, padding: '6px 8px', borderRadius: 6, background: ok ? C.bg : C.warnBg }}>
+          <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, padding: '6px 8px', borderRadius: 6, background: ok ? C.bg : C.warnBg, minWidth: 0 }}>
             <span style={{ color: ok ? C.ok : C.warn, display: 'inline-flex' }}><Icon name={ok ? 'check' : 'file'} size={16} /></span>
-            <span style={{ flex: 1 }}>{name}</span>
-            {!ok && <span style={{ fontSize: 11.5, color: C.warn, fontWeight: 600 }}>Missing</span>}
+            <span style={{ flex: 1, minWidth: 0 }}>{name}{deal.files?.[name] && <span style={{ display: 'block', fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deal.files[name]}</span>}</span>
+            {deal.status !== 'cancelled' && <button style={{ ...small, fontSize: 12, padding: '3px 8px' }} onClick={() => open(name)}>{ok ? 'Replace' : 'Upload'}</button>}
           </div>
         ))}
       </div>
+      <Modal open={!!upload} onClose={() => setUpload(null)} title={`Upload ${upload || ''} · ${deal.code}`}
+        footer={<><button style={btn} onClick={() => setUpload(null)}>Cancel</button><button style={{ ...btnPrimary, opacity: file ? 1 : 0.5 }} disabled={!file} onClick={save}>Upload</button></>}>
+        <FormField label={upload}><FileInput kind="document" onChange={files => setFile(files[0]?.name || '')} /></FormField>
+      </Modal>
+    </Card>
+  )
+}
+
+// Each close of this case, with its case lines: Re-run (Make Close Case Rerun) or delete them.
+function Closes({ deal, m }) {
+  const erp = useErp()
+  const fb = useFeedback()
+  const closes = m.closesByDeal[deal.id] || []
+  if (!closes.length) return null
+  const rerun = async c => {
+    const ok = await fb.confirm({ title: `Re-run ${closeType(c)} of ${rm(c.claim)}?`, confirmLabel: 'Confirm Re-Run',
+      body: 'Works the case lines out again on everyone’s tier and upline today, for example after a rank or upline change. The lines go back to New for approval.' })
+    if (ok) await fb.run(() => erp.rerunClose(c.id), `${deal.code}: case lines re-run`)
+  }
+  const remove = async c => {
+    const ok = await fb.confirm({ title: `Delete the case lines of this ${closeType(c)}?`, danger: true, confirmLabel: 'Delete',
+      body: <>The {rm(c.claim)} close is undone and the case goes back to {closes.length > 1 ? 'Closed Partial' : 'Submitted'}. It can be closed again.</> })
+    if (ok) await fb.run(() => erp.deleteClose(c.id), `${deal.code}: close deleted`)
+  }
+  return (
+    <Card title="Closes" help={CARD.closes}>
+      {closes.map((c, i) => {
+        const lines = (m.payoutsByDeal[deal.id] || []).filter(l => l.closeId === c.id)
+        const locked = lines.some(l => l.requestId || l.archiveId || l.status === 'paid')
+        const last = i === closes.length - 1
+        return (
+          <div key={c.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap' }}>
+            <span style={{ flex: '1 1 200px', minWidth: 0 }}>
+              <b style={{ fontSize: 13.5 }}>{closeType(c)} · {rm(c.claim)}</b>
+              <span style={{ display: 'block', fontSize: 12.5, color: C.muted }}>{date(c.date)} · {lines.length} case lines · {locked ? 'requested for salary' : 'not requested yet'}</span>
+            </span>
+            <button style={small} disabled={locked} title={locked ? 'Already requested for salary' : undefined} onClick={() => rerun(c)}>Re-run</button>
+            <button style={{ ...small, color: C.err }} disabled={locked || !last} title={locked ? 'Already requested for salary' : !last ? 'Delete the later close first' : undefined} onClick={() => remove(c)}>Delete</button>
+          </div>
+        )
+      })}
     </Card>
   )
 }

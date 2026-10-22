@@ -5,6 +5,7 @@ import Section from './Section.jsx'
 import { useDraft } from './useDraft.js'
 import { useNarrow } from './useNarrow.js'
 import TryDeal from './TryDeal.jsx'
+import { TierLadder } from './visuals.jsx'
 import { useFeedback } from '../erp/feedback.jsx'
 
 const r2 = n => Math.round(n * 100) / 100
@@ -215,8 +216,10 @@ export default function TiersSection({ setup, save, step, done }) {
         </div>
       )}
 
+      <TierLadder tiers={plan.tiers} enabled={enabled} />
+
       <div ref={boxRef}>
-        {!plan.tiers.length && <p style={{ color: C.muted, fontSize: 14, margin: '0 0 4px' }}>No tiers yet. Every agent starts in the first tier, at RM 0.</p>}
+        {!plan.tiers.length &&<p style={{ color: C.muted, fontSize: 14, margin: '0 0 4px' }}>No tiers yet. Every agent starts in the first tier, at RM 0.</p>}
         {plan.tiers.length > 0 && !narrow && (
           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
             <thead><tr>

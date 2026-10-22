@@ -3,7 +3,7 @@ import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { CATEGORIES } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { PARTY, METHODS, LISTING_CATEGORY, listingCategory, sum } from '../model.js'
-import { Page, Card, Tabs, DataTable, Status, Link, Empty, Modal, KV, Notice, FormField, Avatar, go, mono, tabular, field } from '../ui.jsx'
+import { Page, Card, Tabs, DataTable, Status, Link, Empty, Modal, KV, Notice, FormField, FileInput, Avatar, go, mono, tabular, field } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { rm, date, maskAcc, amt } from '../format.js'
 import Icon from '../Icon.jsx'
@@ -194,7 +194,7 @@ export function Settings({ me }) {
             <Avatar name={me?.name || 'Demo'} size={56} />
             <div><b style={{ fontSize: 16 }}>{me?.username || 'demo'}</b><div style={{ fontSize: 13, color: C.muted }}>{me?.role}, {setup.company.name}</div></div>
           </div>
-          <FormField label="Upload Profile"><input type="file" style={{ ...field, padding: 5 }} disabled /></FormField>
+          <FormField label="Upload Profile"><FileInput kind="avatar" disabled /></FormField>
         </Card>
         <Card title="Update Password">
           <Notice tone="blue">Sign-in is off in the demo. Passwords are changed from the user menu once sign-in is on.</Notice>

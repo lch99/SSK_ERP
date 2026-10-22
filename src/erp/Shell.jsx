@@ -25,16 +25,20 @@ import Payouts from './pages/Payouts.jsx'
 import MoneyOut from './pages/MoneyOut.jsx'
 import Staff from './pages/Staff.jsx'
 import Salary from './pages/Salary.jsx'
-import { Commission, Invoices, Videos, Settings, SystemSettings, OrgChart } from './pages/Misc.jsx'
+import { Commission, Invoices, Videos, SystemSettings, OrgChart } from './pages/Misc.jsx'
 import Projects from './pages/Projects.jsx'
+import OldRecords from './pages/OldRecords.jsx'
+import Profile, { ChangePasswordModal, useProfile } from './pages/Profile.jsx'
 import CommandPalette, { useCommandKey, isMac, kbd, rememberVisit } from './CommandPalette.jsx'
+import Access from './pages/Access.jsx'
+import { AccessProvider, NoAccess, ViewAsBar, outOfReach, useAccess } from './access.jsx'
 
 // Pages by the first part of the address (#/<page>/…). `own` pages bring their own layout.
 const PAGES = {
   dashboard: Dashboard, customers: Customers, listings: Listings, 'listing-new': ListingNew, 'listing-roles': Listings,
   'vendor-requests': VendorRequests, appointments: Appointments, enquiries: Enquiries, titles: Titles, areas: Areas,
   deals: Deals, projects: Projects, commission: Commission, reports: Reports, 'money-in': MoneyIn, payouts: Payouts, 'money-out': MoneyOut,
-  staff: Staff, invoices: Invoices, salary: Salary, videos: Videos, settings: Settings, system: SystemSettings, 'org-chart': OrgChart,
+  staff: Staff, invoices: Invoices, salary: Salary, videos: Videos, settings: Profile, system: SystemSettings, 'org-chart': OrgChart, 'old-records': OldRecords, access: Access,
 }
 const OWN = { setup: SetupPage, users: UsersPage }
 
@@ -73,6 +77,7 @@ const NAV = [
   ] },
   { label: 'Deals (E-Forms)', was: 'E-Forms', icon: 'deals', items: [
     { label: 'All deals', was: 'Personal Sales', path: 'deals' },
+    { label: 'Add a deal', was: 'Submit New Case / Add Sales Record / Add Rental Record', path: 'deals/new' },
     { label: 'Ready to close', path: 'deals/ready', badge: todo.toClose },
     { label: 'By branch', was: 'Branch Sales', path: 'deals/branch' },
     { label: 'By team', was: 'Team Sales', path: 'deals/team' },
@@ -123,11 +128,13 @@ const NAV = [
     { label: 'Deal change log', was: 'E-Forms Update Tracker', path: 'reports/tracker' },
     { label: 'Payout calculator', was: 'E-Forms Case Summary', path: 'reports/cases' },
     { label: 'Landlord checks', was: 'Archived Case Landlord', path: 'reports/landlord' },
+    { label: 'Old records (V1)', was: 'Show more / E-Forms (Old) / Overide Module / Downline\'s E-Forms', path: 'old-records' },
   ] },
   { section: 'System' },
   { label: 'System', icon: 'setup', items: [
     { label: 'Setup', path: 'setup', perm: 'setup.edit' },
     { label: 'Settings', was: 'System Settings / System Preference Portal', path: 'system' },
+    { label: 'Roles & access', was: 'Access & Permissions / Account Type', path: 'access' },
     { label: 'Users (sign-in)', was: 'Users', path: 'users', perm: 'users.manage', needsSignIn: true },
   ] },
 ]
@@ -153,27 +160,33 @@ const SIDE_W = 248, RAIL_W = 72
 export default function Shell(props) {
   const parts = useRoute()
   return (
-    <ErpProvider reloadKey={parts[0] === 'setup' ? 'setup' : 'erp'}>
-      <FeedbackProvider>
-        <Layout {...props} parts={parts} />
-      </FeedbackProvider>
-    </ErpProvider>
+    <AccessProvider me={props.me}>
+      <ErpProvider reloadKey={parts[0] === 'setup' ? 'setup' : 'erp'}>
+        <FeedbackProvider>
+          <Layout {...props} parts={parts} />
+        </FeedbackProvider>
+      </ErpProvider>
+    </AccessProvider>
   )
 }
 
-function Layout({ me, authDisabled, onSignOut, onChangePassword, parts }) {
+function Layout({ me, authDisabled, onSignOut, parts }) {
   const erp = useErp()
   const wide = useMedia('(min-width: 1080px)')
+  const profile = useProfile()
   const [menuOpen, setMenuOpen] = useState(false)
   const [finder, setFinder] = useState(false)
   const [help, setHelp] = useState(false)
+  const [pw, setPw] = useState(false)
   // Desktop: the menu can fold down to an icon rail, for more room on wide tables.
   const [rail, setRailState] = useState(() => { try { return localStorage.getItem(RAIL_KEY) === '1' } catch { return false } })
   const setRail = v => { setRailState(v); try { localStorage.setItem(RAIL_KEY, v ? '1' : '0') } catch { /* not kept */ } }
   const railOn = wide && rail
   useCommandKey(useCallback(() => setFinder(true), []))
-  const allowed = i => (!i.perm || can(me, i.perm)) && !(authDisabled && i.needsSignIn)
-  const visible = NAV.map(g => (g.items ? { ...g, items: g.items.filter(allowed) } : g)).filter(g => g.section || !g.items || g.items.length)
+  // The menu shows only what the viewer's role opens (shared/access.js).
+  const access = useAccess()
+  const allowed = i => (!i.perm || can(me, i.perm)) && !(authDisabled && i.needsSignIn) && access.opens(i.path)
+  const visible = NAV.map(g => (g.items ? { ...g, items: g.items.filter(allowed) } : g)).filter(g => g.section || (g.items ? g.items.length : allowed(g)))
   // A heading with nothing left under it goes too.
   const nav = visible.filter((g, i) => !g.section || (visible[i + 1] && !visible[i + 1].section))
   const leaves = nav.filter(g => !g.section).flatMap(g => g.items || [g])
@@ -187,6 +200,8 @@ function Layout({ me, authDisabled, onSignOut, onChangePassword, parts }) {
   const Own = OWN[key], Page = PAGES[key]
   const route = parts[0] === key ? parts : [key]
   const active = activePath(route, leaves)
+  // A page the role does not open, or a record outside its reach, shows why instead.
+  const blocked = !!key && (!access.opens(route.join('/')) || outOfReach(route, erp, access.scope))
 
   // New page (or a new record page) starts at the top; drawers keep the scroll.
   const detail = ['deals', 'staff', 'reports', 'salary', 'listing-roles', 'videos', 'invoices'].includes(parts[0]) ? parts.slice(0, 3).join('/') : parts.slice(0, 2).join('/')
@@ -231,7 +246,7 @@ function Layout({ me, authDisabled, onSignOut, onChangePassword, parts }) {
   const shortcuts = <ShortcutsSheet open={help} onClose={() => setHelp(false)} />
 
   // Setup is its own full page: no ERP menu or top bar until you open the ERP.
-  if (key === 'setup') {
+  if (key === 'setup' && !blocked) {
     return (
       <div style={{ minHeight: '100vh', background: C.bg }}>
         <SetupHeader erp={erp} canOpen={leaves.some(l => l.path === 'dashboard')} />
@@ -257,15 +272,17 @@ function Layout({ me, authDisabled, onSignOut, onChangePassword, parts }) {
         </div>
       )}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <TopBar wide={wide} me={me} authDisabled={authDisabled} erp={erp} onMenu={() => setMenuOpen(true)} onSignOut={onSignOut} onChangePassword={onChangePassword}
+        <TopBar wide={wide} me={me} profile={profile} authDisabled={authDisabled} erp={erp} onMenu={() => setMenuOpen(true)} onSignOut={onSignOut} onChangePassword={() => setPw(true)}
           onFind={() => setFinder(true)} onHelp={() => setHelp(true)} rail={railOn} onRail={() => setRail(!rail)} />
         {palette}{shortcuts}
+        <ChangePasswordModal open={pw} onClose={() => setPw(false)} profile={profile} />
         {!key ? <PageSkeleton wide={wide} />
           // A plain block, so pages centred with margin: auto still fill the width.
-          : Own ? <div style={{ minWidth: 0 }}><Own me={me} /></div>
+          : Own && !blocked ? <div style={{ minWidth: 0 }}><Own me={me} /></div>
             : (
               <main style={{ padding: wide ? '22px 28px 40px' : '16px 16px 32px', width: '100%', maxWidth: railOn ? 1480 : 1320, margin: '0 auto', boxSizing: 'border-box' }}>
-                <ErpGate erp={erp} wide={wide}><Page parts={route} me={me} /></ErpGate>
+                <ViewAsBar m={erp.m} />
+                {blocked ? <NoAccess /> : <ErpGate erp={erp} wide={wide}><Page key={access.who.role + access.who.staffId} parts={route} me={me} /></ErpGate>}
               </main>
             )}
       </div>
@@ -478,8 +495,10 @@ function Rail({ nav, active, erp }) {
   )
 }
 
-function TopBar({ wide, me, authDisabled, erp, onMenu, onSignOut, onChangePassword, onFind, onHelp, rail, onRail }) {
+function TopBar({ wide, me, profile, authDisabled, erp, onMenu, onSignOut, onChangePassword, onFind, onHelp, rail, onRail }) {
   const branches = erp.setup?.branches || []
+  // Roles that see one branch or one team stay in their own branch: no picker.
+  const access = useAccess()
   const iconBtn = { ...btn, padding: 8, boxShadow: 'none' }
   return (
     <header style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(255,255,255,0.86)', backdropFilter: 'saturate(180%) blur(12px)',
@@ -506,22 +525,22 @@ function TopBar({ wide, me, authDisabled, erp, onMenu, onSignOut, onChangePasswo
             <span style={{ display: 'inline-flex', gap: 3 }}><kbd style={kbd}>{isMac ? '⌘' : 'Ctrl'}</kbd><kbd style={kbd}>K</kbd></span>
           </button>
         ) : <button key="find-narrow" onClick={onFind} aria-label="Quick search" style={{ ...iconBtn, marginLeft: 'auto' }}><Icon name="search" size={18} /></button>}
-        <span style={{ flex: 1 }} />
-        {erp.m && branches.length > 1 && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.muted, minWidth: 0, maxWidth: wide ? 240 : 170 }}>
-            {wide && <span>Branch</span>}
-            <Select label="Branch" value={erp.branchId ?? ''} onChange={v => erp.setBranchId(v ? Number(v) : null)}
+        {/* The branch picker takes all the free space (pushed right), so the name only shortens when the bar is truly full. */}
+        {erp.m && branches.length > 1 && access.scope === 'all' ? (
+          <span style={{ flex: '1 1 0', display: 'flex', justifyContent: 'flex-end', minWidth: 0 }}>
+            <Select label="Branch" prefix={wide} value={erp.branchId ?? ''} onChange={v => erp.setBranchId(v ? Number(v) : null)}
               options={[{ value: '', label: 'All branches' }, ...branches.map(b => ({ value: b.id, label: b.name }))]} />
           </span>
-        )}
-        <UserMenu wide={wide} me={me} authDisabled={authDisabled} onSignOut={onSignOut} onChangePassword={onChangePassword} onHelp={onHelp} />
+        ) : <span style={{ flex: 1 }} />}
+        <UserMenu wide={wide} me={me} profile={profile} authDisabled={authDisabled} onSignOut={onSignOut} onChangePassword={onChangePassword} onHelp={onHelp} />
       </div>
     </header>
   )
 }
 
-// Avatar menu, as in the current ERP: user, server time, member type, org chart, settings.
-function UserMenu({ wide, me, authDisabled, onSignOut, onChangePassword, onHelp }) {
+// Avatar menu, as in the current ERP: user, server time, member type, org chart,
+// settings; plus your own profile and password (pages/Profile.jsx).
+function UserMenu({ wide, me, profile, authDisabled, onSignOut, onChangePassword, onHelp }) {
   const [open, setOpen] = useState(false)
   const [time, setTime] = useState(() => new Date())
   const ref = useRef(null)
@@ -542,7 +561,8 @@ function UserMenu({ wide, me, authDisabled, onSignOut, onChangePassword, onHelp 
     const to = { ArrowDown: els[(i + 1) % els.length], ArrowUp: els[(i - 1 + els.length) % els.length] }[e.key]
     if (to) { e.preventDefault(); to.focus() }
   }
-  const name = authDisabled ? 'Demo user' : me.name
+  const name = profile?.name || (authDisabled ? 'Demo user' : me.name)
+  const photo = profile?.photo
   const role = roleMeta(me.role).label
   const item = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', fontSize: 13.5, color: C.text, textDecoration: 'none', borderRadius: 8,
     background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: C.font, fontWeight: 500 }
@@ -553,7 +573,7 @@ function UserMenu({ wide, me, authDisabled, onSignOut, onChangePassword, onHelp 
     <div ref={ref} style={{ position: 'relative' }}>
       <button onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu" aria-label="User menu"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: open ? C.grayBg : 'none', border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: C.font, padding: '4px 6px' }}>
-        <Avatar name={me.name} size={30} />
+        <Avatar name={me.name} photo={photo} size={30} />
         {wide && (
           <span style={{ lineHeight: 1.2, textAlign: 'left' }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: C.text }}>{name}</span>
@@ -566,7 +586,7 @@ function UserMenu({ wide, me, authDisabled, onSignOut, onChangePassword, onHelp 
         <div ref={panel} role="menu" onKeyDown={onKey} className="ssk-pop" style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 268, background: '#fff', border: `1px solid ${C.border}`,
           borderRadius: 12, boxShadow: C.shadowLg, padding: 6, zIndex: 30 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px 10px' }}>
-            <Avatar name={me.name} size={36} />
+            <Avatar name={me.name} photo={photo} size={36} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
               <div style={{ fontSize: 12, color: C.muted }}>{authDisabled ? 'demo' : me.username} · <span style={{ color: C.primaryDark, fontWeight: 600 }}>{role}</span></div>
@@ -576,14 +596,15 @@ function UserMenu({ wide, me, authDisabled, onSignOut, onChangePassword, onHelp 
             <Icon name="clock" size={13} />Server time <b style={{ color: C.text, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{time.toLocaleTimeString('en-MY')}</b>
             <span style={{ flex: 1 }} />member_type: {me.role}
           </div>
+          {link('settings', 'users', 'My profile')}
+          {act('lock', 'Change password', onChangePassword)}
+          <div role="separator" style={{ height: 1, background: C.border, margin: '5px 4px' }} />
           {link('org-chart', 'staff', 'View Org. Chart')}
-          {link('settings', 'users', 'Settings')}
           {link('system', 'setup', 'System Settings')}
           {act('keyboard', 'Keyboard shortcuts', onHelp)}
           {!authDisabled && (
             <>
               <div role="separator" style={{ height: 1, background: C.border, margin: '5px 4px' }} />
-              {act('lock', 'Change password', onChangePassword)}
               {act('logout', 'Logout', onSignOut)}
             </>
           )}

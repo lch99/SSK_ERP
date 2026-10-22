@@ -133,6 +133,14 @@ div.ssk-row:focus-visible { outline: 2px solid #ec003f; outline-offset: 1px; }
 .ssk-tab:not([aria-selected=true]):hover { color: #8b0836 !important; background: #fafbfc !important; }
 .ssk-back:hover { color: #8b0836 !important; }
 
+/* ── File pickers (FileInput): the dashed box lights up on hover, drag and keyboard focus ── */
+.ssk-file { transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+.ssk-file:not([data-disabled]):hover, .ssk-file[data-drag] { border-color: #ec003f !important; background-color: #fff7f9 !important; }
+.ssk-file:has(> button:focus-visible) { border-color: #ec003f !important; box-shadow: 0 0 0 4px rgba(236, 0, 63, 0.12) !important; }
+.ssk-file > button:focus-visible { outline: none; }
+.ssk-file > button:not(:disabled):hover { filter: none; }
+.ssk-file-x:hover, .ssk-file-x:focus-visible { color: #b42318 !important; background: #fdecea !important; filter: none !important; }
+
 /* ── Search fields bring their own clear button ── */
 input.ssk-search::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 

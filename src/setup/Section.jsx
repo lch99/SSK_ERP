@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { C, btn, btnPrimary } from '../styles.js'
+import Icon from '../erp/Icon.jsx'
+import { STEP_ICONS } from './visuals.jsx'
 
 // Set by the Setup wizard: { onBack, onNext, isFirst, isLast, total, setDirty }.
 // When present, each step ends with Back / Save & continue instead of a plain Save.
@@ -42,9 +44,13 @@ export default function Section({ id, step, title, hint, done, dirty, errors = [
           <div style={{ width: `${(step / nav.total) * 100}%`, height: '100%', background: `linear-gradient(90deg, ${C.primary}, #ff5c86)`, borderRadius: '0 4px 4px 0', transition: 'width .3s ease' }} />
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 14, flexShrink: 0, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 700,
-          background: done ? C.okBg : C.warnBg, color: done ? C.ok : C.warn }}>{done ? '✓' : step}</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 16 }}>
+        <div style={{ position: 'relative', width: 46, height: 46, borderRadius: 13, flexShrink: 0, display: 'grid', placeItems: 'center',
+          background: `linear-gradient(160deg, ${C.primary}, ${C.primaryDark})`, color: '#fff', boxShadow: '0 6px 14px -6px rgba(236, 0, 63, .55)' }}>
+          {STEP_ICONS[id] ? <Icon name={STEP_ICONS[id]} size={22} /> : <b style={{ fontSize: 16 }}>{step}</b>}
+          <span aria-label={done ? 'Done' : 'To do'} style={{ position: 'absolute', right: -5, bottom: -5, width: 18, height: 18, borderRadius: 9, display: 'grid', placeItems: 'center',
+            fontSize: 10, fontWeight: 800, color: '#fff', background: done ? C.ok : C.warn, boxShadow: '0 0 0 2px #fff' }}>{done ? '✓' : '!'}</span>
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           {nav && <div style={{ fontSize: 12, fontWeight: 600, color: C.primary, marginBottom: 3, letterSpacing: '.02em' }}>Step {step} of {nav.total}</div>}
           <h2 style={{ margin: 0, fontSize: 21 }}>{title}</h2>

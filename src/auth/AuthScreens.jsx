@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { login, createFirstUser, changePassword } from '../api.js'
+import { login, createFirstUser } from '../api.js'
 import { PASSWORD_MIN } from '../../shared/roles.js'
-import { C, inp, btn, btnPrimary, label } from '../styles.js'
+import { C, inp, btnPrimary, label } from '../styles.js'
 import { ErrorList } from '../setup/Section.jsx'
 
 const card = { maxWidth: 380, margin: '72px auto', padding: 28, background: C.card, border: `1px solid ${C.border}`, borderRadius: C.radius }
@@ -60,39 +60,6 @@ export function FirstUserScreen({ onSignedIn }) {
       <button style={{ ...btnPrimary, width: '100%' }} disabled={busy} type="submit">{busy ? 'Creating…' : 'Create account'}</button>
       <ErrorList errors={errors} />
     </form>
-  )
-}
-
-export function ChangePasswordDialog({ onClose }) {
-  const [f, setF] = useState({ current: '', password: '', confirm: '' })
-  const [done, setDone] = useState(false)
-  const set = k => e => setF({ ...f, [k]: e.target.value })
-  const { busy, errors, setErrors, submit } = useSubmit(async () => {
-    if (f.password !== f.confirm) return setErrors(["The two new passwords don't match."])
-    await changePassword(f.current, f.password)
-    setDone(true)
-  })
-  return (
-    <Dialog onClose={onClose}>
-      <h2 style={{ fontSize: 18, margin: '0 0 14px' }}>Change password</h2>
-      {done ? (
-        <>
-          <p style={{ fontSize: 14, margin: '0 0 16px' }}>Password changed. Any other device signed in with your account has been signed out.</p>
-          <button style={btnPrimary} onClick={onClose}>Close</button>
-        </>
-      ) : (
-        <form onSubmit={submit}>
-          <Field title="Current password" type="password" value={f.current} onChange={set('current')} autoComplete="current-password" autoFocus />
-          <Field title={`New password (at least ${PASSWORD_MIN} characters)`} type="password" value={f.password} onChange={set('password')} autoComplete="new-password" />
-          <Field title="New password again" type="password" value={f.confirm} onChange={set('confirm')} autoComplete="new-password" />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button style={btnPrimary} disabled={busy} type="submit">{busy ? 'Saving…' : 'Change password'}</button>
-            <button style={btn} type="button" onClick={onClose}>Cancel</button>
-          </div>
-          <ErrorList errors={errors} />
-        </form>
-      )}
-    </Dialog>
   )
 }
 

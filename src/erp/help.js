@@ -67,10 +67,14 @@ export const MENU = {
   setup: 'The rules: company, branches, rates, tiers, approvals.',
   system: 'Company details that print on documents.',
   users: 'Who can sign in, and what they can do.',
+  access: 'What each account type can do, and whose records it sees.',
+  'deals/new': 'Start a new E-Form for a sale, rental or project unit.',
+  'old-records': 'E-Forms and Overide summaries from the first system (read only).',
 }
 
 // The (?) beside each page title.
 export const PAGE = {
+  access: 'Roles decide what each person can do in the ERP. Everyone gets the role of their Account Type (set on their record in Agents & staff).\nWhose records: an Agent sees their own customers, listings, E-Forms and payouts and those of the people under them; a branch role sees its whole branch; the rest see every branch.\nThe Superadmin always has full access, and is the only one who changes Setup and these roles.',
   dashboard: 'Your agency at a glance: this month’s sales, money waiting at each step, and who is doing well.\nThe Commission flow row shows where work is waiting. Click a step to go there.',
   customers: 'Buyers and tenants the team is working with (leads).\nChange Action and Status right in the table; it saves at once. Click a name to see the follow-ups and add remarks.',
   customerNew: 'Add a buyer or tenant the team will follow up. Pick the staff member who looks after them.',
@@ -108,12 +112,23 @@ export const PAGE = {
   profile: 'This person’s tier and how close they are to the next, their deals, payout lines, uplines and team.\nUse the status menu at the top to enable or disable them.',
   orgChart: 'Who reports to whom, branch by branch, with each person’s tier.',
   videos: 'How-to videos for agents and admins, and recordings of company meetings.',
-  settings: 'Your own profile, password and personal details.',
+  settings: 'Your own profile: the name and photo others see, the contact and bank details your pay goes to, and your password. Open it any time from your name at the top right.',
   system: 'Company details that print on invoices, receipts and payslips, and the property types agents can pick. Company details are edited in Setup.',
+  dealForm: 'One E-Form per deal, in the same order as the old form: the case, the two parties, deposits (rentals), fees and co-broke, then the documents.\nPick the listing first: its owner, product handler and price fill in. The totals work out as you type, by the rates in Setup.\nSave as Draft to finish later. Submit when the letter of offer is signed, so payments can be recorded against it.',
+  oldRecords: 'Records from the first system (before Ver 2): the old E-Forms and the yearly Overide summaries for 2016–2019.\nThey are kept read only so nothing is lost. Search them, or download them for Excel.',
+  staffEdit: 'Everything about this person, in the same sections as the client’s new HR form: account and rank, personal and contact details, public profile, LPPEH registration, bank, documents, awards and access.\nThe access switches turn features on or off for this person.',
+  marketingStaffs: 'Assistants (marketing staff) who may work on this person’s customers and listings. Tick what each one may see.',
+  staffChart: 'This person’s uplines above them and everyone under them.',
+  profileDoc: 'A one-page profile of the agent with their featured listings, to send to clients. Pick the listings, then print or save as PDF.',
 }
 
 // The (?) beside section headings.
 export const CARD = {
+  accessRole: 'Pick a role, then set how far it reaches and what it may do in each area. No access hides the area from the menu; View lets them look; Edit lets them add and change; Full also lets them approve, pay out and delete.\nNothing changes until you press Save changes. "View the ERP as" shows the ERP exactly as a person with this role would see it, until you go back or reload.',
+  accessOverview: 'Every role side by side. Changes you have not saved yet show here too.',
+  myDetails: 'Your display name and photo show in the top bar and on your records. The IC name and bank account are used for payslips and pay vouchers, so keep them exact. Nothing changes until you press Save changes.',
+  password: 'Type your current password once, then the new one twice. In the demo, sign-in is off, so the password is only kept in this browser.',
+  myTeam: 'Your branch and the people under you, with each person’s tier.',
   progress: 'Where this deal is in the five steps, and the next thing to do.',
   payoutPreview: 'Who gets paid what on this deal. Before closing it is a preview on everyone’s tier today; after closing it shows the real payout lines.\nThe commission is split into a Marketing side (the agent) and a Product side (the listing holder). Each side pays its earner and their uplines; the company keeps the rest.',
   dealMoneyIn: 'Payments received for this deal. Only Clear ones count towards closing.',
@@ -140,6 +155,18 @@ export const CARD = {
   race: 'Agency fees submitted this month, branch by branch.',
   devIncentives: 'Developer bonus campaigns running now, and how close each one is to its target.',
   branches: 'Each branch this year. Company keeps = net commission closed, minus what was paid to agents and uplines.',
+  closes: 'Each time this case was closed: the claim, its case lines and their status. Re-run works the lines out again on today’s tiers and uplines (for example after a rank change), as long as nobody has requested them yet.',
+  access: 'Features this person may use. Active Staff Account lets them sign in at all; the others switch single features on or off.',
+  publicProfile: 'What clients see on this agent’s page on the SubSaleKing site: name, rank, registration, areas, experience, bio, social links and awards.',
+  awards: 'Awards and recognition, shown on the agent’s public profile.',
+  listingActions: 'Everything you can do to a listing: edit it, update its tracking (sold by other, rent out…), settings, follow-up, share with co-product handlers, photos and marketing.',
+  share: 'Who else works on this listing: shared users, the project manager, and up to 3 co-product handlers, each until a date. A co-product handler can be picked as the product handler on an E-Form.',
+  album: 'The listing’s photos. Published photos show on the website; unpublished ones stay private. The cover photo shows first.',
+  marketing: 'Where the listing is advertised, how often it was viewed on the website and in the app, and the marketing remarks.',
+  followUps: 'Every contact with the owner. A follow-up with an appointment shows under Viewings.',
+  titleRequests: 'Buildings agents asked to add. Approve the right ones; reject misspellings and duplicates.',
+  areaRequests: 'Areas agents asked to add. Approve or reject them.',
+  propertyTypes: 'The property types agents can pick on a listing.',
 }
 
 // The (?) beside table column headings that need explaining.
@@ -155,5 +182,6 @@ export const COLUMN = {
   listingFollow: 'Settings are tags on the listing (e.g. Exclusive, Key On Agent Hand). Follow-Up is the last contact with the owner.',
   staffPosition: 'Their tier (pay level) and, for leaders, their upline role.',
   staffClosing: 'Commission earned to date. Tiers climb on this.',
+  staffExpiry: 'Status, and the date the account is due for renewal (Active Status Expiry Date). Amber when it is within 30 days.',
   moneyInStatus: 'Draft and Pending wait for accounts. Only Clear counts as cleared cash.',
 }

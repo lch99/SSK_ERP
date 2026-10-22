@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
-import { C, btn, btnPrimary, inp } from '../../styles.js'
+import { C, btn, btnPrimary } from '../../styles.js'
 import { payoutApprovers } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { PAYOUT_STATUS, SALARY_STATUS, closeType, group, sum } from '../model.js'
-import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Who, Link, Empty, Notice, Modal, FormField, SelectionBar, cols, Stat, mono, tabular, small, field } from '../ui.jsx'
+import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Who, Link, Empty, Notice, Modal, FormField, SelectionBar, TextArea, cols, Stat, mono, tabular, small } from '../ui.jsx'
 import { COLUMN, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { FlowBar } from '../flow.jsx'
@@ -62,6 +62,14 @@ function CaseList({ archived }) {
       confirmLabel: 'Create archive' })
     if (ok) run(`Archive created · ${eligible.length} cases moved to Archived Case`, erp.archiveCases)
   }
+  // Unarchive: the week's lines go back to the Close Case List.
+  const unarchive = async () => {
+    const a = m.archives[Number(arc)]
+    if (!a) return
+    const ok = await fb.confirm({ title: `Unarchive ${a.code}?`, confirmLabel: 'Unarchive',
+      body: <>Its {a.count} case lines go back to <b>Payouts to approve</b> (as Ready, salary requested). Landlord checks not done yet are dropped.</> })
+    if (ok && await fb.run(() => erp.unarchive(a.id), `${a.code} unarchived`)) setArc(String(m.data.archives.filter(x => x.id !== a.id).at(-1)?.id || ''))
+  }
   const pickedLines = match.filter(p => picked.has(p.id))
   const filters = [status, salary, type, side, bm].filter(Boolean).length
   const clear = () => { setQ(''); setStatus(''); setSalary(''); setType(''); setSide(''); setBm('') }
@@ -90,8 +98,9 @@ function CaseList({ archived }) {
   return (
     <Page title={archived ? 'Archived payouts' : 'Payouts to approve'} help={archived ? PAGE.archived : PAGE.payouts}
       sub={archived ? 'Weekly archives of Ready, paid case lines.' : <>One line per person paid on each closed case, worked out from Setup. Set them Ready to approve. Ready lines are requested for salary under <Link to="salary/request">Salary</Link>.</>}
-      actions={!archived && <button style={{ ...btnPrimary, opacity: eligible.length ? 1 : 0.5 }} disabled={!eligible.length} onClick={archive}
-        title={eligible.length ? undefined : 'Nothing to archive: no Ready line has its salary requested yet'}>Create Archive ({eligible.length} Cases)</button>}>
+      actions={!archived ? <button style={{ ...btnPrimary, opacity: eligible.length ? 1 : 0.5 }} disabled={!eligible.length} onClick={archive}
+        title={eligible.length ? undefined : 'Nothing to archive: no Ready line has its salary requested yet'}>Create Archive ({eligible.length} Cases)</button>
+        : arc && <button style={btn} onClick={unarchive}>Unarchive this week</button>}>
       {!archived && <FlowBar here="approve" />}
       {!archived && (
         <div style={{ ...cols(220, 14), marginBottom: 16 }}>
@@ -128,7 +137,7 @@ function CaseList({ archived }) {
         footer={<><button style={btn} onClick={() => setAsking(false)}>Cancel</button>
           <button style={{ ...btnPrimary, opacity: reason.trim() ? 1 : 0.5 }} disabled={!reason.trim()}
             onClick={() => run(`${picked.size} line${picked.size === 1 ? '' : 's'} moved to Pending Queries`, erp.queryPayouts, [...picked], reason)}>Save</button></>}>
-        <FormField label="What needs checking?" required><input style={field} autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. SPA stamping receipt not uploaded" /></FormField>
+        <FormField label="What needs checking?" required><TextArea autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. SPA stamping receipt not uploaded" /></FormField>
       </Modal>
     </Page>
   )
@@ -192,12 +201,21 @@ function ApprovalList({ lines, erp }) {
               </div>
               {asking === close.id ? (
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                  <input style={{ ...inp, flex: '1 1 240px' }} autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="What needs checking? e.g. SPA not uploaded" />
+                  <TextArea style={{ flex: '1 1 240px', width: 'auto' }} autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="What needs checking? e.g. SPA not uploaded" />
                   <button style={{ ...btnPrimary, opacity: busy || !reason.trim() ? 0.5 : 1 }} disabled={busy || !reason.trim()} onClick={() => run(`${deal.code} moved to Pending Queries`, erp.queryPayouts, ls.map(l => l.id), reason)}>Save query</button>
                   <button style={btn} onClick={() => { setAsking(null); setReason('') }}>Cancel</button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <button style={small} title="Make Close Case Rerun: work the lines out again on today's tiers and uplines" onClick={async () => {
+                    if (await fb.confirm({ title: `Re-run ${deal.code}?`, confirmLabel: 'Confirm Re-Run', body: 'Works these case lines out again on everyone’s tier and upline today (for example after a rank or upline change). They stay New for approval.' }))
+                      run(`${deal.code}: case lines re-run`, erp.rerunClose, close.id)
+                  }}>Re-run</button>
+                  <button style={{ ...small, color: C.err }} onClick={async () => {
+                    if (await fb.confirm({ title: `Delete the case lines of ${deal.code}?`, danger: true, confirmLabel: 'Delete', body: <>The {rm(close.claim)} close is undone and the case can be closed again.</> }))
+                      run(`${deal.code}: close deleted`, erp.deleteClose, close.id)
+                  }}>Delete</button>
+                  <span style={{ flex: 1 }} />
                   <button style={small} onClick={() => setAsking(close.id)}>{queried ? 'Change query' : 'Pending Queries'}</button>
                   <button style={{ ...small, ...btnPrimary, padding: '5px 12px', fontSize: 13 }} disabled={busy} onClick={() => run(`${deal.code}: ${ls.length} line${ls.length === 1 ? '' : 's'} set to Ready (${rm(total)})`, erp.approvePayouts, ls.map(l => l.id))}>Set Ready</button>
                 </div>

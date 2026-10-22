@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { authStatus, getMe, getToken, signOut, SIGNED_OUT_EVENT } from './api.js'
 import { C, btn } from './styles.js'
-import { LoginScreen, FirstUserScreen, ChangePasswordDialog } from './auth/AuthScreens.jsx'
+import { LoginScreen, FirstUserScreen } from './auth/AuthScreens.jsx'
 import { ErrorList } from './setup/Section.jsx'
 import Shell from './erp/Shell.jsx'
 
@@ -11,7 +11,6 @@ export default function App() {
   const [notice, setNotice] = useState(null)
   const [error, setError] = useState(null)
   const [authDisabled, setAuthDisabled] = useState(false)
-  const [changingPw, setChangingPw] = useState(false)
 
   async function boot() {
     setPhase('loading')
@@ -52,10 +51,9 @@ export default function App() {
       {phase === 'first' && <FirstUserScreen onSignedIn={signedIn} />}
       {phase === 'login' && <LoginScreen onSignedIn={signedIn} notice={notice} />}
       {phase === 'in' && me && (
-        <Shell me={me} authDisabled={authDisabled} onChangePassword={() => setChangingPw(true)}
+        <Shell me={me} authDisabled={authDisabled}
           onSignOut={() => { signOut(); setMe(null); setNotice(null); setPhase('login') }} />
       )}
-      {changingPw && <ChangePasswordDialog onClose={() => setChangingPw(false)} />}
     </div>
   )
 }

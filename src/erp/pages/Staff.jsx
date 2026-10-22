@@ -5,17 +5,26 @@ import { ROLE_COLORS } from '../../setup/colors.js'
 import OutlineTree from '../../setup/OutlineTree.jsx'
 import { useErp } from '../ErpContext.jsx'
 import { STAFF_STATUS, DEAL_STATUS, PAYOUT_STATUS, ACCOUNT_TYPES, sum } from '../model.js'
-import { Page, Card, Tabs, Toolbar, SearchBox, Select, Chips, DataTable, Status, Pill, Avatar, Who, Link, Empty, KV, Progress, Stat, Notice, FormField, cols, go, mono, tabular, field } from '../ui.jsx'
+import { Page, Card, Tabs, Toolbar, SearchBox, Select, Chips, DataTable, Status, Pill, Avatar, Who, Link, Empty, KV, Progress, Stat, Notice, FormField, FileInput, TextArea, Menu, Modal, cols, go, mono, small, tabular, field } from '../ui.jsx'
+import { ACCESS } from '../../demo/erpSample.js'
+import Icon from '../Icon.jsx'
 import { CARD, COLUMN, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
-import { rm, date, maskIc, maskAcc, num } from '../format.js'
+import { rm, date, maskIc, maskAcc, num, ago } from '../format.js'
 import { lineRole } from './Payouts.jsx'
 import { BANKS } from './options.js'
 
 // Agents & staff ("H.R Portal" in the current ERP): the people, their position (tier), upline and status.
 export default function Staff({ parts }) {
-  if (parts[1] === 'new') return <AddStaff />
-  if (parts[1]) return <Profile id={Number(parts[1])} />
+  if (parts[1] === 'new') return <StaffForm />
+  const id = Number(parts[1])
+  if (id) {
+    if (parts[2] === 'edit') return <StaffForm key={id} id={id} />
+    if (parts[2] === 'marketing') return <MarketingStaffs id={id} />
+    if (parts[2] === 'chart') return <StaffChart id={id} />
+    if (parts[2] === 'profile-doc') return <ProfileDoc id={id} />
+    return <Profile id={id} />
+  }
   return <StaffList />
 }
 
@@ -47,7 +56,12 @@ function StaffList() {
     } },
     { key: 'closing', label: 'Closing Amount', help: COLUMN.staffClosing, align: 'right', sort: s => m.credit(s.id).lifetime, render: s => rm(m.credit(s.id).lifetime) },
     { key: 'upline', label: 'Upline', sort: s => m.staffName(s.uplineId), render: s => (s.uplineId ? m.staffName(s.uplineId) : <span style={{ color: C.muted }}>{m.branchName(s.branchId)}</span>) },
-    { key: 'status', label: 'Status', render: s => <Status of={STAFF_STATUS} value={s.status} /> },
+    { key: 'status', label: 'Status · Expiry', help: COLUMN.staffExpiry, sort: s => s.expiresOn || '', render: s => (
+      <span><Status of={STAFF_STATUS} value={s.status} />
+        {s.expiresOn && s.status !== 'inactive' && <span style={{ display: 'block', fontSize: 11.5, color: s.expiresOn < addDaysIso(m.today, 30) ? C.warn : C.muted, marginTop: 3 }}>until {date(s.expiresOn, { short: true })}</span>}</span>
+    ) },
+    { key: 'seen', label: 'Last Login/Activity', sort: s => s.lastActive || '', render: s => <span style={{ fontSize: 12.5, color: C.muted }}>{s.lastActive ? ago(s.lastActive, m.today) : 'Never'}</span> },
+    { key: 'actions', label: '', card: false, render: s => <StaffMenu s={s} /> },
   ]
   const active = d.staff.filter(s => s.status === 'active')
   return (
@@ -124,9 +138,10 @@ function Profile({ id }) {
       actions={<>
         <Select plain label="Enable/Unlock Staff" value={s.status} onChange={v => fb.run(() => erp.setStaffStatus(s.id, v), `${s.short} is now ${STAFF_STATUS[v].label}`)}
           options={[{ value: 'active', label: 'Enabled (Active)' }, { value: 'inactive', label: 'Disabled (Inactive)' }, { value: 'pending', label: 'Pending' }]} />
-        <button style={btn} onClick={() => go(`deals/team`)}>E-Forms</button>
+        <button style={btn} onClick={() => go(`staff/${s.id}/edit`)}>Edit</button>
+        <StaffMenu s={s} label="More" />
       </>}
-      title={<span style={{ display: 'inline-flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}><Avatar name={s.short} size={42} />{s.short}<Status of={STAFF_STATUS} value={s.status} /></span>}
+      title={<span style={{ display: 'inline-flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}><Avatar name={s.short} size={42} photo={s.photo} />{s.short}<Status of={STAFF_STATUS} value={s.status} /></span>}
       sub={<>{s.name} · {s.code} · {m.branchName(s.branchId)}{s.role ? ` · ${m.roleName(s.role)}` : ''} · joined {date(s.joined)}{s.leftOn ? ` · left ${date(s.leftOn)}` : ''}</>}>
       <div style={{ ...cols(210, 14), marginBottom: 16 }}>
         <Stat label="Tier now" value={P.tierLabel(t.tier)} sub={`Agent rate ${t.tier.agentRate}%${t.kept ? ' · kept from last year' : ''}`} tone="brand" icon="reports" />
@@ -201,14 +216,35 @@ function Profile({ id }) {
               ))}
             </Card>
           )}
-          <Card title="Details">
+          <Card title="Details" actions={<Link to={`staff/${s.id}/edit`} style={{ fontSize: 13 }}>Edit</Link>}>
             <KV min={170} items={[
-              ['User Name', s.username], ['Account Type', ACCOUNT_TYPES[s.type] || 'Agent'], ['IC Name', s.name], ['IC No', maskIc(s.ic)],
-              ['NameCard Name', s.short], ['Phone 1', s.phone], ['E-Mail', s.email], ['Birthday', s.birthday ? date(s.birthday) : '—'],
-              ['Language', s.language], ['Education', s.education], ['Address', s.address],
-              ['REN', s.renNo], ['Bank', `${s.bank} ${maskAcc(s.account)}`],
+              ['User Name', s.username], ['Account Type', ACCOUNT_TYPES[s.type] || 'Agent'], ['Full Name (IC)', s.name], ['NRIC No', maskIc(s.ic)],
+              ['Namecard Name', s.short], ['Phone', s.phone], ['E-Mail', s.email], ['Gender', s.sex === 'F' ? 'Female' : 'Male'], ['Date of Birth', s.birthday ? date(s.birthday) : '—'],
+              ['Registration (LPPEH)', s.regNo ? `${s.regType || 'REN'} ${s.regNo}` : s.renNo || '—'], ['Bank', `${s.bank} ${maskAcc(s.account)}`],
+              ['Active Status Expiry', s.expiresOn ? date(s.expiresOn) : '—'], ['Last Login/Activity', s.lastActive ? date(s.lastActive) : 'Never'],
               ['Withholding tax', s.whtExempt ? 'Exempt' : `${setup.dealTypes.whtPct}% on each payslip`],
             ]} />
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
+              {Object.entries(s.docs || {}).map(([k, ok]) => <Pill key={k} tone={ok ? 'green' : 'amber'}>{k}{ok ? '' : ' missing'}</Pill>)}
+            </div>
+          </Card>
+          <Card title="Access & Permissions" help={CARD.access}>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {[['active', 'Active Staff Account', s.status === 'active'], ...Object.entries(ACCESS).map(([k, label]) => [k, label, !!s.access?.[k]])].map(([k, label, on]) => (
+                <div key={k} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5 }}>
+                  <span style={{ color: on ? C.ok : C.faint, display: 'inline-flex' }}><Icon name={on ? 'check' : 'close'} size={15} /></span>{label}
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card title="Public profile" help={CARD.publicProfile} actions={<Link to={`staff/${s.id}/profile-doc`} style={{ fontSize: 13 }}>Profile PDF</Link>}>
+            {s.access?.profilePage ? <p style={{ margin: '0 0 8px', fontSize: 13, color: C.ok }}>Shown at subsaleking.com/property-agents/{s.username}</p>
+              : <p style={{ margin: '0 0 8px', fontSize: 13, color: C.muted }}>The profile page is switched off (Access & Permissions).</p>}
+            {s.bio ? <p style={{ margin: '0 0 8px', fontSize: 13.5 }}>{s.bio}</p> : <p style={{ margin: '0 0 8px', fontSize: 13, color: C.muted }}>No bio yet.</p>}
+            {Object.entries(s.socials || {}).filter(([, v]) => v).length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{Object.entries(s.socials).filter(([, v]) => v).map(([k]) => <Pill key={k} tone="blue" dot={false}>{SOCIALS.find(x => x[0] === k)?.[1] || k}</Pill>)}</div>
+            )}
+            {(s.awards || []).length > 0 && <div style={{ fontSize: 13 }}>{s.awards.map((a, i) => <div key={i}><Icon name="medal" size={14} /> {a.name} · {a.org} · {date(a.date)}</div>)}</div>}
           </Card>
         </div>
       </div>
@@ -216,87 +252,307 @@ function Profile({ id }) {
   )
 }
 
-// Add New Agent/Staff: the current form's fields, grouped. Saved as Pending.
-function AddStaff() {
+// The row menu on the staff list, and "More" on a profile (the new HR's row menu).
+function StaffMenu({ s, label }) {
+  const erp = useErp()
+  const fb = useFeedback()
+  const remove = async () => {
+    const ok = await fb.confirm({ title: `Delete ${s.short}?`, body: 'Only someone with no deals, listings, customers or team can be deleted. Otherwise set them Inactive.', confirmLabel: 'Delete', danger: true })
+    if (ok && await fb.run(() => erp.deleteStaff(s.id), `${s.short} deleted`)) go('staff')
+  }
+  return (
+    <Menu quiet={!label} label={label || 'Actions'} items={[
+      { label: 'Edit', icon: 'edit', onClick: () => go(`staff/${s.id}/edit`) },
+      { label: 'View Chart', icon: 'staff', onClick: () => go(`staff/${s.id}/chart`) },
+      { label: 'Manage Marketing Staffs', icon: 'customers', hint: s.marketing?.length ? String(s.marketing.length) : null, onClick: () => go(`staff/${s.id}/marketing`) },
+      { label: 'E-Forms', icon: 'deals', onClick: () => go(`deals?staff=${s.id}`) },
+      { label: 'Agent Profile PDF', icon: 'print', onClick: () => go(`staff/${s.id}/profile-doc`) },
+      '-',
+      { label: 'Delete', icon: 'trash', danger: true, onClick: remove },
+    ]} />
+  )
+}
+
+const addDaysIso = (d, n) => new Date(new Date(`${d}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10)
+export const SOCIALS = [['facebook', 'Facebook', 'https://www.facebook.com/username'], ['instagram', 'Instagram', 'https://www.instagram.com/username'],
+  ['tiktok', 'TikTok', 'https://www.tiktok.com/@username'], ['twitter', 'X (formerly Twitter)', 'https://www.x.com/username'],
+  ['xiaohongshu', 'Xiaohongshu', 'https://www.xiaohongshu.com/username'], ['lemon8', 'Lemon8', 'https://www.lemon8.com/username'], ['linkedin', 'LinkedIn', 'https://www.linkedin.com/in/username']]
+const STAFF_DOCS = ['NRIC Copy', 'Application Form', 'Joining Fee Receipt']
+
+// Add / Edit staff, in the sections of the client's new HR form. The old form's
+// extra questions (smoker, transport, previous job…) sit under "More details".
+function StaffForm({ id }) {
   const fb = useFeedback()
   const erp = useErp()
   const { m, setup } = erp
-  const [f, setF] = useState({ branchId: String(setup.branches[0]?.id || ''), type: 'staff', sex: 'male', smoker: 'no', marital: 'single', houseOwner: 'own', transportOwn: 'yes' })
+  const s = id ? m.staff[id] : null
+  const [f, setF] = useState(() => s ? {
+    type: s.type || 'staff', tierFloorId: s.tierFloorId || '', branchId: String(s.branchId), uplineId: s.uplineId ? String(s.uplineId) : '', role: s.role || '',
+    username: s.username, password: '', name: s.name, ic: String(s.ic || '').replace(/\D/g, ''), sex: s.sex === 'F' ? 'female' : 'male', birthday: s.birthday || '',
+    short: s.short, phone: s.phone, phone2: s.phone2 || '', email: s.email, bio: s.bio || '', socials: { ...(s.socials || {}) }, regType: s.regType || 'REN', regNo: s.regNo || '',
+    bank: s.bank || '', account: s.account || '', docs: { ...(s.docs || {}) }, awards: [...(s.awards || [])], active: s.status === 'active',
+    access: { ...(s.access || {}) }, expiresOn: s.expiresOn || '', address: s.address || '', language: s.language || '', education: s.education || '', extra: { ...(s.extra || {}) },
+  } : {
+    type: 'staff', tierFloorId: '', branchId: String(setup.branches[0]?.id || ''), uplineId: '', role: '', username: '', password: '', name: '', ic: '', sex: 'male', birthday: '',
+    short: '', phone: '', phone2: '', email: '', bio: '', socials: {}, regType: 'REN', regNo: '', bank: '', account: '', docs: {}, awards: [], active: false,
+    access: { agent: true, profilePage: false, profileDoc: false, addListing: true, landlordVerify: false, vendorRequests: false, tripIncentive: false },
+    expiresOn: addDaysIso(m.today, 365), address: '', language: '', education: '', extra: {},
+  })
   const [error, setError] = useState(null)
-  const set = k => e => setF({ ...f, [k]: e.target.value })
+  const [award, setAward] = useState(null)
+  const [busy, setBusy] = useState(false)
+  if (id && !s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
+  const set = k => e => setF(v => ({ ...v, [k]: e.target.value }))
+  const setX = k => e => setF(v => ({ ...v, extra: { ...v.extra, [k]: e.target.value } }))
   const branchId = Number(f.branchId)
-  const uplines = m.data.staff.filter(s => s.branchId === branchId && s.status !== 'inactive').sort((a, b) => (b.role ? 1 : 0) - (a.role ? 1 : 0) || a.short.localeCompare(b.short))
+  const uplines = m.data.staff.filter(x => x.branchId === branchId && x.status !== 'inactive' && x.id !== id).sort((a, b) => (b.role ? 1 : 0) - (a.role ? 1 : 0) || a.short.localeCompare(b.short))
   const tiers = P.tiersFor(setup, branchId)
-  const radio = (k, opts) => (
-    <div style={{ display: 'flex', gap: 14, paddingTop: 6, flexWrap: 'wrap' }}>
-      {opts.map(([v, l]) => <label key={v} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 14 }}><input type="radio" checked={f[k] === v} onChange={() => setF({ ...f, [k]: v })} style={{ accentColor: C.primary }} />{l}</label>)}
-    </div>
-  )
-  const text = (k, label, props = {}) => <FormField label={label} required={props.required} wide={props.wide}><input style={field} value={f[k] || ''} onChange={set(k)} type={props.type || 'text'} placeholder={props.placeholder} /></FormField>
-  const select = (k, label, options, props = {}) => (
-    <FormField label={label} required={props.required}>
-      <select style={{ ...sel, width: '100%' }} value={f[k] || ''} onChange={set(k)}>{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-    </FormField>
-  )
-  const section = (title, children) => (
-    <Card title={title}><div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))' }}>{children}</div></Card>
+  const grid = { display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))' }
+  const section = (title, sub, children, help) => <Card title={title} sub={sub} help={help}><div style={grid}>{children}</div></Card>
+  const text = (k, label, props = {}) => <FormField label={label} required={props.required} wide={props.wide} help={props.help}><input style={field} value={f[k] || ''} onChange={set(k)} type={props.type || 'text'} placeholder={props.placeholder} inputMode={props.inputMode} /></FormField>
+  const pick = (k, label, options, props = {}) => <FormField label={label} required={props.required} help={props.help}><Select block plain label={label} value={f[k]} onChange={v => setF(x => ({ ...x, [k]: v }))} options={options} /></FormField>
+  const toggle = (on, onChange, label) => (
+    <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 14, padding: '6px 0' }}>
+      <input type="checkbox" checked={!!on} onChange={e => onChange(e.target.checked)} style={{ accentColor: C.primary, width: 18, height: 18 }} />{label}
+    </label>
   )
   async function save() {
-    setError(null)
+    setError(null); setBusy(true)
+    const body = { type: f.type, tierFloorId: f.tierFloorId || null, branchId, uplineId: f.uplineId || null, role: f.role || null, username: f.username, name: f.name, ic: f.ic,
+      sex: f.sex === 'female' ? 'F' : 'M', birthday: f.birthday, short: f.short || f.name, phone: f.phone, phone2: f.phone2, email: f.email, bio: f.bio,
+      socials: Object.fromEntries(Object.entries(f.socials).filter(([, v]) => v)), regType: f.regType, regNo: f.regNo, bank: f.bank, account: f.account, docs: f.docs,
+      awards: f.awards, access: f.access, expiresOn: f.expiresOn, address: f.address, language: f.language, education: f.education, extra: f.extra }
     try {
-      await erp.addStaff({ ...f, name: f.icName, short: f.nameCard, ic: [f.ic1, f.ic2, f.ic3].filter(Boolean).join('-'), sex: f.sex })
-      fb.toast(`${f.nameCard || f.icName} added as Pending. Enable them on their profile when HR is done.`)
-      go('staff')
-    } catch (e) { setError(e.message); window.scrollTo(0, 0) }
+      if (s) {
+        await erp.updateStaff(s.id, body)
+        const status = f.active ? 'active' : s.status === 'active' ? 'inactive' : s.status
+        if (status !== s.status) await erp.setStaffStatus(s.id, status)
+        fb.toast(`${body.short} saved`)
+        go(`staff/${s.id}`)
+      } else {
+        if (!f.password) throw new Error('Password is required.')
+        const st = await erp.addStaff({ ...body, nameCard: body.short })
+        const made = st.data.staff.at(-1)
+        if (f.active) await erp.setStaffStatus(made.id, 'active')
+        fb.toast(`${body.short} added${f.active ? '' : ' as Pending. Switch on Active Staff Account when HR is done'}`)
+        go(`staff/${made.id}`)
+      }
+    } catch (e) { setError(e.message); window.scrollTo({ top: 0, behavior: 'smooth' }) } finally { setBusy(false) }
   }
   return (
-    <Page title="Add agent or staff" help={PAGE.staffNew} back={{ to: 'staff', label: 'Agents & staff' }} sub="New staff start as Pending at the first tier, until HR enables them.">
+    <Page title={s ? `Edit Staff · ${s.code}` : 'New Staff Application'} help={s ? PAGE.staffEdit : PAGE.staffNew} back={s ? { to: `staff/${s.id}`, label: s.short } : { to: 'staff', label: 'Agents & staff' }}
+      sub={s ? 'Manage the details for this staff member.' : 'Manage the details for adding a new staff member. They stay Pending until Active Staff Account is switched on.'}
+      actions={<><button style={btn} onClick={() => go(s ? `staff/${s.id}` : 'staff')}>Cancel</button><button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{s ? 'Save Changes' : 'Submit'}</button></>}>
       {error && <Notice tone="red">{error}</Notice>}
       <div style={{ display: 'grid', gap: 16 }}>
-        {section('Account', <>
-          {text('username', 'User Name', { required: true })}
-          {text('password', 'Password', { type: 'password', required: true })}
-          {select('type', 'Account Type', Object.entries(ACCOUNT_TYPES))}
-          {select('branchId', 'Branch', setup.branches.map(b => [String(b.id), b.name]), { required: true })}
-          {select('position', 'Position Request', tiers.map(t => [String(t.id), P.tierLabel(t)]))}
-          {select('uplineId', 'Upline Agent', [['', 'No upline'], ...uplines.map(s => [String(s.id), `${s.short}${s.role ? ` (${s.role})` : ''} ${s.code}`])])}
-          {setup.roles.length > 0 && select('role', 'Upline level they hold', [['', 'None (negotiator)'], ...setup.roles.map(r => [r.code, `${r.code} · ${r.name}`])])}
+        {section('Account Details', 'The staff member’s role and type within the organisation.', <>
+          {pick('type', 'Account Type', Object.entries(ACCOUNT_TYPES).map(([value, label]) => ({ value, label })), { required: true })}
+          {pick('branchId', 'Branch', setup.branches.map(b => ({ value: String(b.id), label: b.name })), { required: true })}
+          {pick('tierFloorId', 'Rank (position)', [{ value: '', label: `${tiers[0] ? P.tierLabel(tiers[0]) : 'First tier'} (start)` }, ...tiers.slice(1).map(t => ({ value: t.id, label: P.tierLabel(t) }))], { help: 'The tier they start at. They move up as they earn.' })}
+          {setup.roles.length > 0 && pick('role', 'Upline level they hold', [{ value: '', label: 'None (negotiator)' }, ...setup.roles.map(r => ({ value: r.code, label: `${r.code} · ${r.name}` }))])}
+          {pick('uplineId', 'Upline', [{ value: '', label: 'No upline' }, ...uplines.map(x => ({ value: String(x.id), label: `${x.code} (${x.short})${x.role ? ` · ${x.role}` : ''}` }))], { help: 'An existing staff member to be the upline for this agent.' })}
+          {text('username', 'Username', { required: true })}
+          {!s && text('password', 'Password', { type: 'password', required: true })}
         </>)}
-        {section('Personal Details', <>
-          {text('icName', 'IC Name', { required: true })}
-          <FormField label="IC No">
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input style={{ ...field, flex: 3 }} maxLength={6} placeholder="000000" value={f.ic1 || ''} onChange={set('ic1')} aria-label="IC first part" />–
-              <input style={{ ...field, flex: 1.4 }} maxLength={2} placeholder="00" value={f.ic2 || ''} onChange={set('ic2')} aria-label="IC middle part" />–
-              <input style={{ ...field, flex: 2 }} maxLength={4} placeholder="0000" value={f.ic3 || ''} onChange={set('ic3')} aria-label="IC last part" />
+        {section('Personal Information', 'Personal identification details.', <>
+          {text('name', 'Full Name', { required: true, help: 'Legal name as per identification documents.' })}
+          {text('ic', 'NRIC Number', { help: 'NRIC number without dashes.', inputMode: 'numeric' })}
+          {pick('sex', 'Gender', [{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }])}
+          {text('birthday', 'Date of Birth', { type: 'date' })}
+        </>)}
+        {section('Contact Information', 'Contact details for the staff member.', <>
+          {text('short', 'Namecard Name', { help: 'Name displayed in namecards and public profiles.' })}
+          {text('phone', 'Phone Number', { help: 'Primary contact phone number. eg: 01XXXXXXXXX', inputMode: 'tel' })}
+          {text('email', 'Email Address', { type: 'email', help: 'eg: example@domain.com' })}
+          {text('phone2', 'Phone Number 2')}
+        </>)}
+        <Card title="Profile Information" sub="Displayed publicly on the agent's profile page." help={CARD.publicProfile}>
+          <FormField label="Bio"><TextArea rows={3} value={f.bio} onChange={set('bio')} placeholder="Brief biography displayed on the agent profile" /></FormField>
+        </Card>
+        {section('Social Links', 'Displayed publicly on profile pages.', SOCIALS.map(([k, label, ph]) => (
+          <FormField key={k} label={label}><input style={field} value={f.socials[k] || ''} placeholder={ph} onChange={e => setF(x => ({ ...x, socials: { ...x.socials, [k]: e.target.value } }))} /></FormField>
+        )))}
+        {section('Professional Information', 'Registration details for agents, issued by LPPEH.', <>
+          {pick('regType', 'Registration', ['REN', 'REA', 'PEA'].map(v => ({ value: v, label: v })))}
+          {text('regNo', 'Registration Number', { placeholder: 'Enter certification number', inputMode: 'numeric' })}
+        </>)}
+        {section('Bank Information', 'Bank account details for the staff member.', <>
+          {pick('bank', 'Bank', [{ value: '', label: 'Select bank' }, ...BANKS.map(b => ({ value: b, label: b }))])}
+          {text('account', 'Bank Account Number', { inputMode: 'numeric' })}
+          <FormField label="Profile Picture"><FileInput kind="avatar" /></FormField>
+        </>)}
+        {section('Documents', 'For staff verification and record-keeping.', STAFF_DOCS.map(d => (
+          <FormField key={d} label={d} help={f.docs[d] ? 'Uploaded' : 'Not uploaded yet'}><FileInput kind="document" onChange={files => setF(x => ({ ...x, docs: { ...x.docs, [d]: files.length > 0 || !!s?.docs?.[d] } }))} /></FormField>
+        )))}
+        <Card title="Awards" help={CARD.awards} actions={<button style={small} onClick={() => setAward({ name: '', org: '', date: '' })}>Add Award</button>}>
+          {!f.awards.length ? <p style={{ margin: 0, fontSize: 13.5, color: C.muted }}>No awards yet.</p> : f.awards.map((a, i) => (
+            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.border}`, fontSize: 13.5 }}>
+              <Icon name="medal" size={16} /><span style={{ flex: 1 }}><b>{a.name}</b> · {a.org}{a.date ? ` · ${date(a.date)}` : ''}</span>
+              <button style={{ ...small, color: C.err }} onClick={() => setF(x => ({ ...x, awards: x.awards.filter((_, j) => j !== i) }))}>Remove</button>
             </div>
-          </FormField>
-          {text('nameCard', 'NameCard Name')}
-          {text('phone', 'Phone Number 1')}{text('phone2', 'Phone Number 2')}{text('email', 'E-Mail', { type: 'email' })}{text('facebook', 'Facebook')}
-          {text('birthday', 'Birthday', { type: 'date' })}
-          <FormField label="Sex">{radio('sex', [['male', 'Male'], ['female', 'Female']])}</FormField>
-          <FormField label="Smoker">{radio('smoker', [['yes', 'Yes'], ['no', 'No']])}</FormField>
-          <FormField label="Marital Status">{radio('marital', [['single', 'Single'], ['married', 'Married']])}</FormField>
-          {text('children', 'No. of Children', { type: 'number' })}
-          {text('address', 'House Address', { wide: true })}
-          <FormField label="House">{radio('houseOwner', [['own', 'Own'], ['rent', 'Rent']])}</FormField>
-          <FormField label="Own Transport">{radio('transportOwn', [['yes', 'Yes'], ['no', 'No']])}</FormField>
-          {text('transportType', 'Transport Type')}{text('transportModel', 'Transport Model')}
-        </>)}
-        {section('Background', <>
-          {select('language', 'Language', [['', 'Select'], ['English', 'English'], ['Malay', 'Malay'], ['Chinese', 'Chinese'], ['Indian', 'Indian'], ['Others', 'Others']])}
-          {text('education', 'Education Level')}{text('prevJob', 'Previous Job')}{text('prevPosition', 'Previous Job Position')}
-          {text('prevIncome', 'Previous Job Income (RM)', { type: 'number' })}{text('expIncome', 'Expected Income (RM)', { type: 'number' })}{text('expPosition', 'Expected Position')}
-        </>)}
-        {section('Bank and Documents', <>
-          {select('bank', 'Bank Name', [['', 'Select'], ...BANKS.map(b => [b, b])])}
-          {text('account', 'Bank Account')}
-          {['Application Document', 'IC Copy', 'Joining Fee P.o.P'].map(d => <FormField key={d} label={d}><input type="file" style={{ ...field, padding: 5 }} /></FormField>)}
-        </>)}
+          ))}
+        </Card>
+        <Card title="Access & Permissions" sub="Access rights assigned to the staff member." help={CARD.access}>
+          {toggle(f.active, v => setF(x => ({ ...x, active: v })), 'Active Staff Account')}
+          {Object.entries(ACCESS).map(([k, label]) => <div key={k}>{toggle(f.access[k], v => setF(x => ({ ...x, access: { ...x.access, [k]: v } })), label)}</div>)}
+          <div style={{ ...grid, marginTop: 10 }}>{text('expiresOn', 'Active Status Expiry Date', { type: 'date', help: 'When the account is due for renewal.' })}</div>
+        </Card>
+        <details style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>More details (from the old form)</summary>
+          <div style={{ ...grid, marginTop: 14 }}>
+            <FormField label="House Address" wide><input style={field} value={f.address} onChange={set('address')} /></FormField>
+            {pick('language', 'Language', ['', 'English', 'Malay', 'Chinese', 'Indian', 'Others'].map(v => ({ value: v, label: v || 'Select' })))}
+            <FormField label="Education Level"><input style={field} value={f.education} onChange={set('education')} /></FormField>
+            {[['smoker', 'Smoker', ['No', 'Yes']], ['marital', 'Marital Status', ['Single', 'Married']], ['house', 'House', ['Own', 'Rent']], ['transportOwn', 'Own Transport', ['Yes', 'No']]].map(([k, label, opts]) => (
+              <FormField key={k} label={label}><Select block plain label={label} value={f.extra[k] || opts[0]} onChange={v => setF(x => ({ ...x, extra: { ...x.extra, [k]: v } }))} options={opts.map(o => ({ value: o, label: o }))} /></FormField>
+            ))}
+            {[['children', 'No. of Children'], ['transportType', 'Transport Type'], ['transportModel', 'Transport Model'], ['prevJob', 'Previous Job'], ['prevPosition', 'Previous Job Position'],
+              ['prevIncome', 'Previous Job Income (RM)'], ['expIncome', 'Expected Income (RM)'], ['expPosition', 'Expected Position']].map(([k, label]) => (
+              <FormField key={k} label={label}><input style={field} value={f.extra[k] || ''} onChange={setX(k)} /></FormField>
+            ))}
+          </div>
+        </details>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-        <button style={btnPrimary} onClick={save}>Submit</button>
-        <button style={btn} onClick={() => go('staff')}>Cancel</button>
+        <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{s ? 'Save Changes' : 'Submit'}</button>
+        <button style={btn} onClick={() => go(s ? `staff/${s.id}` : 'staff')}>Cancel</button>
+      </div>
+      <Modal open={!!award} onClose={() => setAward(null)} title="Add Award"
+        footer={<><button style={btn} onClick={() => setAward(null)}>Cancel</button>
+          <button style={{ ...btnPrimary, opacity: award?.name ? 1 : 0.5 }} disabled={!award?.name} onClick={() => { setF(x => ({ ...x, awards: [...x.awards, award] })); setAward(null) }}>Save</button></>}>
+        {award && (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <p style={{ margin: 0, fontSize: 13, color: C.muted }}>Manage the details of the award here. Click Save when you're done.</p>
+            <FormField label="Award Name" required><input style={field} autoFocus value={award.name} onChange={e => setAward({ ...award, name: e.target.value })} /></FormField>
+            <FormField label="Awarding Organization"><input style={field} value={award.org} onChange={e => setAward({ ...award, org: e.target.value })} /></FormField>
+            <FormField label="Date Received"><input type="date" style={field} value={award.date} max={m.today} onChange={e => setAward({ ...award, date: e.target.value })} /></FormField>
+          </div>
+        )}
+      </Modal>
+    </Page>
+  )
+}
+
+// Marketing Staffs: assistants who may work on this person's customers and listings.
+function MarketingStaffs({ id }) {
+  const erp = useErp()
+  const fb = useFeedback()
+  const { m } = erp
+  const s = m.staff[id]
+  const [rows, setRows] = useState(() => (s?.marketing || []).map(r => ({ ...r, staffId: String(r.staffId) })))
+  const [adding, setAdding] = useState('')
+  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
+  const others = m.data.staff.filter(x => x.id !== id && x.status !== 'inactive' && !rows.some(r => r.staffId === String(x.id))).sort((a, b) => a.short.localeCompare(b.short))
+  const dirty = JSON.stringify(rows.map(r => ({ ...r, staffId: Number(r.staffId) }))) !== JSON.stringify(s.marketing || [])
+  const flip = (i, k) => setRows(rs => rs.map((r, j) => (j === i ? { ...r, [k]: !r[k] } : r)))
+  const check = (r, i, k) => <input type="checkbox" checked={!!r[k]} onChange={() => flip(i, k)} aria-label={k} style={{ accentColor: C.primary, width: 17, height: 17 }} />
+  return (
+    <Page title={`Marketing Staffs · ${s.code}`} help={PAGE.marketingStaffs} back={{ to: `staff/${s.id}`, label: s.short }} sub="Manage marketing staff access and controls."
+      actions={<button style={{ ...btnPrimary, opacity: dirty ? 1 : 0.5 }} disabled={!dirty} onClick={() => fb.run(() => erp.setMarketingStaffs(id, rows), 'Marketing staffs saved')}>Save</button>}>
+      <Card pad={16}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          <Select label="Add Staff" value={adding} onChange={setAdding} options={[{ value: '', label: 'Select staff to add' }, ...others.map(x => ({ value: String(x.id), label: `${x.short} (${x.code})` }))]} />
+          <button style={small} disabled={!adding} onClick={() => { setRows(rs => [...rs, { staffId: adding, customers: true, listings: true, shared: false }]); setAdding('') }}>Add Staff</button>
+        </div>
+        <DataTable rows={rows.map((r, i) => ({ ...r, i, id: r.staffId }))} narrowAt={560} empty="No staffs found." columns={[
+          { key: 'staff', label: 'Staff', render: r => <Who name={m.staffName(Number(r.staffId))} sub={m.staff[Number(r.staffId)]?.code} size={26} /> },
+          { key: 'customers', label: 'Customer Data Access', render: r => check(r, r.i, 'customers') },
+          { key: 'listings', label: 'Listings Access', render: r => check(r, r.i, 'listings') },
+          { key: 'shared', label: 'Shared Saleking Listings Access', render: r => check(r, r.i, 'shared') },
+          { key: 'del', label: '', render: r => <button style={{ ...small, color: C.err }} onClick={() => setRows(rs => rs.filter((_, j) => j !== r.i))}>Remove</button> },
+        ]} />
+      </Card>
+    </Page>
+  )
+}
+
+// Staff Chart: the uplines above, then everyone under this person.
+function StaffChart({ id }) {
+  const { m, setup } = useErp()
+  const s = m.staff[id]
+  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
+  const node = p => {
+    const kids = (m.downline[p.id] || []).filter(k => k.status !== 'inactive')
+    return { key: `s${p.id}`, open: true, tone: p.role ? ROLE_COLORS[Math.max(0, setup.roles.findIndex(r => r.code === p.role)) % ROLE_COLORS.length] : C.border,
+      label: <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><Link to={`staff/${p.id}`} style={{ color: C.text, fontWeight: p.id === id ? 700 : 500 }}>{p.short}</Link>
+        <span style={{ fontSize: 12, color: C.muted }}>{p.username} · {p.code}</span><RoleTag code={p.role} setup={setup} /></span>,
+      children: kids.map(node) }
+  }
+  const chain = [...m.chain(id)].reverse()
+  return (
+    <Page title={`Staff Chart · ${s.code}`} help={PAGE.staffChart} back={{ to: `staff/${s.id}`, label: s.short } } sub="View the staff organisational chart.">
+      <Card title="Uplines" help={CARD.uplines}>
+        {chain.length ? chain.map((p, i) => (
+          <div key={p.id} style={{ paddingLeft: i * 18, display: 'flex', gap: 8, alignItems: 'center', padding: `5px 0 5px ${i * 18}px`, fontSize: 13.5 }}>
+            <Icon name="up" size={14} style={{ color: C.faint }} /><Link to={`staff/${p.id}/chart`} style={{ color: C.text }}>{p.short}</Link><span style={{ fontSize: 12, color: C.muted }}>{p.code}</span><RoleTag code={p.role} setup={setup} />
+          </div>
+        )) : <p style={{ margin: 0, fontSize: 13.5, color: C.muted }}>No upline: top of the {m.branchName(s.branchId)} tree.</p>}
+      </Card>
+      <div style={{ height: 16 }} />
+      <Card title={`${s.short} and team`} sub={`${countTeam(m, id)} people under them`}><OutlineTree nodes={[node(s)]} /></Card>
+    </Page>
+  )
+}
+const countTeam = (m, id) => (m.downline[id] || []).filter(k => k.status !== 'inactive').reduce((n, k) => n + 1 + countTeam(m, k.id), 0)
+
+// Agent Profile Generator: a one-page profile with featured listings, to print or save as PDF.
+function ProfileDoc({ id }) {
+  const { m, setup } = useErp()
+  const s = m.staff[id]
+  const own = s ? m.data.listings.filter(l => l.holderId === id && l.status === 'active').sort((a, b) => b.updated.localeCompare(a.updated)) : []
+  const [picked, setPicked] = useState(() => own.slice(0, 4).map(l => l.id))
+  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
+  const all = m.data.listings.filter(l => l.holderId === id)
+  const areas = [...new Set(all.map(l => l.area))].slice(0, 4)
+  const cats = [...new Set(all.map(l => l.category))].slice(0, 4)
+  const years = Math.max(1, Math.round((new Date(`${m.today}T00:00:00Z`) - new Date(`${s.joined}T00:00:00Z`)) / (365 * 86400000)))
+  const t = m.tierInfo(id)
+  const featured = own.filter(l => picked.includes(l.id))
+  return (
+    <Page title="Agent Profile Generator" help={PAGE.profileDoc} back={{ to: `staff/${s.id}`, label: s.short }}
+      sub="Generate a PDF showcasing the agent's profile and featured listings to share with clients." actions={<button style={btnPrimary} onClick={() => window.print()}>Print / Save as PDF</button>}>
+      {!s.access?.profileDoc && <Notice tone="amber">Profile document generation is switched off for {s.short} (Access & Permissions). Admins can still print it here.</Notice>}
+      <Card title="Featured listings" sub={own.length ? 'Pick up to 6 of their active listings.' : 'No active listings: the document is made without featured listings.'} style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {own.map(l => (
+            <label key={l.id} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13, border: `1px solid ${picked.includes(l.id) ? C.primary : C.border}`, borderRadius: 8, padding: '5px 9px' }}>
+              <input type="checkbox" checked={picked.includes(l.id)} disabled={!picked.includes(l.id) && picked.length >= 6} style={{ accentColor: C.primary }}
+                onChange={() => setPicked(p => (p.includes(l.id) ? p.filter(x => x !== l.id) : [...p, l.id]))} />{l.code} · {l.title}
+            </label>
+          ))}
+        </div>
+      </Card>
+      <div style={{ maxWidth: 780, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 'clamp(16px, 4vw, 32px)', boxShadow: C.shadow }}>
+        <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', borderBottom: `2px solid ${C.primary}`, paddingBottom: 16 }}>
+          <Avatar name={s.short} size={72} photo={s.photo} />
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontFamily: C.fontHead, fontSize: 22, fontWeight: 700 }}>{s.short}</div>
+            <div style={{ fontSize: 13.5, color: C.muted }}>{s.role ? m.roleName(s.role) : P.tierLabel(t.tier)} · {s.regNo ? `${s.regType || 'REN'} ${s.regNo}` : s.renNo}</div>
+            <div style={{ fontSize: 13.5, marginTop: 4 }}>{s.phone} · {s.email}</div>
+          </div>
+          <div style={{ textAlign: 'right', fontSize: 12.5, color: C.muted }}><b style={{ color: C.text }}>{setup.company.name}</b><br />{setup.company.licenceNo}<br />Joined {date(s.joined)}</div>
+        </div>
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', margin: '16px 0' }}>
+          <KV min={150} items={[['Experience', `${years} year${years > 1 ? 's' : ''}`], ['Areas Expertise', areas.join(' | ') || '—'], ['Categories Expertise', cats.join(' | ') || '—']]} />
+          {(s.awards || []).length > 0 && <div style={{ fontSize: 13 }}><b style={{ display: 'block', marginBottom: 4 }}>Awards</b>{s.awards.map((a, i) => <div key={i}>{a.name} · {a.org}</div>)}</div>}
+        </div>
+        {s.bio && <p style={{ fontSize: 14, lineHeight: 1.55, margin: '0 0 16px' }}>{s.bio}</p>}
+        {featured.length > 0 && (
+          <>
+            <div style={{ fontFamily: C.fontHead, fontWeight: 700, fontSize: 15, margin: '6px 0 10px' }}>Featured listings</div>
+            <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))' }}>
+              {featured.map(l => (
+                <div key={l.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: C.primary }}>{l.type === 'sale' ? 'FOR SALE' : 'FOR RENT'} · #{l.code}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{l.title}, {l.category}</div>
+                  <div style={{ fontSize: 12.5, color: C.muted }}>{l.area} · {l.beds ? `${l.beds}bd / ${l.baths}ba · ` : ''}{num(l.builtUp)} sq ft</div>
+                  <div style={{ fontWeight: 700, marginTop: 4 }}>{rm(l.askPrice)}{l.type === 'rental' ? ' /month' : ''}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {Object.values(s.socials || {}).some(Boolean) && <p style={{ fontSize: 12.5, color: C.muted, margin: '16px 0 0' }}>{Object.values(s.socials).filter(Boolean).join(' · ')}</p>}
       </div>
     </Page>
   )

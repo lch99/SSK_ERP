@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
-import { C, btn, btnPrimary, inp } from '../../styles.js'
+import { C, btn, btnPrimary } from '../../styles.js'
 import { useNarrow } from '../../setup/useNarrow.js'
 import { nextPayDate } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { REQUEST_STATUS, group, sum } from '../model.js'
-import { Page, Card, Tabs, Toolbar, SearchBox, DataTable, Status, Who, Link, Drawer, Notice, Empty, Stat, SelectionBar, cols, go, mono, tabular, small, useRecordNav } from '../ui.jsx'
+import { Page, Card, Tabs, Toolbar, SearchBox, DataTable, Status, Who, Link, Drawer, Notice, Empty, Stat, SelectionBar, TextArea, cols, go, mono, tabular, small, useRecordNav } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { FlowBar } from '../flow.jsx'
@@ -149,7 +149,7 @@ function RequestActions({ slip, next }) {
   if (asking) {
     return (
       <>
-        <input style={{ ...inp, flex: '1 1 220px' }} autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="Reason, e.g. claim form not signed" />
+        <TextArea style={{ flex: '1 1 220px', width: 'auto' }} autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="Reason, e.g. claim form not signed" />
         <button style={btn} onClick={() => setAsking(false)}>Cancel</button>
         <button style={btnPrimary} disabled={busy || !text.trim()} onClick={() => set('invalid', text)}>Document Not Valid</button>
       </>

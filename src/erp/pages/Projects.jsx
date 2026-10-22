@@ -11,6 +11,7 @@ import { rm, rm0, date, num, pct } from '../format.js'
 import { ProjectForm, IncentiveDrawer } from './ProjectForms.jsx'
 import { useFeedback } from '../feedback.jsx'
 import Icon from '../Icon.jsx'
+import { NoAccess, useAccess, useCan } from '../access.jsx'
 
 // Projects: developers' new launches. Each project can pay differently from
 // Setup, and carries the developer's incentive campaigns.
@@ -30,10 +31,12 @@ export function useProjects() {
 
 export default function Projects({ parts }) {
   const { projects, reload } = useProjects()
+  const can = useCan()
   if (parts[1] === 'incentives') return <AllIncentives projects={projects} />
   if (parts[1] === 'new') return <ProjectForm onSaved={p => { reload(); go(`projects/${p.id}`) }} />
   const project = parts[1] ? projects.find(p => p.id === Number(parts[1])) : null
   if (parts[1] && !project) return <Page title="Project not found" back={{ to: 'projects', label: 'All projects' }}><Empty title="This project doesn't exist" /></Page>
+  if (project && parts[2] === 'edit' && !can('projects', 'edit')) return <NoAccess />
   if (project && parts[2] === 'edit') return <ProjectForm project={project} onSaved={() => { reload(); go(`projects/${project.id}`) }} />
   if (project) return <ProjectPage project={project} reload={reload} />
   return <ProjectList projects={projects} />
@@ -43,6 +46,7 @@ export default function Projects({ parts }) {
 
 function ProjectList({ projects }) {
   const { m } = useErp()
+  const can = useCan()
   const deals = m.data.deals
   const today = m.today
   const month = today.slice(0, 7)
@@ -52,7 +56,7 @@ function ProjectList({ projects }) {
 
   return (
     <Page title="Projects" help={PAGE.projects} sub="Developers' new launches. Each project can pay agents differently from Setup, and carry the developer's incentives."
-      actions={<button style={btnPrimary} onClick={() => go('projects/new')}>Add a project</button>}>
+      actions={can('projects', 'edit') && <button style={btnPrimary} onClick={() => go('projects/new')}>Add a project</button>}>
       <div style={{ ...cols(210, 14), marginBottom: 16 }}>
         <Stat icon="listings" tone="blue" label="Projects selling" value={num(projects.filter(p => p.status !== 'closed').length)} />
         <Stat icon="deals" tone="green" label="Units sold this month" value={num(projects.reduce((t, p) => t + sold(p).filter(d => d.date.startsWith(month)).length, 0))} />
@@ -93,12 +97,16 @@ function ProjectList({ projects }) {
 
 function ProjectPage({ project: p, reload }) {
   const fb = useFeedback()
-  const { m, setup } = useErp()
+  const { m, scoped, setup } = useErp()
   const [editing, setEditing] = useState(null)   // incentive being edited, {} for new
+  const access = useAccess()
+  const edit = access.can('projects', 'edit')
+  // Totals and incentives count the whole company; the sales list shows only the viewer's reach.
   const deals = m.data.deals
   const sold = J.projectDeals(deals, p)
   const today = m.today
-  const sales = useMemo(() => deals.filter(d => d.type === 'project' && d.property?.title === p.name), [deals, p.name])
+  const reach = access.scope === 'all' ? deals : scoped.deals
+  const sales = useMemo(() => reach.filter(d => d.type === 'project' && d.property?.title === p.name), [reach, p.name])
 
   const columns = [
     { key: 'date', label: 'Booked', nowrap: true, sort: d => d.date, render: d => date(d.date) },
@@ -113,7 +121,7 @@ function ProjectPage({ project: p, reload }) {
   return (
     <Page title={p.name} help={PAGE.project} sub={<>{p.developer}{p.location ? ` · ${p.location}` : ''}{p.launchedOn ? ` · launched ${date(p.launchedOn)}` : ''}</>}
       back={{ to: 'projects', label: 'All projects' }}
-      actions={<>
+      actions={edit && <>
         <button style={btn} onClick={() => go(`projects/${p.id}/edit`)}>Edit project</button>
         <button style={btnPrimary} onClick={() => setEditing({})}>+ Add incentive</button>
       </>}>
@@ -127,20 +135,20 @@ function ProjectPage({ project: p, reload }) {
 
       <div style={{ display: 'grid', gap: 16 }}>
         <Card title="Developer incentives" help={CARD.incentivesCard} sub="Extra money the developer pays for hitting sales targets. Progress updates as E-Forms are submitted."
-          actions={<button style={small} onClick={() => setEditing({})}><Icon name="plus" size={14} /> Add incentive</button>}>
+          actions={edit && <button style={small} onClick={() => setEditing({})}><Icon name="plus" size={14} /> Add incentive</button>}>
           {!p.incentives.length && <Empty title="No incentives yet" text="Add one when the developer offers a bonus, e.g. sell 10 units this month for RM 3,000." />}
           <div style={{ display: 'grid', gap: 12 }}>
             {[...p.incentives].sort(byStatus(today)).map(i => (
-              <IncentiveCard key={i.id} inc={i} project={p} onEdit={() => setEditing(i)}
-                onDelete={async () => {
+              <IncentiveCard key={i.id} inc={i} project={p} onEdit={edit ? () => setEditing(i) : null}
+                onDelete={edit && (async () => {
                   if (!(await fb.confirm({ title: `Delete “${i.name}”?`, body: 'The incentive and its progress are removed from this project. Deals are not changed.', confirmLabel: 'Delete incentive', danger: true }))) return
                   deleteIncentive(p.id, i.id); reload(); fb.toast(`“${i.name}” deleted`)
-                }} />
+                })} />
             ))}
           </div>
         </Card>
 
-        <PayoutCard project={p} setup={setup} />
+        <PayoutCard project={p} setup={setup} edit={edit} />
 
         <Card title="Sales" help={CARD.projectSales} sub="Every E-Form booked for this project." pad={16}>
           <DataTable columns={columns} rows={sales} onRow={d => go(`deals/${d.id}`)} defaultSort={{ key: 'date', dir: 'desc' }} pageSize={10} narrowAt={860}
@@ -154,14 +162,14 @@ function ProjectPage({ project: p, reload }) {
 }
 
 // How this project pays, tier by tier, next to the normal Setup numbers.
-function PayoutCard({ project: p, setup }) {
+function PayoutCard({ project: p, setup, edit }) {
   const rows = setup.tiers.map(t => {
     const normal = P.resolveTotal(setup.totals, { branchId: P.COMPANY_SCOPE, dealType: 'project', tierId: t.id })?.pct ?? null
     return { t, normal, mine: J.projectPayout(p, t, normal) }
   })
   return (
     <Card title="How this project pays agents" help={CARD.projectPay} sub={<>{J.PAYOUT_MODES.find(x => x.value === (p.payout?.mode || 'setup'))?.desc} Standard plan tiers shown; branches on another tier plan follow the same rule.</>}
-      actions={<button style={small} onClick={() => go(`projects/${p.id}/edit`)}>Change</button>}>
+      actions={edit && <button style={small} onClick={() => go(`projects/${p.id}/edit`)}>Change</button>}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
         <Pill tone={p.payout?.mode === 'setup' ? 'gray' : 'brand'}>{J.describePayout(p)}</Pill>
       </div>

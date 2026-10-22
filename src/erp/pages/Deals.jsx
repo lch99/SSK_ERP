@@ -2,20 +2,26 @@ import { useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary, inp } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
-import { DEAL_STATUS, readyToClose, sum, r2 } from '../model.js'
+import { DEAL_STATUS, PARTY, readyToClose, sum, r2 } from '../model.js'
 import { FlowBar } from '../flow.jsx'
-import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Progress, Menu, Modal, FormField, Notice, go, mono, tabular, field } from '../ui.jsx'
+import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Progress, Menu, Modal, FormField, FileInput, TextArea, Notice, go, mono, tabular, field } from '../ui.jsx'
 import { COLUMN, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm, date, num, amt } from '../format.js'
 import DealPage from './DealPage.jsx'
+import DealForm from './DealForm.jsx'
+import { BANKS } from './options.js'
 
 // E-Forms: Personal Sales (every form), Branch Sales (by branch manager) and
 // Team Sales (a leader and everyone under them), as in the current ERP.
 export default function Deals({ parts }) {
-  if (/^\d+$/.test(parts[1] || '')) return <DealPage id={Number(parts[1])} />
+  if (parts[1] === 'new') return <DealForm />
+  if (/^\d+$/.test(parts[1] || '')) return parts[2] === 'edit' ? <DealForm key={parts[1]} id={Number(parts[1])} /> : <DealPage id={Number(parts[1])} />
   return <DealList view={parts[1] || 'personal'} />
 }
+
+// "#/deals?staff=12" opens the list on one person's E-Forms (from their profile).
+const hashParam = k => new URLSearchParams(window.location.hash.split('?')[1] || '').get(k) || ''
 
 const VIEWS = {
   personal: { title: 'All deals', sub: 'Every E-Form submitted' },
@@ -33,7 +39,7 @@ function DealList({ view }) {
   const [q, setQ] = useState('')
   const [price, setPrice] = useState('')
   const [type, setType] = useState('')
-  const [who, setWho] = useState('')
+  const [who, setWho] = useState(() => hashParam('staff'))
   const [lead, setLead] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -106,7 +112,8 @@ function DealList({ view }) {
 
   const yearDeals = d.deals.filter(x => x.date.startsWith(m.year) && x.status !== 'cancelled' && x.status !== 'draft')
   return (
-    <Page title={v.title} help={PAGE[{ personal: 'deals', branch: 'dealsBranch', team: 'dealsTeam', ready: 'dealsReady' }[view] || 'deals']} sub={view === 'ready' ? `${v.sub}.` : <>{v.sub} · {num(yearDeals.length)} submitted in {m.year} · {rm(sum(yearDeals, x => x.fee))} in fees</>}>
+    <Page title={v.title} help={PAGE[{ personal: 'deals', branch: 'dealsBranch', team: 'dealsTeam', ready: 'dealsReady' }[view] || 'deals']} sub={view === 'ready' ? `${v.sub}.` : <>{v.sub} · {num(yearDeals.length)} submitted in {m.year} · {rm(sum(yearDeals, x => x.fee))} in fees</>}
+      actions={<button style={btnPrimary} onClick={() => go('deals/new')}>Add a deal</button>}>
       {view === 'ready' && <FlowBar here="close" />}
       <Card pad={16}>
         <Toolbar fold active={filters} onClear={clear}>
@@ -132,15 +139,43 @@ function DealList({ view }) {
 }
 
 // Ask, then close: the cleared cash not closed yet becomes case lines for approval.
+// The confirm shows the current ERP's "Request for Closing" checklist: both
+// parties' details, the documents, and the cleared cash.
 export function useCloseDeal(deal) {
   const erp = useErp()
   const fb = useFeedback()
   return async amount => {
-    const ok = await fb.confirm({ title: `Request Close Case for ${deal.code}?`,
-      body: <>Closes <b>{rm(amount)}</b> of cleared cash. The case lines (everyone this case pays) go to the approver in <b>Payouts</b>.</>,
-      confirmLabel: 'Request Close Case' })
+    const party = PARTY[deal.type] || PARTY.sale
+    const has = p => !!(p?.name && p?.ic && p?.phone)
+    const checks = [
+      [`${party.owner} name, IC and phone`, has(deal.owner)],
+      [`${party.buyer} name, IC and phone`, has(deal.buyer)],
+      ...Object.entries(deal.docs || {}).map(([name, ok]) => [name, ok]),
+      [`Cleared cash ${rm(erp.m.cleared(deal.id))}`, erp.m.cleared(deal.id) > 0],
+    ]
+    const missing = checks.filter(c => !c[1]).length
+    const ok = await fb.confirm({ title: `Request Close Case for ${deal.code}?`, confirmLabel: 'Request Close Case',
+      body: <>
+        <p style={{ margin: '0 0 10px' }}>Closes <b>{rm(amount)}</b> of cleared cash. The case lines (everyone this case pays) go to the approver in <b>Payouts</b>.</p>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4, fontSize: 13 }}>
+          {checks.map(([label, done]) => (
+            <li key={label} style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}><span>{label}</span>
+              <b style={{ color: done ? C.ok : C.warn }}>{done ? 'Done' : 'Missing'}</b></li>
+          ))}
+        </ul>
+        {missing > 0 && <p style={{ margin: '10px 0 0', color: C.warn, fontSize: 13 }}>{missing} item{missing > 1 ? 's are' : ' is'} missing. The approver will see this; upload them on the E-Form.</p>}
+      </> })
     if (ok) await fb.run(() => erp.closeDeal(deal.id), `${deal.code} closed for ${rm(amount)} · case lines sent for approval`, { action: { label: 'View', onClick: () => go('payouts') } })
   }
+}
+
+// The request forms an E-Form can raise (Actions → Request Form), with their fields.
+const REQUESTS = {
+  balance: { title: 'Balance to Vendor', done: 'Balance to Vendor request created' },
+  transfer: { title: 'Transfer Deposit to Other', done: 'Transfer request created' },
+  cobroke: { title: 'Cheque to Co-Bro', done: 'Co-bro cheque request created' },
+  referral: { title: 'Introducer Fees', done: 'Introducer fees request created' },
+  ta: { title: 'Tenancy Agreement Fees', done: 'Tenancy fees request created' },
 }
 
 // The Actions menu on an E-Form (same entries as the current ERP). `quiet` in table rows.
@@ -162,22 +197,50 @@ export function DealActions({ deal, quiet }) {
   const notOpen = deal.status === 'draft' ? 'Not for drafts' : deal.status === 'cancelled' ? 'This case was aborted' : null
   const closeWhy = deal.status === 'closed' ? 'Closed in full already' : !live ? notOpen
     : left <= 0 ? 'No cleared money to close yet' : `Waiting for ${rm(r2(deal.money.billed - got))} more to clear`
+  const outs = m.moneyOutByDeal[deal.id] || []
+  const free = r2(m.cleared(deal.id) - sum(outs, x => x.amount))
   const run = async (done, fn) => {
     setBusy(true); setError(null)
-    try { await fn(); setDialog(null); setForm({}); fb.toast(done) } catch (e) { setError(e.message) } finally { setBusy(false) }
+    try { await fn(); setDialog(null); setForm({}); fb.toast(done, { action: { label: 'View', onClick: () => go('money-out') } }) } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
   const set = k => e => setForm({ ...form, [k]: e.target.value })
   const print = (label, doc, ok, why) => ({ label, icon: 'print', disabled: !ok, why, onClick: () => go(`invoices/doc/${deal.id}/${doc}`) })
+  // Each request form starts with what the E-Form already knows.
+  const ask = type => {
+    const ta = deal.rental?.taFee || 0
+    setError(null)
+    setForm({
+      balance: { amount: Math.max(0, r2(m.cleared(deal.id) - deal.money.billed - ta)) || '' },
+      transfer: {},
+      cobroke: { amount: deal.money.coBroke || '' },
+      referral: { amount: deal.money.referral || '' },
+      ta: { amount: ta || '', payee: deal.buyer.name, ic: deal.buyer.ic },
+    }[type] || {})
+    setDialog(type)
+  }
+  const request = (type, show) => {
+    const done = outs.find(x => x.type === type)
+    return show && { label: REQUESTS[type].title, icon: 'moneyOut', disabled: !open || !!done, why: done ? `Requested already (${done.voucherNo})` : notOpen, onClick: () => ask(type) }
+  }
+  const req = REQUESTS[dialog]
   return (
     <>
       <Menu quiet={quiet} label="Actions" items={[
-        deal.status !== 'closed' && deal.status !== 'cancelled' && { note: 'This case is not yet full close!' },
+        deal.status !== 'closed' && deal.status !== 'cancelled' && { note: deal.status === 'draft' ? 'This E-Form is a draft. Edit it and press Submit.' : 'This case is not yet full close!' },
         { section: 'Case' },
+        { label: deal.status === 'draft' ? 'Edit & submit E-Form' : 'Edit E-Form', icon: 'edit', disabled: deal.status === 'cancelled', why: 'This case was aborted', onClick: () => go(`deals/${deal.id}/edit`) },
         { label: 'Add Transaction', icon: 'plus', disabled: !open, why: notOpen, onClick: () => go(`money-in/new/${deal.id}`) },
         { label: 'Request Close Case', icon: 'payouts', hint: closable ? rm(left) : null, disabled: !closable, why: closeWhy, onClick: () => closeDeal(left) },
-        { label: 'Transfer Deposit to Other', icon: 'transfer', disabled: !open, why: notOpen, onClick: () => setDialog('transfer') },
-        { label: 'Abort Case', icon: 'ban', danger: true, disabled: !open || closed > 0, why: closed > 0 ? 'Part of this case is closed already' : notOpen, onClick: () => setDialog('abort') },
+        { section: 'Request Form' },
+        request('balance', deal.type !== 'project'),
+        request('transfer', true),
+        request('cobroke', !!deal.coBroke),
+        request('referral', !!deal.referral),
+        request('ta', deal.type === 'rental'),
+        { label: 'Abort Case', icon: 'ban', danger: true, disabled: !open || closed > 0, why: closed > 0 ? 'Part of this case is closed already' : notOpen, onClick: () => { setError(null); setForm({}); setDialog('abort') } },
         { section: 'Documents' },
+        { label: deal.invoiceNo ? `Invoice requested (${deal.invoiceNo})` : 'Request Invoice', icon: 'file', disabled: deal.status === 'draft' || !!deal.invoiceNo, why: deal.invoiceNo ? `On ${date(deal.invoiceOn)}` : 'Not for drafts',
+          onClick: () => fb.run(() => erp.requestInvoice(deal.id), `Invoice INV-${deal.code} requested`, { action: { label: 'Open', onClick: () => go(`invoices/doc/${deal.id}/tax-invoice`) } }) },
         print('Print Tax Invoice', 'tax-invoice', deal.status !== 'draft', 'Not for drafts'),
         print('Print Tax Receipt', 'tax-receipt', m.cleared(deal.id) > 0, 'No cleared payment yet'),
         print('Print SST Invoice', 'sst-invoice', deal.status !== 'draft', 'Not for drafts'),
@@ -186,24 +249,39 @@ export function DealActions({ deal, quiet }) {
       <Modal open={dialog === 'abort'} onClose={() => setDialog(null)} title={`Abort Case · ${deal.code}`}
         footer={<><button style={btn} onClick={() => setDialog(null)}>Cancel</button>
           <button style={{ ...btn, background: C.err, borderColor: C.err, color: '#fff', opacity: busy ? 0.6 : 1 }} disabled={busy}
-            onClick={() => run(`${deal.code} is now Abort/Cancel${m.cleared(deal.id) > 0 ? ' · refund request created in Payments out' : ''}`, () => erp.raiseRequest(deal.id, 'refund', form))}>Abort case</button></>}>
+            onClick={() => run(`${deal.code} is now Abort/Cancel${free > 0 ? ' · refund request created in Payments out' : ''}`, () => erp.raiseRequest(deal.id, 'refund', form))}>Abort case</button></>}>
         {error && <Notice tone="red">{error}</Notice>}
-        <p style={{ fontSize: 13.5, marginTop: 0 }}>The E-Form becomes <b>Abort/Cancel</b>. {m.cleared(deal.id) > 0
-          ? <>An <b>Abort Case</b> request form returns the {rm(m.cleared(deal.id))} received to {deal.buyer.name}.</> : 'Nothing has been received, so there is nothing to return.'}</p>
+        <p style={{ fontSize: 13.5, marginTop: 0 }}>The E-Form becomes <b>Abort/Cancel</b>. {free > 0
+          ? <>An <b>Abort Case</b> request form returns the {rm(free)} received to {deal.buyer.name}.</> : 'Nothing has been received, so there is nothing to return.'}</p>
         <div style={{ display: 'grid', gap: 10 }}>
-          <FormField label="Reason" required><input style={field} value={form.reason || ''} onChange={set('reason')} placeholder="e.g. Buyer's loan was rejected" /></FormField>
-          {m.cleared(deal.id) > 0 && <FormField label="Return to bank account"><input style={field} value={form.account || ''} onChange={set('account')} placeholder="Purchaser's account no." /></FormField>}
+          <FormField label="Reason" required><TextArea value={form.reason || ''} onChange={set('reason')} placeholder="e.g. Buyer's loan was rejected" /></FormField>
+          {free > 0 && <>
+            <FormField label="Abort Letter"><FileInput kind="document" onChange={files => setForm(v => ({ ...v, letter: files[0]?.name || '' }))} /></FormField>
+            <FormField label="Return to bank"><Select block plain label="Bank" value={form.bank || ''} onChange={v => setForm(f => ({ ...f, bank: v }))} options={[{ value: '', label: 'Select bank' }, ...BANKS.map(b => ({ value: b, label: b }))]} /></FormField>
+            <FormField label="Bank account"><input style={field} value={form.account || ''} onChange={set('account')} placeholder="Purchaser's account no." /></FormField>
+          </>}
         </div>
       </Modal>
-      <Modal open={dialog === 'transfer'} onClose={() => setDialog(null)} title={`Transfer Deposit to Other · ${deal.code}`}
+      <Modal open={!!req} onClose={() => setDialog(null)} title={req ? `${req.title} · ${deal.code}` : ''}
         footer={<><button style={btn} onClick={() => setDialog(null)}>Cancel</button>
-          <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => run(`Transfer request created for ${deal.code} · it waits in Payments out`, () => erp.raiseRequest(deal.id, 'transfer', form))}>Create request</button></>}>
+          <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => run(`${req.done} for ${deal.code} · it waits in Payments out`, () => erp.raiseRequest(deal.id, dialog, form))}>Submit</button></>}>
         {error && <Notice tone="red">{error}</Notice>}
+        <p style={{ fontSize: 13, color: C.muted, marginTop: 0 }}>Cash in transactions not yet paid out: <b style={{ color: C.text }}>{rm(Math.max(0, free))}</b>. The amount cannot be more than this.</p>
         <div style={{ display: 'grid', gap: 10 }}>
-          <FormField label="Transfer to" required><input style={field} value={form.payee || ''} onChange={set('payee')} placeholder="e.g. vendor's solicitor (stakeholder)" /></FormField>
-          <FormField label="Amount (RM)" required><input style={field} type="number" min="0" value={form.amount || ''} onChange={set('amount')} /></FormField>
-          <FormField label="Bank name"><input style={field} value={form.bank || ''} onChange={set('bank')} /></FormField>
-          <FormField label="Bank acc. no."><input style={field} value={form.account || ''} onChange={set('account')} /></FormField>
+          {dialog === 'transfer' && <FormField label="Transfer Deposit Letter" required><FileInput kind="document" onChange={files => setForm(v => ({ ...v, letter: files[0]?.name || '' }))} /></FormField>}
+          {dialog === 'cobroke' && <FormField label="Invoice From Co-Bro Agency" required help={deal.coBroke?.agency}><FileInput kind="document" onChange={files => setForm(v => ({ ...v, letter: files[0]?.name || '' }))} /></FormField>}
+          {dialog === 'referral' && <FormField label="Introducer" help={deal.referral ? `${deal.referral.bank} ${deal.referral.account}` : null}><input style={{ ...field, background: C.bg }} readOnly value={deal.referral?.name || ''} /></FormField>}
+          {(dialog === 'transfer' || dialog === 'ta') && <>
+            <FormField label={dialog === 'ta' ? 'Tenant Name' : 'Transfer to'} required><input style={field} value={form.payee || ''} onChange={set('payee')} placeholder={dialog === 'ta' ? '' : "e.g. vendor's solicitor (stakeholder)"} /></FormField>
+            <FormField label={dialog === 'ta' ? 'Tenant IC' : 'IC No.'} required><input style={field} value={form.ic || ''} onChange={set('ic')} /></FormField>
+          </>}
+          {['balance', 'transfer', 'ta'].includes(dialog) && <>
+            <FormField label="Bank Name" required={dialog !== 'ta'}><Select block plain label="Bank" value={form.bank || ''} onChange={v => setForm(f => ({ ...f, bank: v }))} options={[{ value: '', label: 'Select bank' }, ...BANKS.map(b => ({ value: b, label: b }))]} /></FormField>
+            <FormField label="Bank Acc. No." required={dialog !== 'ta'}><input style={field} value={form.account || ''} onChange={set('account')} inputMode="numeric" /></FormField>
+          </>}
+          <FormField label={{ balance: 'Balance to Vendor (RM)', transfer: 'Amount (RM)', cobroke: 'Co-Bro Fees (RM)', referral: 'Net Introducer Fees (RM)', ta: 'Tenant Fees (RM)' }[dialog] || 'Amount (RM)'} required>
+            <input style={field} type="number" min="0" value={form.amount ?? ''} onChange={set('amount')} />
+          </FormField>
         </div>
       </Modal>
     </>

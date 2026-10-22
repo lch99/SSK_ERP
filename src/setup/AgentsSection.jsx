@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import * as P from '../../shared/payout.js'
 import * as A from '../../shared/agents.js'
+import { acceptFor, checkFile, fileHead, uploadHint } from '../../shared/files.js'
 import { DEMO } from '../api.js'
 import { C, inp, sel, btn, btnPrimary, label } from '../styles.js'
 import Section from './Section.jsx'
@@ -37,6 +38,8 @@ export default function AgentsSection({ setup, save, step, done }) {
   }
   const openFile = async file => {
     if (!file) return
+    const problem = checkFile(file, 'spreadsheet', await fileHead(file).catch(() => null))
+    if (problem) return setReadError(problem)
     try { take(file.name, await readSheetFile(file)) } catch (e) { setReadError(e.message) }
   }
 
@@ -64,7 +67,7 @@ export default function AgentsSection({ setup, save, step, done }) {
             <StepCard n={1} title="Get the template" text="An Excel file with the right columns, drop-down lists for branch, position and tier, and a filled-in example sheet.">
               <button style={btn} onClick={() => download(template(setup), 'Agents template.xlsx', XLSX_TYPE)}>Download Excel template</button>
             </StepCard>
-            <StepCard n={2} title="Upload it" text="Your own staff list works too, if it has a Name column. Excel (.xlsx) or CSV.">
+            <StepCard n={2} title="Upload it" text={`Your own staff list works too, if it has a Name column. ${uploadHint('spreadsheet')}.`}>
               <DropZone onFile={openFile} />
               <button style={{ ...btn, border: 'none', boxShadow: 'none', color: C.primary, padding: '6px 0', marginTop: 4 }} onClick={() => setPaste(!paste)}>
                 {paste ? 'Hide paste box' : 'or paste rows copied from Excel'}
@@ -172,7 +175,7 @@ function DropZone({ onFile }) {
         display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
       <button style={btnPrimary} onClick={() => input.current?.click()}>Choose file</button>
       <span style={{ fontSize: 13, color: C.muted }}>or drop it here</span>
-      <input ref={input} type="file" hidden accept=".xlsx,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+      <input ref={input} type="file" hidden accept={acceptFor('spreadsheet')}
         onChange={e => { onFile(e.target.files?.[0]); e.target.value = '' }} />
     </div>
   )

@@ -5,6 +5,7 @@ import { DEAL_STATUS } from './model.js'
 import { go, Pill } from './ui.jsx'
 import Icon from './Icon.jsx'
 import { rm } from './format.js'
+import { outOfReach, useAccess } from './access.jsx'
 
 // The last pages and records opened, for "Recent" when the search is empty.
 const RECENT_KEY = 'ssk-erp-recent'
@@ -32,6 +33,7 @@ export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(
 export default function CommandPalette({ open, onClose, leaves, nav, erp }) {
   const [q, setQ] = useState('')
   const [at, setAt] = useState(0)
+  const access = useAccess()
   const input = useRef(null)
   const list = useRef(null)
   useEffect(() => { if (open) { setQ(''); setAt(0); setTimeout(() => input.current?.focus(), 0) } }, [open])
@@ -51,19 +53,22 @@ export default function CommandPalette({ open, onClose, leaves, nav, erp }) {
     if (!words.length) {
       // What you opened last (not the page you are on), then the pages.
       const here = window.location.hash.replace(/^#\/?/, '')
-      const recent = readRecent().filter(p => p !== here).map(p => recentItem(p, m, leaves, groupOf)).filter(Boolean).slice(0, 5)
+      const recent = readRecent().filter(p => p !== here && access.opens(p) && !outOfReach(p.split('/'), erp, access.scope))
+        .map(p => recentItem(p, m, leaves, groupOf)).filter(Boolean).slice(0, 5)
       return [...recent, ...pages.filter(p => !recent.some(r => r.to === p.to)).slice(0, recent.length ? 5 : 8)]
     }
     if (!m) return pages.slice(0, 8)
-    const deals = m.data.deals.filter(d => hit(`${d.code} ${d.property.title} ${d.property.address} ${d.buyer?.name || ''} ${m.staffName(d.agentId)}`)).slice(0, 6)
+    // Records only from the viewer's reach, and only in areas their role opens.
+    const reach = access.scope === 'all' ? m.data : erp.scoped
+    const deals = (access.can('deals') ? reach.deals : []).filter(d => hit(`${d.code} ${d.property.title} ${d.property.address} ${d.buyer?.name || ''} ${m.staffName(d.agentId)}`)).slice(0, 6)
       .map(d => ({ key: `d-${d.id}`, group: 'E-Forms', icon: 'deals', title: `${d.code} · ${d.property.title}`, sub: `${m.staffName(d.agentId)} · ${m.branchName(d.branchId)}`,
         tag: DEAL_STATUS[d.status], to: `deals/${d.id}` }))
-    const staff = m.data.staff.filter(s => hit(`${s.name} ${s.short || ''} ${s.code || ''}`)).slice(0, 5)
+    const staff = (access.can('staff') ? reach.staff : []).filter(s => hit(`${s.name} ${s.short || ''} ${s.code || ''}`)).slice(0, 5)
       .map(s => ({ key: `s-${s.id}`, group: 'Staff', icon: 'staff', title: s.name, sub: `${s.code || ''} · ${m.branchName(s.branchId)}`, to: `staff/${s.id}` }))
-    const projects = getProjects(m.data, erp.setup).projects.filter(p => hit(`${p.name} ${p.developer} ${p.location}`)).slice(0, 4)
+    const projects = (access.can('projects') ? getProjects(m.data, erp.setup).projects : []).filter(p => hit(`${p.name} ${p.developer} ${p.location}`)).slice(0, 4)
       .map(p => ({ key: `j-${p.id}`, group: 'Projects', icon: 'project', title: p.name, sub: `${p.developer} · ${p.location}`, to: `projects/${p.id}` }))
     return [...pages.slice(0, 5), ...deals, ...staff, ...projects]
-  }, [open, q, leaves, erp]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, q, leaves, erp, access]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setAt(0) }, [q])
   useEffect(() => { list.current?.querySelector(`[data-i="${at}"]`)?.scrollIntoView({ block: 'nearest' }) }, [at])

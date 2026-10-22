@@ -3,6 +3,7 @@ import { C, inp, btn, label } from '../styles.js'
 import Section from './Section.jsx'
 import { useDraft } from './useDraft.js'
 import HierarchyPreview, { EXAMPLE_CHAIN } from './HierarchyPreview.jsx'
+import { SplitBar } from './visuals.jsx'
 
 // ── Uplines and split ────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ export default function UplinesSection({ setup, save, step, done }) {
                     <b style={{ fontSize: 14 }}>{combo.join(' + ')}</b>
                     <span style={{ fontSize: 13, fontWeight: 600, color: ok ? C.ok : C.err }}>{Math.round(sum * 100) / 100}%</span>
                   </div>
+                  <div style={{ marginBottom: 10 }}><SplitBar roles={roles} combo={combo} split={d.splits[key]} /></div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     {combo.map(c => (
                       <label key={c} style={{ whiteSpace: 'nowrap' }}>

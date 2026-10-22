@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { LISTING_SETTINGS, CATEGORIES } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { Page, Card, Notice, FormField, go, field } from '../ui.jsx'
+import { Page, Card, Notice, FormField, FileInput, go, field } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { STATES } from './options.js'
 
@@ -96,8 +96,8 @@ export default function ListingNew() {
           </div>
         </Card>
         <Card title="Manage Photos">
-          <input type="file" multiple accept="image/jpeg,image/png" style={{ ...field, padding: 5 }} />
-          <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>JPG or PNG. Pick a cover photo after uploading. (Demo: photos are not stored.)</p>
+          <FileInput kind="photo" />
+          <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>Pick a cover photo after uploading. (Demo: photos are not stored.)</p>
         </Card>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>

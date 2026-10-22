@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { C, btn, btnPrimary, inp } from '../../styles.js'
+import { C, btn, btnPrimary } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { MONEY_OUT_STATUS, MONEY_OUT_TYPES, PARTY, sum } from '../model.js'
-import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Link, Drawer, KV, Block, Notice, Stat, cols, go, mono, useRecordNav } from '../ui.jsx'
+import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Link, Drawer, KV, Block, Notice, Stat, TextArea, FormField, FileInput, cols, go, mono, field, useRecordNav } from '../ui.jsx'
+import { BANKS } from './options.js'
 import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm, date, maskAcc } from '../format.js'
@@ -54,6 +55,11 @@ export default function MoneyOut({ parts }) {
           <SearchBox value={q} onChange={setQ} placeholder="Voucher, payee or form" />
           <Select label="Type" value={type} onChange={setType} options={[{ value: '', label: 'All six types' }, ...Object.entries(MONEY_OUT_TYPES).map(([value, label]) => ({ value, label: `${label} (${d.moneyOut.filter(x => x.type === value).length})` }))]} />
           <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'Select staff profile to view' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
+          <span style={{ flex: 1 }} />
+          <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={() => downloadCsv(`request-forms-${m.today}.csv`,
+            ['No.', 'Type', 'Date', 'Form', 'Staff', 'Pay to', 'IC', 'Bank', 'Bank Account Number', 'Amount', 'Cheque No.', 'Status', 'Payment Date', 'Receipt', 'Reasons'],
+            rows.map(x => [x.voucherNo, MONEY_OUT_TYPES[x.type], x.date, m.deals[x.dealId].code, m.staffName(x.staffId), x.payee.name, x.payee.ic || '', x.payee.bank, x.payee.account, x.amount,
+              x.chequeNo || '', MONEY_OUT_STATUS[x.status].label, x.paidOn || '', x.receipt || '', x.query || '']))}>Export CSV</button>
         </Toolbar>
         <DataTable columns={columns} rows={rows} onRow={x => go(`money-out/${x.id}`)} defaultSort={{ key: 'no', dir: 'desc' }} pageSize={20} narrowAt={900}
           empty="No request forms here" onClear={set || q ? clear : undefined} onOrder={onOrder} />
@@ -71,11 +77,8 @@ export default function MoneyOut({ parts }) {
                 ['Paid from', (() => { const a = m.bankAccount(open.from); return a ? `${a.bank} ${maskAcc(a.accountNo)}` : '—' })()],
                 ['Requested by', m.staffName(open.staffId)], open.approvedBy && ['Approved by', open.approvedBy], open.paidOn && ['Payment Date', date(open.paidOn)],
               ]} />
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                <button style={btn} disabled title="Demo only">Download Letter</button>
-                <button style={btn} disabled title="Demo only">{open.status === 'paid' ? 'Download Receipt' : 'Upload Receipt'}</button>
-              </div>
             </Block>
+            <PaymentDetails key={open.id} x={open} erp={erp} />
             <Block title="E-Form">
               <KV min={170} items={[
                 ['Form', <Link to={`deals/${open.dealId}`} style={mono}>{m.deals[open.dealId].code}</Link>],
@@ -86,6 +89,56 @@ export default function MoneyOut({ parts }) {
         )}
       </Drawer>
     </Page>
+  )
+}
+
+function downloadCsv(name, head, rows) {
+  const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`
+  save(name, [head, ...rows].map(r => r.map(cell).join(',')).join('\n'), 'text/csv')
+}
+function save(name, text, type = 'text/plain') {
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([text], { type })), download: name })
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+// Payment details, saved as they change (as in the current ERP): payment date,
+// cheque no., bank and account, the receipt; plus the letter and Delete.
+function PaymentDetails({ x, erp }) {
+  const fb = useFeedback()
+  const [f, setF] = useState({ chequeNo: x.chequeNo || '', account: x.payee.account || '' })
+  const upd = (body, done) => fb.run(() => erp.updateMoneyOut(x.id, body), done)
+  const paidOk = x.status === 'ready' || x.status === 'paid'
+  const remove = async () => {
+    if (await fb.confirm({ title: `Delete ${x.voucherNo}?`, body: `This ${MONEY_OUT_TYPES[x.type]} request of ${rm(x.amount)} is removed.`, confirmLabel: 'Delete', danger: true })
+      && await fb.run(() => erp.deleteMoneyOut(x.id), `${x.voucherNo} deleted`)) go('money-out')
+  }
+  const grid = { display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))' }
+  const doc = kind => `${kind.toUpperCase()} · ${x.voucherNo}\n${MONEY_OUT_TYPES[x.type]}\nPay to: ${x.payee.name}\nBank: ${x.payee.bank} ${x.payee.account}\nAmount: ${rm(x.amount)}\nDate: ${x.paidOn || x.date}\n`
+  return (
+    <Block title="Payment">
+      <div style={grid}>
+        <FormField label="Payment Date" help={paidOk ? 'Saves when you pick a date' : 'After Payment Ready'}>
+          <input type="date" style={field} value={x.paidOn || ''} disabled={!paidOk} onChange={e => e.target.value && upd({ paidOn: e.target.value }, `${x.voucherNo} payment date set`)} />
+        </FormField>
+        <FormField label="Method"><Select block plain label="Method" value={x.method} onChange={v => upd({ method: v }, `${x.voucherNo}: ${v === 'cheque' ? 'cheque' : 'online transfer'}`)}
+          options={[{ value: 'online', label: 'Online transfer' }, { value: 'cheque', label: 'Cheque' }]} /></FormField>
+        {x.method === 'cheque' && <FormField label="Cheque No."><input style={field} value={f.chequeNo} onChange={e => setF({ ...f, chequeNo: e.target.value })}
+          onBlur={() => f.chequeNo !== (x.chequeNo || '') && upd({ chequeNo: f.chequeNo }, 'Cheque number saved')} /></FormField>}
+        <FormField label="Bank"><Select block plain label="Bank" value={x.payee.bank} onChange={v => upd({ bank: v }, 'Bank saved')} options={[...new Set([x.payee.bank, ...BANKS])].filter(Boolean).map(b => ({ value: b, label: b }))} /></FormField>
+        <FormField label="Bank Account Number"><input style={field} value={f.account} onChange={e => setF({ ...f, account: e.target.value })}
+          onBlur={() => f.account !== (x.payee.account || '') && upd({ account: f.account }, 'Bank account saved')} /></FormField>
+        <FormField label="Receipt" help={x.receipt ? `Uploaded: ${x.receipt}` : 'Upload the bank slip once paid'}>
+          <FileInput kind="document" onChange={files => files[0] && upd({ receipt: files[0].name }, 'Receipt uploaded')} />
+        </FormField>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+        <button style={btn} onClick={() => save(`${x.voucherNo}-letter.txt`, doc('letter'))}>Download Letter{x.letter ? ` (${x.letter})` : ''}</button>
+        <button style={btn} disabled={!x.receipt && x.status !== 'paid'} onClick={() => save(`${x.voucherNo}-receipt.txt`, doc('receipt'))}>Download Receipt</button>
+        <span style={{ flex: 1 }} />
+        {(x.status === 'new' || x.status === 'queried') && <button style={{ ...btn, color: C.err }} onClick={remove}>Delete</button>}
+      </div>
+    </Block>
   )
 }
 
@@ -105,7 +158,7 @@ function Actions({ x, erp, next }) {
   if (asking) {
     return (
       <>
-        <input style={{ ...inp, flex: '1 1 220px' }} autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="Reason" />
+        <TextArea style={{ flex: '1 1 220px', width: 'auto' }} autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="Reason" />
         <button style={btn} onClick={() => setAsking(false)}>Cancel</button>
         <button style={btnPrimary} disabled={busy || !text.trim()} onClick={() => set('queried', text)}>Pending Queries</button>
       </>

@@ -1,6 +1,10 @@
 // Every API call lives here.
 import * as local from './demo/localApi.js'
 import * as erp from './demo/erpApi.js'
+import * as profile from './demo/profileApi.js'
+import * as access from './demo/accessApi.js'
+import { tidyProfile } from '../shared/profile.js'
+import { defaultPolicy } from '../shared/access.js'
 
 // Demo mode (the default for now): no server or database — Setup runs in the
 // browser and saves to localStorage. Set VITE_USE_SERVER=true to use the API.
@@ -61,6 +65,20 @@ export async function changePassword(current, password) {
 }
 export const signOut = () => setToken('')
 
+// My profile (avatar menu). The demo keeps it in this browser; the server has
+// no /auth/profile route yet, so there only the name (from /auth/me) shows.
+// PROFILE_EVENT fires after a save, so the top bar picks up a new name or photo.
+export const PROFILE_EVENT = 'ssk:profile'
+const profileSaved = p => { window.dispatchEvent(new Event(PROFILE_EVENT)); return p }
+export const getMyProfile = () => (DEMO ? profile.getProfile() : request('/auth/me').then(r => ({ ...tidyProfile(r.user), hasPassword: true })))
+export const saveMyProfile = body => (DEMO ? profile.saveProfile(body) : request('/auth/profile', { method: 'PUT', body })).then(profileSaved)
+export const changeMyPassword = (current, password) => (DEMO ? profile.changePassword(current, password) : changePassword(current, password)).then(profileSaved)
+
+// Roles & access (what each role may do). The demo keeps it in this browser;
+// the server has no /access route yet, so there the recommended policy applies.
+export const getAccess = () => (DEMO ? access.getAccess() : Promise.resolve({ policy: defaultPolicy() }))
+export const saveAccessPolicy = policy => (DEMO ? access.savePolicy(policy) : request('/access', { method: 'PUT', body: { policy } }))
+
 // Setup
 export const getSetup = () => (DEMO ? local.getSetup() : request('/setup'))
 // `step` may be a list of [step, body] pairs (one wizard page). The demo saves
@@ -101,6 +119,36 @@ export const updateCustomer = (id, fields) => erp.updateCustomer(id, fields)
 export const addListing = body => erp.addListing(body)
 export const addStaff = body => erp.addStaff(body)
 export const setStaffStatus = (id, status) => erp.setStaffStatus(id, status)
-export const setVendorRequest = (id, status) => erp.setVendorRequest(id, status)
+export const setVendorRequest = (id, status, listingId) => erp.setVendorRequest(id, status, listingId)
 export const updateEnquiry = (id, fields) => erp.updateEnquiry(id, fields)
 export const raiseRequest = (dealId, type, body) => erp.raiseRequest(dealId, type, body)
+export const addDeal = body => erp.addDeal(body)
+export const updateDeal = (id, body) => erp.updateDeal(id, body)
+export const deleteDeal = id => erp.deleteDeal(id)
+export const setDealDoc = (id, name, fileName) => erp.setDealDoc(id, name, fileName)
+export const requestInvoice = id => erp.requestInvoice(id)
+export const rerunClose = closeId => erp.rerunClose(closeId)
+export const deleteClose = closeId => erp.deleteClose(closeId)
+export const unarchive = archiveId => erp.unarchive(archiveId)
+export const updateTransaction = (id, body) => erp.updateTransaction(id, body)
+export const deleteTransaction = id => erp.deleteTransaction(id)
+export const updateMoneyOut = (id, body) => erp.updateMoneyOut(id, body)
+export const deleteMoneyOut = id => erp.deleteMoneyOut(id)
+export const deleteSalaryRequest = id => erp.deleteSalaryRequest(id)
+export const updateListing = (id, fields) => erp.updateListing(id, fields)
+export const addListingFollowUp = (id, body) => erp.addListingFollowUp(id, body)
+export const deleteListing = id => erp.deleteListing(id)
+export const saveTitle = body => erp.saveTitle(body)
+export const setTitleStatus = (ids, status) => erp.setTitleStatus(ids, status)
+export const deleteTitle = (id, replacementId) => erp.deleteTitle(id, replacementId)
+export const saveArea = body => erp.saveArea(body)
+export const setAreaStatus = (id, status) => erp.setAreaStatus(id, status)
+export const deleteArea = id => erp.deleteArea(id)
+export const addCustomerFollowUp = (id, body) => erp.addCustomerFollowUp(id, body)
+export const updateStaff = (id, fields) => erp.updateStaff(id, fields)
+export const setMarketingStaffs = (id, list) => erp.setMarketingStaffs(id, list)
+export const deleteStaff = id => erp.deleteStaff(id)
+export const saveVideo = body => erp.saveVideo(body)
+export const deleteVideo = id => erp.deleteVideo(id)
+export const addPropertyType = name => erp.addPropertyType(name)
+export const deletePropertyType = id => erp.deletePropertyType(id)
