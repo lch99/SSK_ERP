@@ -1,0 +1,11 @@
+.env
+backend/.env
+node_modules
+dist
+logs
+*.log
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+backend/*.sqlite3

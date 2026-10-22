@@ -1,0 +1,147 @@
+/* What inline styles can't do: hover, focus, pressed states, form-control
+   chrome, scrollbars and motion. Colours match src/styles.js. Keep this small:
+   layout and look stay inline with the C tokens. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: #f4f5f8;
+  color: #101828;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3 { font-family: Montserrat, Inter, sans-serif; letter-spacing: -0.015em; }
+h1 { font-weight: 700; }
+h2, h3 { font-weight: 700; }
+
+::selection { background: rgba(236, 0, 63, 0.16); }
+
+a { color: inherit; }
+a[href]:hover { text-decoration-thickness: 1.5px; }
+
+/* ── Keyboard focus: a clear crimson ring, only when using the keyboard ── */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid #ec003f;
+  outline-offset: 2px;
+}
+
+/* ── Buttons: hover, pressed, disabled ── */
+button { -webkit-tap-highlight-color: transparent; transition: filter .15s ease, box-shadow .15s ease, background-color .15s ease, transform .05s ease, opacity .15s ease; }
+button:not(:disabled):hover { filter: brightness(0.965); }
+button:not(:disabled):active { transform: translateY(1px); filter: brightness(0.93); }
+button:disabled { cursor: not-allowed; }
+
+/* ── Text fields and selects: focus ring, placeholder, one arrow style ── */
+input, select, textarea { transition: border-color .15s ease, box-shadow .15s ease; }
+input:not([type=checkbox]):not([type=radio]):not([type=range]):focus,
+select:focus, textarea:focus {
+  border-color: #ec003f !important;
+  box-shadow: 0 0 0 4px rgba(236, 0, 63, 0.12) !important;
+  outline: none;
+}
+/* Fields that sit inside their own frame (e.g. quick search) skip the ring. */
+input.ssk-bare:focus { border-color: transparent !important; box-shadow: none !important; }
+input::placeholder, textarea::placeholder { color: #98a2b3; opacity: 1; }
+input:disabled, select:disabled, textarea:disabled { background: #f9fafb !important; color: #98a2b3; cursor: not-allowed; }
+
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23667085' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+  background-size: 16px !important;
+  padding-right: 32px !important;
+  cursor: pointer;
+}
+input[type=date] { min-height: 38px; }
+input[type=date]::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
+input[type=number]::-webkit-inner-spin-button { opacity: .5; }
+input[type=checkbox], input[type=radio] { accent-color: #ec003f; cursor: pointer; }
+
+/* ── Tables: a soft highlight on the row under the pointer ── */
+tbody tr { transition: background-color .12s ease; }
+tbody tr:hover > td { background-color: #f9fafb; }
+
+/* ── Disclosure ── */
+summary { list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: '▸'; display: inline-block; width: 1em; transition: transform .15s ease; }
+details[open] > summary::before { transform: rotate(90deg); }
+
+/* ── Motion: dialogs and side panels ease in ── */
+@keyframes ssk-fade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes ssk-rise { from { opacity: 0; transform: translateY(8px) scale(.99) } to { opacity: 1; transform: none } }
+@keyframes ssk-slide { from { transform: translateX(24px); opacity: .6 } to { transform: none; opacity: 1 } }
+@keyframes ssk-shimmer { 0% { background-position: -400px 0 } 100% { background-position: 400px 0 } }
+[role=dialog] { animation: ssk-rise .18s ease-out; }
+.ssk-fade { animation: ssk-fade .2s ease-out; }
+@keyframes ssk-up { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: none } }
+@keyframes ssk-ping { 0% { transform: scale(1); opacity: .7 } 80%, 100% { transform: scale(2.6); opacity: 0 } }
+.ssk-rise { animation: ssk-up .5s cubic-bezier(.2, .8, .2, 1) both; }
+.ssk-pulse { animation: ssk-ping 1.8s cubic-bezier(0, 0, .2, 1) infinite; }
+.ssk-page { animation: ssk-rise .22s ease-out; }
+.ssk-skeleton {
+  background: linear-gradient(90deg, #eceef2 0px, #f6f7f9 160px, #eceef2 320px);
+  background-size: 800px 100%;
+  animation: ssk-shimmer 1.3s linear infinite;
+  border-radius: 8px;
+}
+
+/* ── Scrollbars: thin and quiet ── */
+* { scrollbar-width: thin; scrollbar-color: #cdd2da transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: #cdd2da; border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background-color: #a9b0bc; }
+
+/* ── Lift for anything marked as a clickable card ── */
+.ssk-lift { transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease; }
+.ssk-lift:hover { box-shadow: 0 8px 24px -10px rgba(16, 24, 40, .22), 0 2px 6px -2px rgba(16, 24, 40, .08); transform: translateY(-1px); }
+
+/* ── Drawers slide in from the right; popovers and toasts ease in ── */
+@keyframes ssk-pop { from { opacity: 0; transform: translateY(-4px) scale(.98) } to { opacity: 1; transform: none } }
+@keyframes ssk-pop-up { from { opacity: 0; transform: translateY(4px) scale(.98) } to { opacity: 1; transform: none } }
+@keyframes ssk-drawer { from { transform: translateX(32px); opacity: .4 } to { transform: none; opacity: 1 } }
+@keyframes ssk-toast { from { opacity: 0; transform: translateY(10px) scale(.98) } to { opacity: 1; transform: none } }
+.ssk-drawer[role=dialog] { animation: ssk-drawer .24s cubic-bezier(.2, .8, .2, 1); }
+.ssk-pop { animation: ssk-pop .14s ease-out; transform-origin: top; }
+.ssk-pop[data-up] { animation-name: ssk-pop-up; transform-origin: bottom; }
+.ssk-toast { animation: ssk-toast .2s cubic-bezier(.2, .8, .2, 1); }
+
+/* ── Menu items: hover and keyboard focus share one highlight ── */
+.ssk-menu-item { transition: background-color .1s ease; }
+.ssk-menu-item:not(:disabled):hover, .ssk-menu-item:not(:disabled):focus { background: #f2f4f7 !important; outline: none; filter: none !important; }
+.ssk-menu-item.ssk-danger:not(:disabled):hover, .ssk-menu-item.ssk-danger:not(:disabled):focus { background: #fdecea !important; }
+
+/* ── Row buttons stay quiet until the row is hovered or focused ── */
+.ssk-row .ssk-quiet[aria-expanded=false] { border-color: transparent !important; background: transparent !important; box-shadow: none !important; color: #667085 !important; }
+.ssk-row:hover .ssk-quiet[aria-expanded=false], .ssk-row:focus-within .ssk-quiet[aria-expanded=false] { border-color: #d0d5dd !important; background: #fff !important; color: #101828 !important; }
+
+/* ── Rows you can open: a clear ring when reached with the keyboard ── */
+tr.ssk-row:focus-visible { outline: 2px solid #ec003f; outline-offset: -2px; }
+tr.ssk-row:focus-visible > td { background-color: #fff7f9; }
+div.ssk-row:focus-visible { outline: 2px solid #ec003f; outline-offset: 1px; }
+.ssk-sort:focus-visible, .ssk-tab:focus-visible { outline: 2px solid #ec003f; outline-offset: 2px; }
+.ssk-sort:hover { color: #101828; }
+.ssk-tab:not([aria-selected=true]):hover { color: #8b0836 !important; background: #fafbfc !important; }
+.ssk-back:hover { color: #8b0836 !important; }
+
+/* ── Search fields bring their own clear button ── */
+input.ssk-search::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+
+/* ── Menus: the phone menu slides in; the folded rail lights up on hover ── */
+@keyframes ssk-menu-in { from { transform: translateX(-24px); opacity: .5 } to { transform: none; opacity: 1 } }
+.ssk-menu-in { animation: ssk-menu-in .2s cubic-bezier(.2, .8, .2, 1); }
+.ssk-rail-btn { transition: background-color .12s ease, color .12s ease; }
+.ssk-rail-btn:not([aria-current=page]):hover { background: rgba(255, 255, 255, 0.07) !important; color: #fff !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

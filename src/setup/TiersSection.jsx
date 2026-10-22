@@ -1,0 +1,293 @@
+import { useState } from 'react'
+import * as P from '../../shared/payout.js'
+import { C, inp, sel, btn, btnPrimary, th, td, label } from '../styles.js'
+import Section from './Section.jsx'
+import { useDraft } from './useDraft.js'
+import { useNarrow } from './useNarrow.js'
+import TryDeal from './TryDeal.jsx'
+import { useFeedback } from '../erp/feedback.jsx'
+
+const r2 = n => Math.round(n * 100) / 100
+const isNum = v => v !== '' && v != null && Number.isFinite(Number(v))
+const everyType = v => Object.fromEntries(P.DEAL_TYPES.map(dt => [dt, v]))
+
+// One click to a working ladder: the ranks and own rates of the current ERP
+// (Trainee 60 · Agent 70 · Senior Negotiator 80) and its 90% paid out per deal.
+// The RM amounts are only a starting point.
+const STARTER = [
+  ['T1', 'Trainee', 'lifetime', 0, 60],
+  ['T2', 'Agent', 'lifetime', 30000, 70],
+  ['T3', 'Senior Negotiator', 'lifetime', 80000, 80],
+  ['T4', 'Top Achiever', 'yearly', 150000, 85],
+].map(([name, title, basis, threshold, agentRate]) => ({ id: null, name, title, basis, threshold, agentRate, totals: everyType(90) }))
+
+const blankTier = (n, last) => ({ id: null, name: `T${n + 1}`, title: '', basis: last?.basis || 'lifetime', threshold: n ? '' : 0, agentRate: '', totals: {} })
+
+// ── Tiers and payouts ────────────────────────────────────────────────────────
+// Each tier plan is one table: the agent rate and the total payout side by
+// side. Branches pay on the standard plan unless picked for another one.
+
+export default function TiersSection({ setup, save, step, done }) {
+  const fb = useFeedback()
+  const [plans, setPlans, dirty, reset] = useDraft(setup.plans)
+  const [activeRaw, setActive] = useState(0)
+  const active = Math.min(activeRaw, Math.max(0, plans.length - 1))
+  const plan = plans[active]
+  const enabled = P.DEAL_TYPES.filter(dt => setup.dealTypes?.[dt]?.enabled)
+  const differs = list => enabled.length > 1 && list.some(p => p.tiers.some(t => new Set(enabled.map(dt => String(t.totals?.[dt] ?? ''))).size > 1))
+  const [perTypeRaw, setPerType] = useState(() => differs(setup.plans))
+  const perType = perTypeRaw && enabled.length > 1
+  const [fill, setFill] = useState({ value: '', mode: 'flat' })
+  const [boxRef, narrow] = useNarrow(perType ? 640 + enabled.length * 110 : 760)
+
+  // Saved in ladder order, so check them that way too.
+  const sorted = plans.map(p => ({ ...p, tiers: P.sortTiers(p.tiers) }))
+  const errors = P.validatePlans(sorted, setup.dealTypes, setup.branches)
+
+  const setPlan = patch => setPlans(plans.map((p, i) => (i === active ? { ...p, ...patch } : p)))
+  const setTiers = tiers => setPlan({ tiers })
+  const edit = (i, k, v) => setTiers(plan.tiers.map((t, j) => (j === i ? { ...t, [k]: v } : t)))
+  const setTotal = (i, dt, v) => setTiers(plan.tiers.map((t, j) => (j === i ? { ...t, totals: { ...t.totals, ...(dt ? { [dt]: v } : everyType(v)) } } : t)))
+
+  const addPlan = () => {
+    setPlans([...plans, { id: null, name: '', branchIds: [], tiers: plan.tiers.map(t => ({ ...t, id: null })) }])
+    setActive(plans.length)
+  }
+  const removePlan = async () => {
+    const name = P.planLabel(plan, active)
+    if (!(await fb.confirm({ title: `Remove ${name}?`, body: `Its branches go back to ${P.planLabel(plans[0], 0)}.`, confirmLabel: 'Remove plan', danger: true }))) return
+    setPlans(plans.filter((_, i) => i !== active))
+    setActive(0)
+  }
+  // A branch is on one plan: picking it here takes it off any other.
+  const toggleBranch = id => {
+    const on = plan.branchIds.includes(id)
+    setPlans(plans.map((p, i) => (i === 0 ? p
+      : i === active ? { ...p, branchIds: on ? p.branchIds.filter(x => x !== id) : [...p.branchIds, id] }
+      : { ...p, branchIds: on ? p.branchIds : p.branchIds.filter(x => x !== id) })))
+  }
+  // Back to one total for every deal type: keep the first deal type's.
+  const togglePerType = on => {
+    setPerType(on)
+    if (!on && differs(plans)) {
+      setPlans(plans.map(p => ({ ...p, tiers: p.tiers.map(t => ({ ...t, totals: { ...t.totals, ...everyType(t.totals?.[enabled[0]] ?? '') } })) })))
+    }
+  }
+  const applyFill = () => {
+    const v = Number(fill.value)
+    setTiers(plan.tiers.map(t => {
+      if (fill.mode === 'above' && !isNum(t.agentRate)) return t
+      const total = fill.mode === 'above' ? Math.min(100, r2(Number(t.agentRate) + v)) : v
+      return { ...t, totals: { ...t.totals, ...everyType(total) } }
+    }))
+  }
+
+  if (!plans.length) {
+    return (
+      <Section id="tiers" step={step} title="Tiers and payouts" done={done}
+        hint="What a negotiator earns at each level, and what the deal pays out in total when they have uplines.">
+        <Starter onUse={tiers => setPlans([{ id: null, name: P.STANDARD_PLAN, branchIds: [], tiers }])} />
+      </Section>
+    )
+  }
+
+  const onStandard = P.branchesOnPlan(plans, setup.branches, 0)
+  const cols = perType ? enabled : [null]
+
+  // The inputs for one tier, laid out as a table row or a card below.
+  const fields = (t, i) => {
+    const rateBad = isNum(t.agentRate) && (Number(t.agentRate) <= 0 || Number(t.agentRate) >= 100)
+    const totalCell = dt => {
+      const v = t.totals?.[dt || enabled[0] || 'sale']
+      const ok = isNum(v) && isNum(t.agentRate) && !P.validateTotal(v, t.agentRate)
+      const bad = isNum(v) && isNum(t.agentRate) && !ok
+      return (
+        <span style={{ display: 'inline-block', whiteSpace: 'nowrap' }}>
+          <input style={{ ...inp, width: 76, ...(bad ? { border: `1px solid ${C.err}` } : {}) }} type="number" min="0" max="100" step="0.01" value={v ?? ''}
+            aria-label={`Total payout${dt ? ` for ${P.DEAL_TYPE_LABELS[dt]}` : ''}, ${t.name || `tier ${i + 1}`}`} onChange={e => setTotal(i, dt, e.target.value)} /> %
+          <span style={{ display: 'block', fontSize: 11.5, color: bad ? C.err : C.muted, marginTop: 2 }}>
+            {ok ? `uplines ${r2(v - t.agentRate)} · company ${r2(100 - v)}` : bad ? `at least ${t.agentRate}%` : ' '}
+          </span>
+        </span>
+      )
+    }
+    return {
+      code: <input style={{ ...inp, width: 64 }} maxLength={20} value={t.name} placeholder={`T${i + 1}`} aria-label="Tier code" onChange={e => edit(i, 'name', e.target.value)} />,
+      title: <input style={{ ...inp, width: '100%' }} maxLength={60} value={t.title ?? ''} placeholder="e.g. Senior Negotiator" aria-label="Tier name" onChange={e => edit(i, 'title', e.target.value)} />,
+      basis: (
+        <select style={sel} value={t.basis} aria-label="Climbs on" onChange={e => edit(i, 'basis', e.target.value)}>
+          <option value="lifetime">Lifetime</option>
+          <option value="yearly">This year</option>
+        </select>
+      ),
+      threshold: <input style={{ ...inp, width: 110 }} type="number" min="0" step="1000" value={t.threshold} aria-label="Reached at (RM)" onChange={e => edit(i, 'threshold', e.target.value)} />,
+      rate: <span style={{ whiteSpace: 'nowrap' }}><input style={{ ...inp, width: 70, ...(rateBad ? { border: `1px solid ${C.err}` } : {}) }} type="number" min="0" max="100" step="0.01"
+        value={t.agentRate} aria-label="Agent rate" onChange={e => edit(i, 'agentRate', e.target.value)} /> %</span>,
+      totals: cols.map(totalCell),
+      remove: <button style={btn} onClick={() => setTiers(plan.tiers.filter((_, j) => j !== i))} title="Remove tier" aria-label={`Remove ${t.name || 'tier'}`}>✕</button>,
+    }
+  }
+
+  return (
+    <Section id="tiers" step={step} title="Tiers and payouts" done={done} dirty={dirty} onReset={reset}
+      hint={<>For each level: the <b>agent rate</b> the negotiator keeps, and the <b>total payout</b> when they have uplines (agent + upline pool). The rest stays with the company. <b>Lifetime</b> tiers climb on commission since joining; after the top lifetime tier, <b>this-year</b> tiers climb on this year's commission. Tiers are put in order of the RM amount when you save.</>}
+      errors={errors} onSave={() => save('plans', { plans: sorted })}>
+
+      {/* Which branches pay on which tiers */}
+      {setup.branches.length > 0 && plans.length === 1 && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 12px', borderRadius: 8, background: C.bg, marginBottom: 14, fontSize: 13.5 }}>
+          <span style={{ flex: '1 1 260px' }}>
+            {setup.branches.length === 1 ? <><b>{setup.branches[0].name}</b> pays on these tiers.</> : <>All {setup.branches.length} branches pay on these tiers.</>}
+          </span>
+          {setup.branches.length > 1 && <button style={{ ...btn, fontSize: 13, padding: '5px 11px' }} onClick={addPlan}>+ Different tiers for some branches</button>}
+        </div>
+      )}
+      {plans.length > 1 && (
+        <div role="tablist" aria-label="Tier plans" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {plans.map((p, i) => {
+            const n = P.branchesOnPlan(plans, setup.branches, i).length
+            const on = i === active
+            return (
+              <button key={p.id ?? `new-${i}`} role="tab" aria-selected={on} onClick={() => setActive(i)}
+                style={{ ...btn, ...(on ? { background: C.primaryBg, border: `1px solid ${C.primary}`, color: C.primary } : {}) }}>
+                {P.planLabel(p, i)} <span style={{ fontWeight: 500, color: on ? C.primary : C.muted }}>· {n} branch{n === 1 ? '' : 'es'}</span>
+              </button>
+            )
+          })}
+          <button style={{ ...btn, border: `1px dashed ${C.borderStrong}`, boxShadow: 'none', color: C.muted }} onClick={addPlan}>+ Another plan</button>
+        </div>
+      )}
+      {plans.length > 1 && (
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <label style={{ flex: '0 1 240px' }}><span style={label}>Plan name</span>
+              <input style={{ ...inp, width: '100%' }} maxLength={40} value={plan.name} placeholder={active === 0 ? P.STANDARD_PLAN : 'e.g. Puchong'} onChange={e => setPlan({ name: e.target.value })} />
+            </label>
+            <span style={{ flex: 1 }} />
+            {active > 0 && <button style={{ ...btn, fontSize: 13 }} onClick={removePlan}>Remove this plan</button>}
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <span style={label}>Used by</span>
+            {active === 0 ? (
+              <p style={{ fontSize: 13.5, margin: 0, lineHeight: 1.5 }}>
+                {onStandard.length ? <b>{onStandard.map(b => b.name).join(', ')}</b> : <span style={{ color: C.muted }}>No branch right now</span>}
+                <span style={{ color: C.muted }}>: every branch not picked for another plan.</span>
+              </p>
+            ) : (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {setup.branches.map(b => {
+                  const on = plan.branchIds.includes(b.id)
+                  const elsewhere = P.planIndexFor(plans, b.id)
+                  return (
+                    <button key={b.id} onClick={() => toggleBranch(b.id)} aria-pressed={on}
+                      style={{ ...btn, fontSize: 13, padding: '5px 11px', borderRadius: 16,
+                        ...(on ? { background: C.primary, border: `1px solid ${C.primary}`, color: '#fff' } : {}) }}>
+                      {on ? '✓ ' : ''}{b.name}
+                      {!on && <span style={{ fontWeight: 500, color: C.muted }}>· {P.planLabel(plans[elsewhere], elsewhere)}</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Quick fill and how totals are set */}
+      {plan.tiers.length > 0 && (
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, fontSize: 13.5 }}>
+          <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ color: C.muted }}>Fill total payout:</span>
+            <input style={{ ...inp, width: 72 }} type="number" min="0" max="100" step="0.01" placeholder={fill.mode === 'flat' ? '90' : '25'}
+              aria-label="Fill value" value={fill.value} onChange={e => setFill({ ...fill, value: e.target.value })} />
+            <select style={sel} value={fill.mode} aria-label="Fill how" onChange={e => setFill({ ...fill, mode: e.target.value })}>
+              <option value="flat">% on every tier</option>
+              <option value="above">points above each agent rate</option>
+            </select>
+            <button style={btn} disabled={!isNum(fill.value)} onClick={applyFill}>Fill</button>
+          </span>
+          {enabled.length > 1 && (
+            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+              <input type="checkbox" checked={perType} onChange={e => togglePerType(e.target.checked)} style={{ accentColor: C.primary }} />
+              Different total for each deal type
+            </label>
+          )}
+        </div>
+      )}
+
+      <div ref={boxRef}>
+        {!plan.tiers.length && <p style={{ color: C.muted, fontSize: 14, margin: '0 0 4px' }}>No tiers yet. Every agent starts in the first tier, at RM 0.</p>}
+        {plan.tiers.length > 0 && !narrow && (
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead><tr>
+              <th style={th}>Code</th><th style={th}>Name</th><th style={th}>Climbs on</th><th style={th}>Reached at (RM)</th><th style={th}>Agent rate</th>
+              {cols.map(dt => <th key={dt || 'all'} style={th}>{dt ? `Total · ${P.DEAL_TYPE_LABELS[dt]}` : 'Total payout'}</th>)}
+              <th style={th} />
+            </tr></thead>
+            <tbody>
+              {plan.tiers.map((t, i) => {
+                const f = fields(t, i)
+                return (
+                  <tr key={t.id ?? `new-${i}`}>
+                    <td style={{ ...td, width: 1 }}>{f.code}</td>
+                    <td style={td}>{f.title}</td>
+                    <td style={{ ...td, width: 1 }}>{f.basis}</td>
+                    <td style={{ ...td, width: 1 }}>{f.threshold}</td>
+                    <td style={{ ...td, width: 1 }}>{f.rate}</td>
+                    {f.totals.map((cell, k) => <td key={k} style={{ ...td, width: 1, paddingTop: 12 }}>{cell}</td>)}
+                    <td style={{ ...td, width: 1 }}>{f.remove}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+        {plan.tiers.length > 0 && narrow && plan.tiers.map((t, i) => {
+          const f = fields(t, i)
+          return (
+            <div key={t.id ?? `new-${i}`} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                {f.code}
+                <span style={{ flex: 1, minWidth: 0 }}>{f.title}</span>
+                {f.remove}
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <div><span style={label}>Climbs on</span>{f.basis}</div>
+                <div><span style={label}>Reached at (RM)</span>{f.threshold}</div>
+                <div><span style={label}>Agent rate</span>{f.rate}</div>
+                {f.totals.map((cell, k) => <div key={k}><span style={label}>{cols[k] ? `Total · ${P.DEAL_TYPE_LABELS[cols[k]]}` : 'Total payout'}</span>{cell}</div>)}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <button style={{ ...btn, marginTop: 10 }} onClick={() => setTiers([...plan.tiers, blankTier(plan.tiers.length, plan.tiers[plan.tiers.length - 1])])}>+ Add tier</button>
+
+      <TryDeal key={active} setup={setup} tiers={P.sortTiers(plan.tiers)} title={plans.length > 1 ? `Try a deal · ${P.planLabel(plan, active)}` : 'Try a deal'} />
+    </Section>
+  )
+}
+
+// First visit: a ready ladder in one click, or an empty one.
+function Starter({ onUse }) {
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 }}>
+      <h3 style={{ fontSize: 15, margin: '0 0 4px' }}>Start with the usual ladder</h3>
+      <p style={{ fontSize: 13, color: C.muted, margin: '0 0 12px', lineHeight: 1.45 }}>
+        The ranks and rates of the current ERP, with 90% of the commission paid out on every deal. Change the RM amounts and rates to yours afterwards.
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, marginBottom: 14 }}>
+        {STARTER.map(t => (
+          <div key={t.name} style={{ padding: '8px 10px', borderRadius: 8, background: C.bg }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{t.name} · {t.title}</div>
+            <div style={{ fontSize: 12, color: C.muted }}>{t.agentRate}% · {t.basis === 'yearly' ? 'this year' : 'from'} RM {t.threshold.toLocaleString('en-MY')}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button style={btnPrimary} onClick={() => onUse(STARTER.map(t => ({ ...t, totals: { ...t.totals } })))}>Use this ladder</button>
+        <button style={btn} onClick={() => onUse([blankTier(0)])}>Start from an empty table</button>
+      </div>
+    </div>
+  )
+}
