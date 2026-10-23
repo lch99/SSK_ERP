@@ -122,16 +122,17 @@ const colName = i => (i >= 26 ? colName(Math.floor(i / 26) - 1) : '') + String.f
 const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 
-// sheets: [{ name, rows: string[][], widths?: number[], lists?: { [col]: string[] } }].
-// Every cell is text, and every column is formatted as Text, so IC and phone
-// numbers keep their leading zeros when typed. Row 1 is a bold, frozen header;
+// sheets: [{ name, rows: (string|number)[][], widths?: number[], lists?: { [col]: string[] } }].
+// Every column is formatted as Text, so IC and phone numbers keep their
+// leading zeros when typed; a JS number goes in as a number, so it adds up. Row 1 is a bold, frozen header;
 // `lists` adds a drop-down to a column. Returns the .xlsx file's bytes.
 export function makeXlsx(sheets) {
   const sheetXml = s => {
     const width = Math.max(...s.rows.map(r => r.length), 1)
     const cols = Array.from({ length: width }, (_, i) => `<col min="${i + 1}" max="${i + 1}" width="${s.widths?.[i] || 14}" style="1" customWidth="1"/>`).join('')
     const rows = s.rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => (v === '' || v == null ? ''
-      : `<c r="${colName(ci)}${ri + 1}" t="inlineStr" s="${ri === 0 ? 2 : 1}"><is><t xml:space="preserve">${esc(v)}</t></is></c>`)).join('')}</row>`).join('')
+      : typeof v === 'number' && ri > 0 && Number.isFinite(v) ? `<c r="${colName(ci)}${ri + 1}" s="0"><v>${v}</v></c>`
+        : `<c r="${colName(ci)}${ri + 1}" t="inlineStr" s="${ri === 0 ? 2 : 1}"><is><t xml:space="preserve">${esc(v)}</t></is></c>`)).join('')}</row>`).join('')
     // A drop-down holds at most 255 characters, and its items can't contain commas.
     const lists = Object.entries(s.lists || {}).filter(([, items]) => items.length && items.every(x => !/[,"]/.test(x)) && items.join(',').length <= 250)
       .map(([col, items]) => `<dataValidation type="list" allowBlank="1" showErrorMessage="0" sqref="${colName(Number(col))}2:${colName(Number(col))}2000"><formula1>"${esc(items.join(','))}"</formula1></dataValidation>`)

@@ -10,6 +10,11 @@ describe('spreadsheets', () => {
     // Empty cells aren't written, so a row ends at its last filled cell.
     expect(await readXlsx(bytes)).toEqual([rows[0], rows[1], ['', 'Cheras']])
   })
+  it('writes numbers as numbers, so Excel can add them up', async () => {
+    const bytes = makeXlsx([{ name: 'Pay', rows: [['Name', 'RM'], ['Mei', 1234.5]] }])
+    expect(new TextDecoder().decode(bytes)).toContain('<v>1234.5</v>')
+    expect(await readXlsx(bytes)).toEqual([['Name', 'RM'], ['Mei', '1234.5']])
+  })
   it('reads compressed files, shared strings and blank rows, as Excel saves them', async () => {
     const enc = s => new TextEncoder().encode(s)
     const files = [

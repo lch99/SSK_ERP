@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { ROLE_COLORS } from '../../setup/colors.js'
-import OutlineTree from '../../setup/OutlineTree.jsx'
 import { useErp } from '../ErpContext.jsx'
 import { STAFF_STATUS, DEAL_STATUS, PAYOUT_STATUS, ACCOUNT_TYPES, sum } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, Chips, DataTable, Status, Pill, Avatar, Who, Link, Empty, KV, Progress, Stat, Notice, FormField, FileInput, TextArea, Menu, Modal, cols, go, mono, small, tabular, field } from '../ui.jsx'
@@ -13,6 +12,10 @@ import { useFeedback } from '../feedback.jsx'
 import { rm, date, maskIc, maskAcc, num, ago } from '../format.js'
 import { lineRole } from './Payouts.jsx'
 import { BANKS } from './options.js'
+import { OrgTree } from './OrgChart.jsx'
+import { buildOrg } from '../org.js'
+import { useNarrow } from '../../setup/useNarrow.js'
+import { makeXlsx, download, XLSX_TYPE } from '../../setup/sheet.js'
 import { NoAccess, useCan, useGate } from '../access.jsx'
 
 // Agents & staff ("H.R Portal" in the current ERP): the people, their position (tier), upline and status.
@@ -37,17 +40,67 @@ export function RoleTag({ code, setup }) {
   return <span style={{ fontSize: 11.5, fontWeight: 700, padding: '1px 7px', borderRadius: 999, color, background: `${color}14`, border: `1px solid ${color}40`, whiteSpace: 'nowrap' }}>{code}</span>
 }
 
+// Built for thousands of people: counts at the top (each one a filter),
+// filters for upline level, tier and a leader's team, 25 rows at a time, and
+// the whole filtered list as an Excel file.
 function StaffList() {
   const { m, scoped: d, setup } = useErp()
   const can = useCan()
   const [tab, setTab] = useState('all')
   const [view, setView] = useState('list')
   const [q, setQ] = useState('')
+  const [level, setLevel] = useState('')     // '' · 'leaders' · a level code · 'none' (no upline level)
+  const [tier, setTier] = useState('')       // a tier code (T1…)
+  const [leader, setLeader] = useState('')   // a leader's id: only the people under them
+  const [quick, setQuick] = useState('')     // 'new' (joined this month) · 'expiring' (within 30 days)
+  // Phones: the counts sit two by two, without icons, so the list starts on the first screen.
+  const [statsBox, narrow] = useNarrow(560)
+
+  const org = useMemo(() => buildOrg(d.staff), [d.staff])
+  const tierOf = useMemo(() => new Map(d.staff.map(s => [s.id, m.tierInfo(s.id).tier])), [d.staff, m])
+  const month = m.today.slice(0, 7)
+  const soon = addDaysIso(m.today, 30)
+  const joinedNow = s => String(s.joined || '').startsWith(month)
+  const expiring = s => s.status !== 'inactive' && !!s.expiresOn && s.expiresOn < soon
+  const leaders = d.staff.filter(s => s.role)
+
   const match = useMemo(() => {
     const words = q.trim().toLowerCase()
-    return d.staff.filter(s => !words || [s.name, s.short, s.code, s.phone, s.email, s.username, s.ic].join(' ').toLowerCase().includes(words))
-  }, [d.staff, q])
+    const lead = leader ? Number(leader) : null
+    return d.staff.filter(s => (!words || [s.name, s.short, s.code, s.phone, s.email, s.username, s.ic].join(' ').toLowerCase().includes(words))
+      && (!level || (level === 'leaders' ? !!s.role : level === 'none' ? !s.role : s.role === level))
+      && (!tier || tierOf.get(s.id)?.name === tier)
+      && (lead == null || (s.id !== lead && org.within(s.id, lead)))
+      && (!quick || (quick === 'new' ? joinedNow(s) : expiring(s))))
+  }, [d.staff, q, level, tier, leader, quick, org, tierOf]) // eslint-disable-line react-hooks/exhaustive-deps
   const rows = tab === 'all' ? match : match.filter(s => s.status === tab)
+  const set = [level, tier, leader, quick].filter(Boolean).length + (tab !== 'all' ? 1 : 0)
+  const clear = () => { setQ(''); setTab('all'); setLevel(''); setTier(''); setLeader(''); setQuick('') }
+
+  const count = (list, f) => list.filter(f).length
+  const levelOptions = [{ value: '', label: 'All levels' },
+    ...(setup.roles.length ? [{ value: 'leaders', label: `All leaders (${num(leaders.length)})` }] : []),
+    ...[...setup.roles].reverse().map(r => ({ value: r.code, label: `${r.code} · ${r.name} (${num(count(d.staff, s => s.role === r.code))})` })),
+    ...(setup.roles.length ? [{ value: 'none', label: `No upline level (${num(count(d.staff, s => !s.role))})` }] : [])]
+  const tierNames = [...new Set(d.staff.map(s => tierOf.get(s.id)?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const tierOptions = [{ value: '', label: 'All tiers' }, ...tierNames.map(t => ({ value: t, label: `${t} (${num(count(d.staff, s => tierOf.get(s.id)?.name === t))})` }))]
+  const rank = s => setup.roles.findIndex(r => r.code === s.role)
+  const leaderOptions = [{ value: '', label: 'Anyone' }, ...[...leaders].sort((a, b) => rank(b) - rank(a) || a.short.localeCompare(b.short))
+    .map(s => ({ value: String(s.id), label: `${s.short} · ${s.role} (${num(org.team(s.id))})` }))]
+
+  // The filtered list, every row (not just the page on screen), for Excel.
+  const exportRows = () => {
+    const head = ['Staff ID', 'Name', 'IC name', 'User name', 'Branch', 'Upline level', 'Tier', 'Agent rate %', 'Upline', 'Upline staff ID',
+      'Direct', 'In team', 'Phone', 'Email', 'IC no.', 'Status', 'Joined', 'Account expiry', 'Closing, lifetime (RM)', `Commission ${m.year} (RM)`, 'Last activity']
+    const body = rows.map(s => {
+      const t = tierOf.get(s.id), up = s.uplineId ? m.staff[s.uplineId] : null
+      return [s.code, s.short, s.name, s.username, m.branchName(s.branchId), s.role ? `${s.role} · ${m.roleName(s.role)}` : '', t?.name || '', t ? Number(t.agentRate) : '',
+        up?.short || '', up?.code || '', org.under(s.id).length, org.team(s.id), s.phone, s.email, maskIc(s.ic), STAFF_STATUS[s.status]?.label || s.status,
+        s.joined || '', s.expiresOn || '', m.credit(s.id).lifetime, m.credit(s.id).year, s.lastActive ? String(s.lastActive).slice(0, 10) : '']
+    })
+    const widths = [14, 22, 26, 14, 16, 24, 8, 10, 22, 14, 8, 8, 14, 28, 18, 10, 12, 14, 18, 18, 14]
+    download(makeXlsx([{ name: 'Agents & staff', rows: [head, ...body], widths }]), `agents-staff-${m.today}.xlsx`, XLSX_TYPE)
+  }
 
   const columns = [
     { key: 'who', label: 'Staff-ID · User Name', sort: s => s.code, render: s => <Who name={s.short} sub={`${s.code} · ${s.username}`} size={30} /> },
@@ -58,7 +111,9 @@ function StaffList() {
       return <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><Pill tone="gray" dot={false}>{P.tierLabel(t.tier)}</Pill><RoleTag code={s.role} setup={setup} /></span>
     } },
     { key: 'closing', label: 'Closing Amount', help: COLUMN.staffClosing, align: 'right', sort: s => m.credit(s.id).lifetime, render: s => rm(m.credit(s.id).lifetime) },
-    { key: 'upline', label: 'Upline', sort: s => m.staffName(s.uplineId), render: s => (s.uplineId ? m.staffName(s.uplineId) : <span style={{ color: C.muted }}>{m.branchName(s.branchId)}</span>) },
+    { key: 'upline', label: 'Upline · Branch', sort: s => m.staffName(s.uplineId), render: s => (
+      <span>{s.uplineId ? m.staffName(s.uplineId) : <span style={{ color: C.muted }}>No upline</span>}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{m.branchName(s.branchId)}{org.team(s.id) ? ` · ${num(org.team(s.id))} in team` : ''}</span></span>
+    ) },
     { key: 'status', label: 'Status · Expiry', help: COLUMN.staffExpiry, sort: s => s.expiresOn || '', render: s => (
       <span><Status of={STAFF_STATUS} value={s.status} />
         {s.expiresOn && s.status !== 'inactive' && <span style={{ display: 'block', fontSize: 11.5, color: s.expiresOn < addDaysIso(m.today, 30) ? C.warn : C.muted, marginTop: 3 }}>until {date(s.expiresOn, { short: true })}</span>}</span>
@@ -67,58 +122,46 @@ function StaffList() {
     { key: 'actions', label: '', card: false, render: s => <StaffMenu s={s} /> },
   ]
   const active = d.staff.filter(s => s.status === 'active')
+  const newNow = d.staff.filter(joinedNow)
+  const soonList = d.staff.filter(expiring)
+  const levelsLine = [...setup.roles].reverse().map(r => `${num(count(leaders, s => s.role === r.code))} ${r.code}`).join(' · ')
+  const pick = (k, v) => () => { clear(); if (k === 'level') setLevel(v); else if (k === 'quick') setQuick(v) }
   return (
-    <Page title="Agents & staff" help={PAGE.staff} sub={<>{active.length} active · position (tier), upline and pay come from Setup</>}
+    <Page title="Agents & staff" help={PAGE.staff} sub={<>{num(active.length)} active · position (tier), upline and pay come from Setup</>}
       actions={can('staff', 'edit') && <button style={btnPrimary} onClick={() => go('staff/new')}>Add agent or staff</button>}>
+      {view === 'list' && (
+        <div ref={statsBox} style={{ ...cols(narrow ? 140 : 210, narrow ? 10 : 14), marginBottom: 16 }}>
+          <Stat icon={narrow ? null : 'staff'} label="Agents & staff" value={num(d.staff.length)} sub={`${num(active.length)} active · ${num(count(d.staff, s => s.status === 'inactive'))} left`} onClick={clear} on={!set && !q} />
+          {setup.roles.length > 0 && <Stat icon={narrow ? null : 'crown'} tone="violet" label="Leaders" value={num(leaders.length)} sub={levelsLine || 'No upline levels'} onClick={pick('level', 'leaders')} on={level === 'leaders'} />}
+          <Stat icon={narrow ? null : 'plus'} tone="blue" label="Joined this month" value={num(newNow.length)} sub={`${num(count(d.staff, s => s.status === 'pending'))} waiting for HR to enable`} onClick={pick('quick', 'new')} on={quick === 'new'} />
+          <Stat icon={narrow ? null : 'clock'} tone={soonList.length ? 'amber' : 'gray'} label="Expiring in 30 days" value={num(soonList.length)} sub="Accounts to renew" onClick={pick('quick', 'expiring')} on={quick === 'expiring'} />
+        </div>
+      )}
       <Card pad={16}>
         <Tabs value={view} onChange={setView} tabs={[{ key: 'list', label: 'Staff list' }, { key: 'tree', label: 'Org chart' }]} />
-        {view === 'tree' ? <TeamTree /> : (
+        {view === 'tree' ? <OrgTree /> : (
           <>
-            <Toolbar>
+            <Toolbar fold active={set} onClear={clear}>
               <SearchBox value={q} onChange={setQ} placeholder="Name, code, phone or email" />
+              {setup.roles.length > 0 && <Select label="Level" value={level} onChange={setLevel} options={levelOptions} />}
+              {tierNames.length > 1 && <Select label="Tier" value={tier} onChange={setTier} options={tierOptions} />}
+              {leaders.length > 0 && <Select label="In the team of" value={leader} onChange={setLeader} options={leaderOptions} />}
+              {quick && <Pill tone={quick === 'new' ? 'blue' : 'amber'}>{quick === 'new' ? 'Joined this month' : 'Expiring in 30 days'}</Pill>}
+            </Toolbar>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 12 }}>
               <Chips label="Status" value={tab} onChange={setTab} options={['all', 'active', 'inactive', 'pending'].map(k => ({
                 key: k, label: k === 'all' ? 'All' : STAFF_STATUS[k].label, count: k === 'all' ? match.length : match.filter(s => s.status === k).length }))} />
-            </Toolbar>
+              <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={exportRows} disabled={!rows.length}
+                title="Every row that matches the filters, not just the page on screen">
+                <Icon name="file" size={15} />Download Excel ({num(rows.length)})
+              </button>
+            </div>
             <DataTable columns={columns} rows={rows} onRow={s => go(`staff/${s.id}`)} defaultSort={{ key: 'who', dir: 'asc' }} narrowAt={980}
-              empty={q ? `No one matches “${q}”` : 'No one here'} onClear={q || tab !== 'all' ? () => { setQ(''); setTab('all') } : undefined} />
+              empty={q ? `No one matches “${q}”` : 'No one here'} onClear={q || set ? clear : undefined} />
           </>
         )}
       </Card>
     </Page>
-  )
-}
-
-export function TeamTree() {
-  const { m, scoped: d, setup } = useErp()
-  const ids = new Set(d.staff.map(s => s.id))
-  const node = s => {
-    const t = m.tierInfo(s.id)
-    const kids = (m.downline[s.id] || []).filter(k => ids.has(k.id) && k.status !== 'inactive')
-    return {
-      key: `s${s.id}`, open: !!s.role && kids.some(k => k.role), tone: s.role ? roleTone(setup, s.role) : C.border,
-      label: <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Link to={`staff/${s.id}`} style={{ color: C.text }}>{s.short}</Link><RoleTag code={s.role} setup={setup} />
-        <Pill tone="gray" dot={false}>{t.tier.name} · {t.tier.agentRate}%</Pill>
-        {s.status === 'pending' && <Pill tone="amber">New joiner</Pill>}
-      </span>,
-      meta: <>{s.role ? `${m.roleName(s.role)} · ` : ''}{rm(m.credit(s.id).year)} commission in {m.year}{kids.length ? ` · ${kids.length} directly under` : ''}</>,
-      children: kids.sort((a, b) => (b.role ? 1 : 0) - (a.role ? 1 : 0) || a.short.localeCompare(b.short)).map(node),
-    }
-  }
-  const nodes = m.setup.branches.filter(b => d.staff.some(s => s.branchId === b.id)).map(b => ({
-    key: `b${b.id}`, label: <>{b.name} <span style={{ color: C.muted, fontWeight: 400 }}>({b.code})</span></>,
-    meta: `${d.staff.filter(s => s.branchId === b.id && s.status !== 'inactive').length} people${b.manager ? ` · manager ${b.manager}` : ''}`,
-    children: d.staff.filter(s => s.branchId === b.id && s.status !== 'inactive' && (s.uplineId == null || !ids.has(s.uplineId))).map(node),
-  }))
-  return (
-    <div>
-      {setup.roles.length > 0 && (
-        <p style={{ fontSize: 13, color: C.muted, margin: '0 0 10px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          Upline levels: {[...setup.roles].reverse().map(r => <span key={r.code} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}><RoleTag code={r.code} setup={setup} />{r.name}</span>)}
-        </p>
-      )}
-      <OutlineTree nodes={nodes} />
-    </div>
   )
 }
 
@@ -471,30 +514,14 @@ function MarketingStaffs({ id }) {
   )
 }
 
-// Staff Chart: the uplines above, then everyone under this person.
+// Staff Chart: the uplines above (as a trail), then everyone under this person.
 function StaffChart({ id }) {
-  const { m, setup } = useErp()
+  const { m } = useErp()
   const s = m.staff[id]
   if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
-  const node = p => {
-    const kids = (m.downline[p.id] || []).filter(k => k.status !== 'inactive')
-    return { key: `s${p.id}`, open: true, tone: p.role ? ROLE_COLORS[Math.max(0, setup.roles.findIndex(r => r.code === p.role)) % ROLE_COLORS.length] : C.border,
-      label: <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><Link to={`staff/${p.id}`} style={{ color: C.text, fontWeight: p.id === id ? 700 : 500 }}>{p.short}</Link>
-        <span style={{ fontSize: 12, color: C.muted }}>{p.username} · {p.code}</span><RoleTag code={p.role} setup={setup} /></span>,
-      children: kids.map(node) }
-  }
-  const chain = [...m.chain(id)].reverse()
   return (
-    <Page title={`Staff Chart · ${s.code}`} help={PAGE.staffChart} back={{ to: `staff/${s.id}`, label: s.short } } sub="View the staff organisational chart.">
-      <Card title="Uplines" help={CARD.uplines}>
-        {chain.length ? chain.map((p, i) => (
-          <div key={p.id} style={{ paddingLeft: i * 18, display: 'flex', gap: 8, alignItems: 'center', padding: `5px 0 5px ${i * 18}px`, fontSize: 13.5 }}>
-            <Icon name="up" size={14} style={{ color: C.faint }} /><Link to={`staff/${p.id}/chart`} style={{ color: C.text }}>{p.short}</Link><span style={{ fontSize: 12, color: C.muted }}>{p.code}</span><RoleTag code={p.role} setup={setup} />
-          </div>
-        )) : <p style={{ margin: 0, fontSize: 13.5, color: C.muted }}>No upline: top of the {m.branchName(s.branchId)} tree.</p>}
-      </Card>
-      <div style={{ height: 16 }} />
-      <Card title={`${s.short} and team`} sub={`${countTeam(m, id)} people under them`}><OutlineTree nodes={[node(s)]} /></Card>
+    <Page title={`Staff Chart · ${s.code}`} help={PAGE.staffChart} back={{ to: `staff/${s.id}`, label: s.short }} sub="View the staff organisational chart.">
+      <Card pad={16}><OrgTree focus={id} /></Card>
     </Page>
   )
 }

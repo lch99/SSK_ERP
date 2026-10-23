@@ -108,10 +108,10 @@ export const PAGE = {
   payRequests: 'Every salary and incentive request (the S.A.P list).\nCheck the documents, set Payment Ready, then Payment Clear once paid. Document Not Valid sends it back with a reason. Click one to see the payslip.',
   invoicesTax: 'Tax invoices (with SST) for each E-Form, and an official receipt for each cleared payment. Click one to view or print it.',
   invoices: 'One invoice per E-Form for the commission claimed from the owner (commission + SST).',
-  staff: 'Everyone in the agency: their position (tier, which sets their pay rate), leader role, upline and status.\nClick a person for their deals, payouts, tier progress and team.',
+  staff: 'Everyone in the agency: their position (tier, which sets their pay rate), leader role, upline and status.\nThe counts at the top are filters too: click one to see those people. Narrow the list by upline level, tier, or everyone in one leader’s team; the list shows 25 at a time.\nDownload Excel saves every person that matches the filters (not just the page on screen), with team sizes and commission, ready to sort and add up.\nClick a person for their deals, payouts, tier progress and team.',
   staffNew: 'Add a new agent or staff member. They start as Pending at the first tier, until HR enables them on their profile.',
   profile: 'This person’s tier and how close they are to the next, their deals, payout lines, uplines and team.\nUse the status menu at the top to enable or disable them.',
-  orgChart: 'Who reports to whom, branch by branch, with each person’s tier.',
+  orgChart: 'Who reports to whom, branch by branch, with each person’s tier and team size.\nBuilt for big agencies: only what you open is shown, and a big team shows 20 people at a time. Type a name, code or phone number to jump to anyone. “View team” opens one leader’s team on its own, with their uplines as a trail at the top. “Leaders only” hides the agents, to see the structure.',
   videos: 'How-to videos for agents and admins, and recordings of company meetings.',
   settings: 'Your own profile: the name and photo others see, the contact and bank details your pay goes to, and your password. Open it any time from your name at the top right.',
   system: 'Company details that print on invoices, receipts and payslips, and the property types agents can pick. Company details are edited in Setup.',
@@ -119,7 +119,7 @@ export const PAGE = {
   oldRecords: 'Records from the first system (before Ver 2): the old E-Forms and the yearly Overide summaries for 2016–2019.\nThey are kept read only so nothing is lost. Search them, or download them for Excel.',
   staffEdit: 'Everything about this person, in the same sections as the client’s new HR form: account and rank, personal and contact details, public profile, LPPEH registration, bank, documents, awards and access.\nThe access switches turn features on or off for this person.',
   marketingStaffs: 'Assistants (marketing staff) who may work on this person’s customers and listings. Tick what each one may see.',
-  staffChart: 'This person’s uplines above them and everyone under them.',
+  staffChart: 'This person’s uplines (the trail at the top) and everyone under them. Big teams show 20 people at a time.',
   profileDoc: 'A one-page profile of the agent with their featured listings, to send to clients. Pick the listings, then print or save as PDF.',
 }
 

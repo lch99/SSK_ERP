@@ -8,7 +8,6 @@ import { useFeedback } from '../feedback.jsx'
 import { CARD, PAGE } from '../help.js'
 import { rm, date, maskAcc, amt } from '../format.js'
 import Icon from '../Icon.jsx'
-import { TeamTree } from './Staff.jsx'
 import { useCan } from '../access.jsx'
 
 // ── Commission (2020): the old pay-detail confirmation, superseded by Closed Case ──
@@ -253,11 +252,4 @@ export function SystemSettings() {
 }
 
 // ── View Org. Chart ──
-export function OrgChart() {
-  return (
-    <Page title="Org Chart" help={PAGE.orgChart} sub="Branches, leaders and the people under them, with each person's tier.">
-      <Card><TeamTree /></Card>
-    </Page>
-  )
-}
 

@@ -9,7 +9,7 @@ import { Page, Card, Modal, Notice, FormField, FileInput, Select, Avatar, TextAr
 import { PAGE, CARD } from '../help.js'
 import { date } from '../format.js'
 import Icon from '../Icon.jsx'
-import { TeamTree } from './Staff.jsx'
+import { OrgTree } from './OrgChart.jsx'
 import { BANKS } from './options.js'
 
 // The signed-in person's profile; updates the moment it is saved anywhere.
@@ -60,7 +60,7 @@ export default function Profile({ me }) {
           : <div className="ssk-skeleton" style={{ height: 460, borderRadius: 12 }} />}
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <Card title="Password" help={CARD.password}>{profile && <PasswordForm profile={profile} />}</Card>
-          <Card title="Your org chart" help={CARD.myTeam}><TeamTree /></Card>
+          <Card title="Your org chart" help={CARD.myTeam}><OrgTree /></Card>
         </div>
       </div>
     </Page>

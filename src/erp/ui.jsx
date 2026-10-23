@@ -351,6 +351,8 @@ const splitCount = s => { const m = /^(.*?)\s*\((\d[\d,]*)\)$/.exec(String(s)); 
 // label, so set filters are easy to spot.
 // `plain` (in forms) turns the filter colouring off.
 // `prefix={false}` drops the "Label: " in front of a set filter where space is tight.
+// Long lists (thousands of staff) draw the first SHOW_FIRST options; typing narrows them.
+const SHOW_FIRST = 150
 export function Select({ value, onChange, options, label, small: compact = false, block = false, plain = false, prefix = true }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -396,8 +398,8 @@ export function Select({ value, onChange, options, label, small: compact = false
         onClick={() => (open ? hide(false) : show())} onKeyDown={e => { if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !open) { e.preventDefault(); show() } }}
         style={{ ...inp, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', textAlign: 'left', maxWidth: '100%', minWidth: 0,
           padding: compact ? '4px 8px 4px 10px' : '8px 10px 8px 12px', fontSize: compact ? 12.5 : 14, fontWeight: 500, lineHeight: '20px',
-          ...(active ? { borderColor: '#f7a3b8', background: C.primaryBg, color: C.primaryDark } : null),
-          ...(open ? { borderColor: C.primary, boxShadow: '0 0 0 4px rgba(236,0,63,0.12)' } : null) }}>
+          ...(active ? { border: '1px solid #f7a3b8', background: C.primaryBg, color: C.primaryDark } : null),
+          ...(open ? { border: `1px solid ${C.primary}`, boxShadow: '0 0 0 4px rgba(236,0,63,0.12)' } : null) }}>
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {active && label && prefix && !compact && <span style={{ fontWeight: 500, opacity: 0.7 }}>{label}: </span>}
           <span style={{ fontWeight: active ? 650 : 500 }}>{curLabel}</span>
@@ -419,7 +421,7 @@ export function Select({ value, onChange, options, label, small: compact = false
           <div ref={list} id="ssk-listbox" role="listbox" tabIndex={-1} aria-label={label} aria-activedescendant={!searchable && shown[at] ? `ssk-opt-${at}` : undefined}
             style={{ overflowY: 'auto', outline: 'none', flex: '1 1 auto', minHeight: 0 }}>
             {!shown.length && <div style={{ padding: '14px 10px', color: C.muted, fontSize: 13, textAlign: 'center' }}>Nothing matches “{q}”</div>}
-            {shown.map((o, i) => {
+            {shown.slice(0, Math.max(SHOW_FIRST, at + 1)).map((o, i) => {
               const sel = String(o.value) === v, on = i === at
               const [text, count] = splitCount(o.label)
               return (
@@ -435,6 +437,9 @@ export function Select({ value, onChange, options, label, small: compact = false
                 </div>
               )
             })}
+            {shown.length > Math.max(SHOW_FIRST, at + 1) && (
+              <div style={{ padding: '8px 10px 6px', fontSize: 12, color: C.muted }}>{(shown.length - Math.max(SHOW_FIRST, at + 1)).toLocaleString('en-MY')} more. Type to narrow the list.</div>
+            )}
           </div>
         </div>, document.body)}
     </span>

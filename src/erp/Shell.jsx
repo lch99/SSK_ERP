@@ -25,7 +25,8 @@ import Payouts from './pages/Payouts.jsx'
 import MoneyOut from './pages/MoneyOut.jsx'
 import Staff from './pages/Staff.jsx'
 import Salary from './pages/Salary.jsx'
-import { Commission, Invoices, Videos, SystemSettings, OrgChart } from './pages/Misc.jsx'
+import { Commission, Invoices, Videos, SystemSettings } from './pages/Misc.jsx'
+import OrgChart from './pages/OrgChart.jsx'
 import Projects from './pages/Projects.jsx'
 import OldRecords from './pages/OldRecords.jsx'
 import Profile, { ChangePasswordModal, useProfile } from './pages/Profile.jsx'
@@ -51,7 +52,8 @@ const JUMPS = [
 
 const RAIL_KEY = 'ssk-erp-rail'
 // Wide screens: the module bar (RAIL_W) and the current module's pages (PANEL_W).
-const RAIL_W = 72, PANEL_W = 212
+// Together no wider than one plain sidebar; smaller screens start with the bar only.
+const RAIL_W = 60, PANEL_W = 188, FOLD_BELOW = 1280
 
 export default function Shell(props) {
   const parts = useRoute()
@@ -75,7 +77,11 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
   const [help, setHelp] = useState(false)
   const [pw, setPw] = useState(false)
   // Desktop: the menu can fold down to an icon rail, for more room on wide tables.
-  const [rail, setRailState] = useState(() => { try { return localStorage.getItem(RAIL_KEY) === '1' } catch { return false } })
+  const [rail, setRailState] = useState(() => {
+    let saved = null
+    try { saved = localStorage.getItem(RAIL_KEY) } catch { /* not kept */ }
+    return saved ? saved === '1' : window.innerWidth < FOLD_BELOW
+  })
   const setRail = v => { setRailState(v); try { localStorage.setItem(RAIL_KEY, v ? '1' : '0') } catch { /* not kept */ } }
   const railOn = wide && rail
   useCommandKey(useCallback(() => setFinder(true), []))
@@ -157,7 +163,7 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
       {!wide && menuOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 60 }}>
           <div className="ssk-fade" onClick={() => setMenuOpen(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(15,17,23,.45)' }} aria-hidden />
-          <div className="ssk-menu-in" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 'min(320px, 92vw)' }}>
+          <div className="ssk-menu-in" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 'min(296px, 88vw)' }}>
             <Menu mods={mods} active={active} erp={erp} mode="drawer" onPick={() => setMenuOpen(false)} onClose={() => setMenuOpen(false)} />
           </div>
         </div>
@@ -237,7 +243,7 @@ function Menu({ mods, active, erp, mode, onPick, onClose }) {
     <div style={{ height: '100%', display: 'flex' }}>
       <nav aria-label="Modules" data-rail style={{ width: RAIL_W, flexShrink: 0, height: '100%', boxSizing: 'border-box', background: '#0e1015', color: C.sideText,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, overflowY: 'auto', overflowX: 'hidden', paddingBottom: 12, boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.05)' }}>
-        <a href="#/dashboard" aria-label="SubSaleKing · Dashboard" onClick={onPick} style={{ color: C.primary, display: 'grid', placeItems: 'center', height: 62, flexShrink: 0 }}><LogoMark size={28} /></a>
+        <a href="#/dashboard" aria-label="SubSaleKing · Dashboard" title={erp.setup?.company?.name} onClick={onPick} style={{ color: C.primary, display: 'grid', placeItems: 'center', height: 54, flexShrink: 0 }}><LogoMark size={25} /></a>
         {mods.map(mod => {
           const on = mod.key === current?.key
           const open = mode === 'drawer' ? mod.key === shown : fly?.key === mod.key
@@ -247,12 +253,12 @@ function Menu({ mods, active, erp, mode, onPick, onClose }) {
             <button key={mod.key} type="button" className="ssk-rail-btn" onClick={e => choose(mod, e)} aria-current={on ? 'page' : undefined}
               aria-expanded={mode === 'full' ? undefined : open} aria-label={n ? `${mod.label}, ${n} waiting` : mod.label}
               onMouseEnter={hover} onMouseLeave={() => setTip(null)} onFocus={hover} onBlur={() => setTip(null)}
-              style={{ position: 'relative', width: 66, padding: '8px 0 7px', borderRadius: 10, border: 'none', cursor: 'pointer', flexShrink: 0, fontFamily: C.font,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+              style={{ position: 'relative', width: 58, padding: '7px 0 6px', borderRadius: 10, border: 'none', cursor: 'pointer', flexShrink: 0, fontFamily: C.font,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
                 color: on ? '#fff' : open ? '#fff' : C.sideText, background: on ? C.sideActive : open ? C.sideHover : 'transparent', boxShadow: on ? `inset 3px 0 0 ${C.primary}` : 'none' }}>
-              <span style={{ color: on ? C.primary : 'inherit', display: 'inline-flex' }}><Icon name={mod.icon} size={20} /></span>
-              <span style={{ fontSize: 10.5, fontWeight: 600, lineHeight: 1.1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mod.label}</span>
-              {n > 0 && <span aria-hidden style={{ position: 'absolute', top: 3, right: 6, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.primary, color: '#fff',
+              <span style={{ color: on ? C.primary : 'inherit', display: 'inline-flex' }}><Icon name={mod.icon} size={19} /></span>
+              <span style={{ fontSize: 10, fontWeight: 600, lineHeight: 1.1, letterSpacing: -0.2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mod.label}</span>
+              {n > 0 && <span aria-hidden style={{ position: 'absolute', top: 2, right: 2, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.primary, color: '#fff',
                 fontSize: 10, fontWeight: 700, lineHeight: '16px', boxSizing: 'border-box' }}>{n}</span>}
             </button>
           )
@@ -315,44 +321,36 @@ function PagePanel({ mod, mods, active, erp, count, onPick, onClose }) {
     <nav aria-label={`${mod.label} pages`} onScroll={tipOff} style={{ flex: 1, minWidth: 0, height: '100%', background: `linear-gradient(180deg, #191c25 0%, ${C.side} 40%, #111319 100%)`,
       color: C.sideText, display: 'flex', flexDirection: 'column', overflowY: 'auto', boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.04)' }}>
       {tip && <MenuTip tip={tip} />}
-      <div style={{ padding: '15px 12px 8px 18px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.9, textTransform: 'uppercase', color: C.sideHead, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {erp.setup?.company?.name || 'SubSaleKing'}
-            </div>
-            <h2 key={mod.key} className="ssk-fade" style={{ margin: '3px 0 0', fontSize: 18, fontWeight: 700, color: '#fff', letterSpacing: 0.2 }}>{mod.label}</h2>
-          </div>
-          {onClose && (
-            <button onClick={onClose} aria-label="Close menu" style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', borderRadius: 8, padding: 7, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
-              <Icon name="close" size={16} />
-            </button>
-          )}
-        </div>
-        <p style={{ margin: '4px 0 0', fontSize: 12, lineHeight: 1.45, color: C.sideHead }}>{MODULE[mod.key]}</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 54, padding: '0 8px 0 18px', flexShrink: 0 }}>
+        <h2 key={mod.key} className="ssk-fade" title={MODULE[mod.key]} style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 15.5, fontWeight: 700, color: '#fff', letterSpacing: 0.2 }}>{mod.label}</h2>
+        {onClose && (
+          <button onClick={onClose} aria-label="Close menu" style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', borderRadius: 8, padding: 7, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+            <Icon name="close" size={16} />
+          </button>
+        )}
       </div>
-      <div key={mod.key} className="ssk-fade" style={{ flex: 1, padding: '4px 10px 12px' }}>
+      <div key={mod.key} className="ssk-fade" style={{ flex: 1, padding: '0 8px 10px' }}>
         {mod.items.filter(i => i.add).map(i => (
           <a key={i.path} href={`#/${i.path}`} onClick={onPick} aria-current={active === i.path ? 'page' : undefined}
-            style={{ ...btnPrimary, display: 'flex', width: '100%', boxSizing: 'border-box', justifyContent: 'flex-start', gap: 8, fontSize: 13.5, padding: '7px 10px', margin: '2px 0 6px', textDecoration: 'none',
+            style={{ ...btnPrimary, display: 'flex', width: '100%', boxSizing: 'border-box', justifyContent: 'flex-start', gap: 7, fontSize: 13, padding: '5px 10px', margin: '0 0 4px', textDecoration: 'none',
               boxShadow: active === i.path ? `0 0 0 2px rgba(255,255,255,0.5)` : btnPrimary.boxShadow }}>
-            <Icon name="plus" size={16} />{i.label}
+            <Icon name="plus" size={15} />{i.label}
           </a>
         ))}
         {mod.items.map((i, n) => {
           if (i.add) return null
-          if (i.section) return <div key={`s-${i.section}`} style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.9, textTransform: 'uppercase', color: C.sideHead, padding: '14px 10px 5px' }}>{i.section}</div>
-          if (i.note) return <p key={`n-${n}`} style={{ margin: '14px 10px 0', fontSize: 11.5, lineHeight: 1.45, color: C.sideHead }}>{i.note}</p>
+          if (i.section) return <div key={`s-${i.section}`} style={sideHead}>{i.section}</div>
+          if (i.note) return <p key={`n-${n}`} style={{ margin: '12px 10px 0', fontSize: 11, lineHeight: 1.45, color: C.sideHead }}>{i.note}</p>
           return <NavRow key={i.path} label={i.label} to={i.path} on={active === i.path} count={count(i)} onPick={onPick} small tip={MENU[i.path]} onTip={tipOn} onTipOff={tipOff} />
         })}
         {mod.key === 'home' && erp.scoped && <Waiting mods={mods} count={count} onPick={onPick} tips={{ onTip: tipOn, onTipOff: tipOff }} />}
       </div>
       {DEMO && erp.m && (
-        <div style={{ margin: 12, padding: 12, borderRadius: 10, background: 'rgba(255,255,255,0.05)', fontSize: 12, lineHeight: 1.45 }}>
-          <div style={{ color: '#fff', fontWeight: 700, marginBottom: 2 }}>Demo data</div>
-          Made up from your Setup, as of {date(erp.m.today)}. Changes stay in this browser.
-          <button onClick={reset}
-            style={{ ...small, marginTop: 8, width: '100%', background: 'transparent', color: '#fff', borderColor: 'rgba(255,255,255,0.2)' }}>Reset sample data</button>
+        <div title="Made up from your Setup. Changes stay in this browser." style={{ margin: 8, padding: '7px 8px 7px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)',
+          fontSize: 11.5, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap' }}><b style={{ color: '#fff', fontWeight: 650 }}>Demo data</b><span style={{ display: 'block' }}>{date(erp.m.today)}</span></span>
+          <button onClick={reset} aria-label="Reset sample data"
+            style={{ ...small, padding: '3px 9px', fontSize: 12, background: 'transparent', color: '#fff', borderColor: 'rgba(255,255,255,0.2)' }}>Reset</button>
         </div>
       )}
     </nav>
@@ -363,14 +361,16 @@ function Waiting({ mods, count, onPick, tips }) {
   const rows = mods.flatMap(m => m.items.filter(i => i.badge && count(i) > 0).map(i => ({ ...i, module: m.label })))
   return (
     <>
-      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.9, textTransform: 'uppercase', color: C.sideHead, padding: '14px 10px 5px' }}>Waiting for you</div>
+      <div style={sideHead}>Waiting for you</div>
       {rows.length ? rows.map(i => (
         <NavRow key={i.path} to={i.path} count={count(i)} onPick={onPick} small tip={MENU[i.path]} {...tips}
-          label={<>{i.label}<span style={{ display: 'block', fontSize: 11.5, color: C.sideHead, fontWeight: 500 }}>{i.module}</span></>} />
+          label={<>{i.label}<span style={{ display: 'block', fontSize: 11, color: C.sideHead, fontWeight: 500, lineHeight: 1.2 }}>{i.module}</span></>} />
       )) : <p style={{ margin: '2px 10px 0', fontSize: 12.5, color: C.sideHead }}>Nothing waiting. All caught up.</p>}
     </>
   )
 }
+
+const sideHead = { fontSize: 10, fontWeight: 700, letterSpacing: 0.9, textTransform: 'uppercase', color: C.sideHead, padding: '12px 10px 4px' }
 
 // The description beside a hovered menu entry.
 function MenuTip({ tip }) {
@@ -385,8 +385,8 @@ function MenuTip({ tip }) {
 function NavRow({ icon, label, to, on, within, count, onClick, onPick, chevron, small: sm, tip, onTip, onTipOff }) {
   const [hover, setHover] = useState(false)
   const style = {
-    display: 'flex', alignItems: 'center', gap: 11, width: '100%', boxSizing: 'border-box', padding: sm ? '6px 10px' : '8px 10px', borderRadius: 8,
-    textDecoration: 'none', fontSize: sm ? 13.5 : 14, marginBottom: 1, border: 'none', cursor: 'pointer', fontFamily: C.font, textAlign: 'left',
+    display: 'flex', alignItems: 'center', gap: 11, width: '100%', boxSizing: 'border-box', padding: sm ? '5px 10px' : '8px 10px', borderRadius: 8,
+    textDecoration: 'none', fontSize: sm ? 13 : 14, marginBottom: 1, border: 'none', cursor: 'pointer', fontFamily: C.font, textAlign: 'left',
     color: on || within ? '#fff' : hover ? '#e4e7ec' : C.sideText, fontWeight: on ? 600 : 500,
     background: on ? C.sideActive : hover ? C.sideHover : 'transparent', boxShadow: on ? `inset 3px 0 0 ${C.primary}` : 'none',
   }
