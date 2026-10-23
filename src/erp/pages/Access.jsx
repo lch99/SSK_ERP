@@ -6,12 +6,15 @@ import { useAccess, samplePerson } from '../access.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { Page, Card, DataTable, Pill, Chips, Segmented, Select, Notice, go } from '../ui.jsx'
 import { CARD, PAGE } from '../help.js'
+import { ACCESS_GROUPS } from '../modules.js'
 
 // System → Roles & access: what each account type may do in each area, and
 // whose records it sees (rules in shared/access.js). Only the Superadmin
 // opens it. "View as" shows the ERP as a person with that role would see it.
 const TONE = { none: 'gray', view: 'blue', edit: 'green', full: 'violet' }
 const LevelPill = ({ level }) => <Pill tone={TONE[level]} title={A.LEVEL_HELP[level]}>{A.LEVEL_LABEL[level]}</Pill>
+// The areas, under the module they belong to (src/erp/modules.js).
+const GROUPS = ACCESS_GROUPS.map(g => ({ label: g.label, areas: g.areas.map(k => A.AREAS.find(a => a.key === k)) }))
 
 export default function Access({ parts }) {
   const { m } = useErp()
@@ -48,11 +51,11 @@ export default function Access({ parts }) {
 
   const overview = [
     { id: 'scope', label: 'Whose records', cells: r => <span style={{ fontSize: 13 }}>{A.SCOPE_LABEL[draft[r].scope]}</span> },
-    ...A.AREAS.map(a => ({ id: a.key, label: a.label, cells: r => <LevelPill level={draft[r].levels[a.key]} /> })),
+    ...GROUPS.flatMap(g => g.areas.map(a => ({ id: a.key, label: a.label, module: g.label, cells: r => <LevelPill level={draft[r].levels[a.key]} /> }))),
     { id: 'setup', label: 'Setup, Roles & access', cells: r => <LevelPill level={A.managesAccess(r) ? 'full' : 'none'} /> },
   ]
   const columns = [
-    { key: 'area', label: 'Area', render: x => <b style={{ fontWeight: 600 }}>{x.label}</b> },
+    { key: 'area', label: 'Area', render: x => <span><b style={{ fontWeight: 600 }}>{x.label}</b>{x.module && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.module}</span>}</span> },
     ...A.ROLES.map(r => ({ key: r.key, label: r.label, render: x => x.cells(r.key) })),
   ]
 
@@ -83,15 +86,20 @@ export default function Access({ parts }) {
             <Row label="Whose records" text={A.SCOPE_HELP[draft[role].scope]}>
               <Segmented label="Whose records" value={draft[role].scope} onChange={setScope} options={A.SCOPES.map(s => ({ key: s, label: A.SCOPE_LABEL[s] }))} />
             </Row>
-            {A.AREAS.map(a => {
-              const level = draft[role].levels[a.key]
-              return (
-                <Row key={a.key} label={a.label} text={level === 'edit' ? a.edit : level === 'full' ? `${a.edit}. ${a.full}.` : A.LEVEL_HELP[level]}
-                  changed={level !== recommended.levels[a.key]}>
-                  <Segmented label={a.label} value={level} onChange={v => setLevel(a.key, v)} options={A.LEVELS.map(l => ({ key: l, label: A.LEVEL_LABEL[l] }))} />
-                </Row>
-              )
-            })}
+            {GROUPS.map(g => (
+              <div key={g.label}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '.07em', padding: '16px 0 6px', borderTop: `1px solid ${C.border}` }}>{g.label}</div>
+                {g.areas.map(a => {
+                  const level = draft[role].levels[a.key]
+                  return (
+                    <Row key={a.key} label={a.label} text={level === 'edit' ? a.edit : level === 'full' ? `${a.edit}. ${a.full}.` : A.LEVEL_HELP[level]}
+                      changed={level !== recommended.levels[a.key]}>
+                      <Segmented label={a.label} value={level} onChange={v => setLevel(a.key, v)} options={A.LEVELS.map(l => ({ key: l, label: A.LEVEL_LABEL[l] }))} />
+                    </Row>
+                  )
+                })}
+              </div>
+            ))}
             <Row label="Setup, Roles & access" text="The company rules and these roles.">
               <span style={{ fontSize: 13, color: C.muted }}>Superadmin only</span>
             </Row>

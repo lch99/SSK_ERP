@@ -7,8 +7,8 @@ import SetupPage from '../setup/SetupPage.jsx'
 import UsersPage from '../users/UsersPage.jsx'
 import { ErrorList } from '../setup/Section.jsx'
 import { ErpProvider, useErp, useRoute, useMedia } from './ErpContext.jsx'
-import { readyToClose } from './model.js'
-import { MENU } from './help.js'
+import { MENU, MODULE } from './help.js'
+import { activePath, moduleHome, modulePages, visibleModules, waiting } from './modules.js'
 import { FeedbackProvider, useFeedback } from './feedback.jsx'
 import Icon from './Icon.jsx'
 import { Avatar, Card, Modal, Select, go, small, isTyping } from './ui.jsx'
@@ -42,103 +42,6 @@ const PAGES = {
 }
 const OWN = { setup: SetupPage, users: UsersPage }
 
-const todo = {
-  toClose: (d, m, setup) => d.deals.filter(x => readyToClose(x, m, setup) > 0).length,
-  moneyIn: d => d.moneyIn.filter(t => t.status === 'pending' || t.status === 'draft').length,
-  cases: d => d.payouts.filter(p => !p.archiveId && (p.status === 'new' || p.status === 'queried')).length,
-  requests: d => d.moneyOut.filter(x => x.status === 'new' || x.status === 'queried').length,
-  salary: d => d.requests.filter(r => r.status === 'new').length,
-  vendor: d => d.vendorRequests.filter(v => v.status === 0).length,
-}
-
-// The menu, in plain words and grouped by the kind of work. `was` is the name
-// in the current ERP (erp.subsaleking.com): quick search still finds it, so
-// staff who know the old menu are not lost. { section } rows are headings.
-const NAV = [
-  { label: 'Dashboard', icon: 'home', path: 'dashboard' },
-  { section: 'Sales' },
-  { label: 'Customers', was: 'Customer Database', icon: 'customers', path: 'customers' },
-  { label: 'Properties', was: 'Property', icon: 'listings', items: [
-    { label: 'Add a listing', was: 'Add Property List', path: 'listing-new' },
-    { label: 'All listings', was: 'My Property Listing', path: 'listings' },
-    { label: 'Owner requests', was: 'Vendor Requests', path: 'vendor-requests', badge: todo.vendor },
-    { label: 'Viewings', was: 'Appointment', path: 'appointments' },
-    { label: 'Enquiries', was: 'Check Enquiry', path: 'enquiries' },
-    { label: 'Buildings & estates', was: 'Title Management', path: 'titles' },
-    { label: 'Areas', was: 'Area Management', path: 'areas' },
-  ] },
-  { label: 'Listings by role', was: 'Listing', icon: 'map', items: [
-    { label: 'Branch managers', was: 'Branch Manager', path: 'listing-roles/bm' },
-    { label: 'Area managers', was: 'Area Manager', path: 'listing-roles/am' },
-    { label: 'Project handlers', was: 'Project Handler', path: 'listing-roles/project' },
-    { label: 'Product handlers', was: 'Product Handler', path: 'listing-roles/product' },
-    { label: 'Outdated listings', was: 'Outdated Listing', path: 'listing-roles/outdated' },
-    { label: 'From owner requests', was: 'Vendor Listing', path: 'listing-roles/vendor' },
-  ] },
-  { label: 'Deals (E-Forms)', was: 'E-Forms', icon: 'deals', items: [
-    { label: 'All deals', was: 'Personal Sales', path: 'deals' },
-    { label: 'Add a deal', was: 'Submit New Case / Add Sales Record / Add Rental Record', path: 'deals/new' },
-    { label: 'Ready to close', path: 'deals/ready', badge: todo.toClose },
-    { label: 'By branch', was: 'Branch Sales', path: 'deals/branch' },
-    { label: 'By team', was: 'Team Sales', path: 'deals/team' },
-  ] },
-  { label: 'Projects', icon: 'project', items: [
-    { label: 'All projects', path: 'projects' },
-    { label: 'Developer incentives', path: 'projects/incentives' },
-    { label: 'Add a project', was: 'Add Project', path: 'projects/new' },
-  ] },
-  { section: 'Money' },
-  { label: 'Money in', was: 'Transactions', icon: 'moneyIn', items: [
-    { label: 'Record a payment', was: 'Add Transaction', path: 'money-in/new' },
-    { label: 'All payments in', was: 'All Transactions', path: 'money-in', badge: todo.moneyIn },
-    { label: 'SST account', was: 'SST Account Transactions', path: 'money-in/sst' },
-  ] },
-  { label: 'Payouts', was: 'Closed Case', icon: 'payouts', items: [
-    { label: 'To approve', was: 'Close Case List', path: 'payouts', badge: todo.cases },
-    { label: 'Archived', was: 'Archived Case', path: 'payouts/archived' },
-    { label: '2020 commission page', was: 'Commission', path: 'commission' },
-  ] },
-  { label: 'Payments out', was: 'Request Form', icon: 'moneyOut', path: 'money-out', badge: todo.requests },
-  { label: 'Salary', was: 'Salary / Incentives', icon: 'payRuns', items: [
-    { label: 'Request salary', was: 'Request Salary', path: 'salary/request' },
-    { label: 'Request incentives', was: 'Request Incentives', path: 'salary/incentives' },
-    { label: 'Request creator fees', was: 'Request Creator Fees', path: 'salary/creator' },
-    { label: 'Pay requests', was: 'All List / S.A.P List', path: 'salary', badge: todo.salary },
-  ] },
-  { label: 'Invoices & receipts', was: 'Invoice & Receipt', icon: 'file', items: [
-    { label: 'Tax invoices & receipts', was: 'Tax Invoice & Official Receipts', path: 'invoices/tax' },
-    { label: 'Invoices', path: 'invoices' },
-  ] },
-  { section: 'People' },
-  { label: 'Agents & staff', was: 'H.R Portal', icon: 'staff', items: [
-    { label: 'All agents & staff', was: 'All Agent/Staff', path: 'staff' },
-    { label: 'Add agent or staff', was: 'Add New Agent/Staff', path: 'staff/new' },
-    { label: 'Org chart', was: 'View Org. Chart', path: 'org-chart' },
-  ] },
-  { label: 'Training videos', was: 'Video Gallery', icon: 'video', items: [
-    { label: 'Trainings', path: 'videos/training' },
-    { label: 'Meetings', path: 'videos/meeting' },
-  ] },
-  { section: 'Reports' },
-  { label: 'Reports', was: 'Report', icon: 'reports', items: [
-    { label: 'Agent totals', was: 'Total Report', path: 'reports/total' },
-    { label: 'Staff pay summary', was: 'Staff Summary', path: 'reports/staff' },
-    { label: 'Top sellers', was: 'Sales Over Agents', path: 'reports/agents' },
-    { label: 'Deal activity by person', was: 'E-Forms Summary Report', path: 'reports/summary' },
-    { label: 'Deal change log', was: 'E-Forms Update Tracker', path: 'reports/tracker' },
-    { label: 'Payout calculator', was: 'E-Forms Case Summary', path: 'reports/cases' },
-    { label: 'Landlord checks', was: 'Archived Case Landlord', path: 'reports/landlord' },
-    { label: 'Old records (V1)', was: 'Show more / E-Forms (Old) / Overide Module / Downline\'s E-Forms', path: 'old-records' },
-  ] },
-  { section: 'System' },
-  { label: 'System', icon: 'setup', items: [
-    { label: 'Setup', path: 'setup', perm: 'setup.edit' },
-    { label: 'Settings', was: 'System Settings / System Preference Portal', path: 'system' },
-    { label: 'Roles & access', was: 'Access & Permissions / Account Type', path: 'access' },
-    { label: 'Users (sign-in)', was: 'Users', path: 'users', perm: 'users.manage', needsSignIn: true },
-  ] },
-]
-
 // "g" then a letter jumps to a page (shown in the shortcuts list, "?").
 const JUMPS = [
   ['d', 'dashboard', 'Dashboard'], ['u', 'customers', 'Customers'], ['l', 'listings', 'All listings'],
@@ -146,16 +49,9 @@ const JUMPS = [
   ['o', 'money-out', 'Payments out'], ['s', 'salary', 'Pay requests'], ['a', 'staff', 'Agents & staff'], ['r', 'reports/total', 'Reports'],
 ]
 
-// The menu entry for an address: the longest path it starts with.
-function activePath(parts, leaves) {
-  const here = parts.join('/')
-  let best = null
-  for (const l of leaves) if ((here === l.path || here.startsWith(`${l.path}/`)) && (!best || l.path.length > best.length)) best = l.path
-  return best
-}
-
 const RAIL_KEY = 'ssk-erp-rail'
-const SIDE_W = 248, RAIL_W = 72
+// Wide screens: the module bar (RAIL_W) and the current module's pages (PANEL_W).
+const RAIL_W = 72, PANEL_W = 212
 
 export default function Shell(props) {
   const parts = useRoute()
@@ -186,12 +82,9 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
   // The menu shows only what the viewer's role opens (shared/access.js).
   const access = useAccess()
   const allowed = i => (!i.perm || can(me, i.perm)) && !(authDisabled && i.needsSignIn) && access.opens(i.path)
-  const visible = NAV.map(g => (g.items ? { ...g, items: g.items.filter(allowed) } : g)).filter(g => g.section || (g.items ? g.items.length : allowed(g)))
-  // A heading with nothing left under it goes too.
-  const nav = visible.filter((g, i) => !g.section || (visible[i + 1] && !visible[i + 1].section))
-  const leaves = nav.filter(g => !g.section).flatMap(g => g.items || [g])
-  // Sub-pages show their group's icon in quick search, and match the group's old name too.
-  const findable = nav.filter(g => !g.section).flatMap(g => (g.items ? g.items.map(i => ({ ...i, icon: g.icon, old: i.was, was: [i.was, g.was].filter(Boolean).join(' / ') })) : [{ ...g, old: g.was }]))
+  // The menu is split into modules (src/erp/modules.js); the pages are found by quick search wherever they sit.
+  const mods = visibleModules(allowed)
+  const leaves = modulePages(mods)
 
   // No page in the address: Setup until it is finished, then the dashboard.
   const setupDone = erp.setup?.checklist?.every(i => i.done)
@@ -242,7 +135,7 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
     return () => window.removeEventListener('keydown', on)
   }, [menuOpen])
 
-  const palette = <CommandPalette open={finder} onClose={() => setFinder(false)} leaves={findable} nav={nav} erp={erp} />
+  const palette = <CommandPalette open={finder} onClose={() => setFinder(false)} leaves={leaves} erp={erp} />
   const shortcuts = <ShortcutsSheet open={help} onClose={() => setHelp(false)} />
 
   // Setup is its own full page: no ERP menu or top bar until you open the ERP.
@@ -256,18 +149,16 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
     )
   }
 
-  const sideW = railOn ? RAIL_W : SIDE_W
-  const sidebar = railOn
-    ? <Rail nav={nav} active={active} erp={erp} />
-    : <Sidebar nav={nav} active={active} erp={erp} onPick={() => setMenuOpen(false)} />
+  const sideW = railOn ? RAIL_W : RAIL_W + PANEL_W
+  const sidebar = <Menu mods={mods} active={active} erp={erp} mode={railOn ? 'rail' : 'full'} />
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       {wide && <div style={{ width: sideW, flexShrink: 0, transition: 'width .18s ease' }}><div style={{ position: 'fixed', top: 0, bottom: 0, width: sideW, zIndex: 25, transition: 'width .18s ease' }}>{sidebar}</div></div>}
       {!wide && menuOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 60 }}>
           <div className="ssk-fade" onClick={() => setMenuOpen(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(15,17,23,.45)' }} aria-hidden />
-          <div className="ssk-menu-in" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 'min(290px, 86vw)' }}>
-            <Sidebar nav={nav} active={active} erp={erp} onPick={() => setMenuOpen(false)} onClose={() => setMenuOpen(false)} />
+          <div className="ssk-menu-in" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 'min(320px, 92vw)' }}>
+            <Menu mods={mods} active={active} erp={erp} mode="drawer" onPick={() => setMenuOpen(false)} onClose={() => setMenuOpen(false)} />
           </div>
         </div>
       )}
@@ -312,18 +203,100 @@ function SetupHeader({ erp, canOpen }) {
   )
 }
 
-function Sidebar({ nav, active, erp, onPick, onClose }) {
-  const d = erp.scoped
-  const fb = useFeedback()
-  const groupOf = label => nav.find(g => g.items?.some(i => i.path === active))?.label === label
-  const [open, setOpen] = useState(() => new Set(nav.filter(g => g.items && groupOf(g.label)).map(g => g.label)))
-  // One group open at a time (as in the current ERP): the one holding the page.
+// The menu: a bar with one button per module (modules.js), and the pages of
+// one module beside it. `mode`:
+//   full    wide screens: the module bar and the current module's pages
+//   rail    folded ("["): the bar only; a module opens its pages beside it
+//   drawer  phones: both; tapping a module shows its pages without leaving the page
+function Menu({ mods, active, erp, mode, onPick, onClose }) {
+  const current = mods.find(mod => mod.items.some(i => i.path === active)) || mods[0]
+  const [shown, setShown] = useState(current?.key)
+  const [fly, setFly] = useState(null)
+  const [tip, setTip] = useState(null)
+  const flyRef = useRef(null)
+  useEffect(() => { setShown(current?.key); setFly(null) }, [current?.key, active])
   useEffect(() => {
-    const g = nav.find(x => x.items?.some(i => i.path === active))
-    if (g) setOpen(new Set([g.label]))
-  }, [active]) // eslint-disable-line react-hooks/exhaustive-deps
-  const count = item => (d && item.badge ? item.badge(d, erp.m, erp.setup) : 0)
-  // Hovering a menu entry (with a mouse) says what the page is for.
+    if (!fly) return
+    const out = e => { if (!flyRef.current?.contains(e.target) && !e.target.closest?.('[data-rail]')) setFly(null) }
+    const esc = e => { if (e.key === 'Escape') setFly(null) }
+    document.addEventListener('mousedown', out)
+    window.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', out); window.removeEventListener('keydown', esc) }
+  }, [fly])
+  const count = item => (erp.scoped && item.badge ? item.badge(erp.scoped, erp.m, erp.setup) : 0)
+  const at = e => { const r = e.currentTarget.getBoundingClientRect(); return { top: r.top, mid: r.top + r.height / 2 } }
+  const choose = (mod, e) => {
+    setTip(null)
+    if (mode === 'drawer') setShown(mod.key)
+    else if (mode === 'rail') { const pos = at(e); setFly(f => (f?.key === mod.key ? null : { key: mod.key, ...pos })) }
+    else go(moduleHome(mod))
+  }
+  const panel = mods.find(x => x.key === shown) || current
+  const flyMod = fly && mods.find(x => x.key === fly.key)
+  return (
+    <div style={{ height: '100%', display: 'flex' }}>
+      <nav aria-label="Modules" data-rail style={{ width: RAIL_W, flexShrink: 0, height: '100%', boxSizing: 'border-box', background: '#0e1015', color: C.sideText,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, overflowY: 'auto', overflowX: 'hidden', paddingBottom: 12, boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.05)' }}>
+        <a href="#/dashboard" aria-label="SubSaleKing · Dashboard" onClick={onPick} style={{ color: C.primary, display: 'grid', placeItems: 'center', height: 62, flexShrink: 0 }}><LogoMark size={28} /></a>
+        {mods.map(mod => {
+          const on = mod.key === current?.key
+          const open = mode === 'drawer' ? mod.key === shown : fly?.key === mod.key
+          const n = waiting(mod, erp.scoped, erp.m, erp.setup)
+          const hover = e => { if (!fly && window.matchMedia('(hover: hover)').matches) setTip({ ...at(e), label: mod.label, desc: MODULE[mod.key] }) }
+          return (
+            <button key={mod.key} type="button" className="ssk-rail-btn" onClick={e => choose(mod, e)} aria-current={on ? 'page' : undefined}
+              aria-expanded={mode === 'full' ? undefined : open} aria-label={n ? `${mod.label}, ${n} waiting` : mod.label}
+              onMouseEnter={hover} onMouseLeave={() => setTip(null)} onFocus={hover} onBlur={() => setTip(null)}
+              style={{ position: 'relative', width: 66, padding: '8px 0 7px', borderRadius: 10, border: 'none', cursor: 'pointer', flexShrink: 0, fontFamily: C.font,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                color: on ? '#fff' : open ? '#fff' : C.sideText, background: on ? C.sideActive : open ? C.sideHover : 'transparent', boxShadow: on ? `inset 3px 0 0 ${C.primary}` : 'none' }}>
+              <span style={{ color: on ? C.primary : 'inherit', display: 'inline-flex' }}><Icon name={mod.icon} size={20} /></span>
+              <span style={{ fontSize: 10.5, fontWeight: 600, lineHeight: 1.1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mod.label}</span>
+              {n > 0 && <span aria-hidden style={{ position: 'absolute', top: 3, right: 6, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.primary, color: '#fff',
+                fontSize: 10, fontWeight: 700, lineHeight: '16px', boxSizing: 'border-box' }}>{n}</span>}
+            </button>
+          )
+        })}
+      </nav>
+      {mode !== 'rail' && panel && <PagePanel mod={panel} mods={mods} active={active} erp={erp} count={count} onPick={onPick} onClose={onClose} />}
+      {tip && !fly && (
+        <div role="tooltip" style={{ position: 'fixed', left: RAIL_W + 6, top: tip.mid, transform: 'translateY(-50%)', zIndex: 96, background: '#17191f', color: '#fff',
+          fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7, maxWidth: 240, boxShadow: '0 6px 18px rgba(0,0,0,.25)', pointerEvents: 'none' }}>
+          {tip.label}{tip.desc && <span style={{ display: 'block', fontWeight: 400, color: 'rgba(255,255,255,.72)', marginTop: 1, lineHeight: 1.4 }}>{tip.desc}</span>}
+        </div>
+      )}
+      {flyMod && (
+        <div ref={flyRef} className="ssk-pop" style={{ position: 'fixed', left: RAIL_W + 6, top: Math.max(8, Math.min(fly.top - 6, window.innerHeight - 24 - flyMod.items.length * 34)), zIndex: 96,
+          width: 250, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto', boxSizing: 'border-box', background: '#fff', border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: C.shadowLg, padding: 6, color: C.text }}>
+          <div style={{ padding: '6px 10px 4px' }}>
+            <b style={{ fontFamily: C.fontHead, fontSize: 14 }}>{flyMod.label}</b>
+            <span style={{ display: 'block', fontSize: 12, color: C.muted, lineHeight: 1.4 }}>{MODULE[flyMod.key]}</span>
+          </div>
+          {flyMod.items.map((i, n) => {
+            if (i.section) return <div key={`s-${i.section}`} style={{ fontSize: 10.5, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '.07em', padding: '10px 10px 3px' }}>{i.section}</div>
+            if (i.note) return <div key={`n-${n}`} style={{ fontSize: 12, color: C.muted, lineHeight: 1.4, padding: '8px 10px 4px' }}>{i.note}</div>
+            const on = active === i.path
+            return (
+              <a key={i.path} href={`#/${i.path}`} className="ssk-menu-item" onClick={() => setFly(null)} aria-current={on ? 'page' : undefined} title={MENU[i.path]}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, fontSize: 13.5, textDecoration: 'none',
+                  color: on || i.add ? C.primaryDark : C.text, fontWeight: on || i.add ? 650 : 500, background: on ? C.primaryBg : undefined }}>
+                {i.add && <Icon name="plus" size={15} />}
+                <span style={{ flex: 1, minWidth: 0 }}>{i.label}</span>
+                {count(i) > 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '0 7px', lineHeight: '18px', borderRadius: 9, background: C.primary, color: '#fff' }}>{count(i)}</span>}
+              </a>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// One module's pages: its "new" button, then its pages under their headings.
+// Home also lists what waits in every module, so work is found from one place.
+function PagePanel({ mod, mods, active, erp, count, onPick, onClose }) {
+  const fb = useFeedback()
+  // Hovering a page (with a mouse) says what it is for.
   const [tip, setTip] = useState(null)
   const tipTimer = useRef(null)
   useEffect(() => () => clearTimeout(tipTimer.current), [])
@@ -334,50 +307,45 @@ function Sidebar({ nav, active, erp, onPick, onClose }) {
     tipTimer.current = setTimeout(() => setTip({ text, mid: r.top + r.height / 2, left: r.right + 10 }), 450)
   }
   const tipOff = () => { clearTimeout(tipTimer.current); setTip(null) }
-  const tips = { onTip: tipOn, onTipOff: tipOff }
   const reset = async () => {
     const ok = await fb.confirm({ title: 'Reset the sample records?', body: 'Every change made in the demo (closed cases, cleared transactions, new names…) is lost, and the records are made up again from your Setup.', confirmLabel: 'Reset sample data', danger: true })
     if (ok && await fb.run(erp.reset, 'Sample records rebuilt from your Setup')) onPick?.()
   }
   return (
-    <nav aria-label="Main menu" onScroll={tipOff} style={{ height: '100%', background: `linear-gradient(180deg, #191c25 0%, ${C.side} 40%, #111319 100%)`, color: C.sideText,
-      display: 'flex', flexDirection: 'column', overflowY: 'auto', boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.04)' }}>
+    <nav aria-label={`${mod.label} pages`} onScroll={tipOff} style={{ flex: 1, minWidth: 0, height: '100%', background: `linear-gradient(180deg, #191c25 0%, ${C.side} 40%, #111319 100%)`,
+      color: C.sideText, display: 'flex', flexDirection: 'column', overflowY: 'auto', boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.04)' }}>
       {tip && <MenuTip tip={tip} />}
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <a href="#/dashboard" onClick={onPick} style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 9, padding: '16px 18px 12px', textDecoration: 'none' }}>
-          <span style={{ color: C.primary, display: 'inline-flex' }}><LogoMark size={28} /></span>
-          <span style={{ minWidth: 0 }}>
-            <span style={{ display: 'block', color: '#fff', fontWeight: 700, fontSize: 15, letterSpacing: 0.4, textTransform: 'uppercase', fontFamily: C.fontHead }}>SubSaleKing</span>
-            <span style={{ display: 'block', fontSize: 11, color: C.sideHead, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 170 }}>
-              {erp.setup?.company?.name || 'E.R.P'}
-            </span>
-          </span>
-        </a>
-        {onClose && (
-          <button onClick={onClose} aria-label="Close menu" style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', borderRadius: 8, padding: 7, marginRight: 12, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
-            <Icon name="close" size={16} />
-          </button>
-        )}
-      </div>
-      <div style={{ flex: 1, padding: '0 10px 12px' }}>
-        {nav.map(g => {
-          if (g.section) return <div key={`s-${g.section}`} style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.9, textTransform: 'uppercase', color: C.sideHead, padding: '14px 10px 5px' }}>{g.section}</div>
-          if (!g.items) return <NavRow key={g.label} icon={g.icon} label={g.label} to={g.path} on={active === g.path} count={count(g)} onPick={onPick} tip={MENU[g.path]} {...tips} />
-          const isOpen = open.has(g.label)
-          const total = g.items.reduce((t, i) => t + count(i), 0)
-          const inside = g.items.some(i => i.path === active)
-          return (
-            <div key={g.label}>
-              <NavRow icon={g.icon} label={g.label} on={false} within={inside} count={isOpen ? 0 : total} chevron={isOpen ? 'down' : 'chevron'} tip={MENU[g.label]} {...tips}
-                onClick={() => { tipOff(); setOpen(o => (o.has(g.label) ? new Set() : new Set([g.label]))) }} />
-              {isOpen && (
-                <div className="ssk-fade" style={{ margin: '0 0 4px 21px', borderLeft: '1px solid rgba(255,255,255,0.08)', paddingLeft: 8 }}>
-                  {g.items.map(i => <NavRow key={i.path} label={i.label} to={i.path} on={active === i.path} count={count(i)} onPick={onPick} small tip={MENU[i.path]} {...tips} />)}
-                </div>
-              )}
+      <div style={{ padding: '15px 12px 8px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.9, textTransform: 'uppercase', color: C.sideHead, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {erp.setup?.company?.name || 'SubSaleKing'}
             </div>
-          )
+            <h2 key={mod.key} className="ssk-fade" style={{ margin: '3px 0 0', fontSize: 18, fontWeight: 700, color: '#fff', letterSpacing: 0.2 }}>{mod.label}</h2>
+          </div>
+          {onClose && (
+            <button onClick={onClose} aria-label="Close menu" style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', borderRadius: 8, padding: 7, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+              <Icon name="close" size={16} />
+            </button>
+          )}
+        </div>
+        <p style={{ margin: '4px 0 0', fontSize: 12, lineHeight: 1.45, color: C.sideHead }}>{MODULE[mod.key]}</p>
+      </div>
+      <div key={mod.key} className="ssk-fade" style={{ flex: 1, padding: '4px 10px 12px' }}>
+        {mod.items.filter(i => i.add).map(i => (
+          <a key={i.path} href={`#/${i.path}`} onClick={onPick} aria-current={active === i.path ? 'page' : undefined}
+            style={{ ...btnPrimary, display: 'flex', width: '100%', boxSizing: 'border-box', justifyContent: 'flex-start', gap: 8, fontSize: 13.5, padding: '7px 10px', margin: '2px 0 6px', textDecoration: 'none',
+              boxShadow: active === i.path ? `0 0 0 2px rgba(255,255,255,0.5)` : btnPrimary.boxShadow }}>
+            <Icon name="plus" size={16} />{i.label}
+          </a>
+        ))}
+        {mod.items.map((i, n) => {
+          if (i.add) return null
+          if (i.section) return <div key={`s-${i.section}`} style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.9, textTransform: 'uppercase', color: C.sideHead, padding: '14px 10px 5px' }}>{i.section}</div>
+          if (i.note) return <p key={`n-${n}`} style={{ margin: '14px 10px 0', fontSize: 11.5, lineHeight: 1.45, color: C.sideHead }}>{i.note}</p>
+          return <NavRow key={i.path} label={i.label} to={i.path} on={active === i.path} count={count(i)} onPick={onPick} small tip={MENU[i.path]} onTip={tipOn} onTipOff={tipOff} />
         })}
+        {mod.key === 'home' && erp.scoped && <Waiting mods={mods} count={count} onPick={onPick} tips={{ onTip: tipOn, onTipOff: tipOff }} />}
       </div>
       {DEMO && erp.m && (
         <div style={{ margin: 12, padding: 12, borderRadius: 10, background: 'rgba(255,255,255,0.05)', fontSize: 12, lineHeight: 1.45 }}>
@@ -388,6 +356,19 @@ function Sidebar({ nav, active, erp, onPick, onClose }) {
         </div>
       )}
     </nav>
+  )
+}
+
+function Waiting({ mods, count, onPick, tips }) {
+  const rows = mods.flatMap(m => m.items.filter(i => i.badge && count(i) > 0).map(i => ({ ...i, module: m.label })))
+  return (
+    <>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.9, textTransform: 'uppercase', color: C.sideHead, padding: '14px 10px 5px' }}>Waiting for you</div>
+      {rows.length ? rows.map(i => (
+        <NavRow key={i.path} to={i.path} count={count(i)} onPick={onPick} small tip={MENU[i.path]} {...tips}
+          label={<>{i.label}<span style={{ display: 'block', fontSize: 11.5, color: C.sideHead, fontWeight: 500 }}>{i.module}</span></>} />
+      )) : <p style={{ margin: '2px 10px 0', fontSize: 12.5, color: C.sideHead }}>Nothing waiting. All caught up.</p>}
+    </>
   )
 }
 
@@ -421,78 +402,6 @@ function NavRow({ icon, label, to, on, within, count, onClick, onPick, chevron, 
   return to
     ? <a href={`#/${to}`} onClick={onPick} aria-current={on ? 'page' : undefined} style={style} {...ev}>{inner}</a>
     : <button type="button" onClick={onClick} aria-expanded={chevron === 'down'} style={style} {...ev}>{inner}</button>
-}
-
-// The folded menu: one icon per group. Hover shows the name; a group opens its
-// pages beside the rail.
-function Rail({ nav, active, erp }) {
-  const d = erp.scoped
-  const [tip, setTip] = useState(null)
-  const [fly, setFly] = useState(null)
-  const flyRef = useRef(null)
-  // (Labels and descriptions for the folded rail come from help.js too.)
-  const count = item => (d && item.badge ? item.badge(d, erp.m, erp.setup) : 0)
-  useEffect(() => { setFly(null) }, [active])
-  useEffect(() => {
-    if (!fly) return
-    const out = e => { if (!flyRef.current?.contains(e.target) && !e.target.closest?.('[data-rail]')) setFly(null) }
-    const esc = e => { if (e.key === 'Escape') setFly(null) }
-    document.addEventListener('mousedown', out)
-    window.addEventListener('keydown', esc)
-    return () => { document.removeEventListener('mousedown', out); window.removeEventListener('keydown', esc) }
-  }, [fly])
-  const at = (e, extra) => { const r = e.currentTarget.getBoundingClientRect(); return { top: r.top, mid: r.top + r.height / 2, ...extra } }
-  const group = fly && nav.find(g => g.label === fly.label)
-  return (
-    <nav aria-label="Main menu" style={{ height: '100%', background: `linear-gradient(180deg, #191c25 0%, ${C.side} 40%, #111319 100%)`, color: C.sideText,
-      display: 'flex', flexDirection: 'column', alignItems: 'center', overflowY: 'auto', overflowX: 'hidden', boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.04)', paddingBottom: 12 }}>
-      <a href="#/dashboard" aria-label="SubSaleKing · Dashboard" style={{ color: C.primary, display: 'grid', placeItems: 'center', height: 64, flexShrink: 0 }}><LogoMark size={28} /></a>
-      {nav.map(g => {
-        if (g.section) return <span key={`s-${g.section}`} aria-hidden style={{ width: 28, height: 1, background: 'rgba(255,255,255,0.1)', margin: '8px 0', flexShrink: 0 }} />
-        const on = g.path ? active === g.path : g.items.some(i => i.path === active)
-        const n = g.items ? g.items.reduce((t, i) => t + count(i), 0) : count(g)
-        const look = {
-          position: 'relative', width: 44, height: 40, borderRadius: 10, display: 'grid', placeItems: 'center', marginBottom: 2, flexShrink: 0, border: 'none', cursor: 'pointer',
-          color: on ? C.primary : fly?.label === g.label ? '#fff' : C.sideText, background: on ? C.sideActive : fly?.label === g.label ? C.sideHover : 'transparent',
-          boxShadow: on ? `inset 3px 0 0 ${C.primary}` : 'none', textDecoration: 'none',
-        }
-        const badge = n > 0 && <span style={{ position: 'absolute', top: 3, right: 2, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.primary, color: '#fff', fontSize: 10, fontWeight: 700, lineHeight: '16px', boxSizing: 'border-box' }}>{n}</span>
-        const desc = MENU[g.path || g.label]
-        const hover = { onMouseEnter: e => !fly && setTip(at(e, { label: g.label, desc })), onMouseLeave: () => setTip(null), onFocus: e => setTip(at(e, { label: g.label, desc })), onBlur: () => setTip(null) }
-        return g.path
-          ? <a key={g.label} href={`#/${g.path}`} aria-label={g.label} aria-current={on ? 'page' : undefined} style={look} className="ssk-rail-btn" {...hover}><Icon name={g.icon} size={19} />{badge}</a>
-          : (
-            <button key={g.label} type="button" data-rail aria-label={g.label} aria-expanded={fly?.label === g.label} style={look} className="ssk-rail-btn" {...hover}
-              onClick={e => { setTip(null); setFly(f => (f?.label === g.label ? null : at(e, { label: g.label }))) }}>
-              <Icon name={g.icon} size={19} />{badge}
-            </button>
-          )
-      })}
-      {tip && !fly && (
-        <div role="tooltip" style={{ position: 'fixed', left: RAIL_W + 6, top: tip.mid, transform: 'translateY(-50%)', zIndex: 96, background: '#17191f', color: '#fff',
-          fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7, maxWidth: 240, boxShadow: '0 6px 18px rgba(0,0,0,.25)', pointerEvents: 'none' }}>
-          {tip.label}{tip.desc && <span style={{ display: 'block', fontWeight: 400, color: 'rgba(255,255,255,.72)', marginTop: 1, lineHeight: 1.4 }}>{tip.desc}</span>}
-        </div>
-      )}
-      {group && (
-        <div ref={flyRef} className="ssk-pop" style={{ position: 'fixed', left: RAIL_W + 6, top: Math.max(8, Math.min(fly.top - 6, window.innerHeight - 40 - group.items.length * 52)), zIndex: 96, minWidth: 230, maxWidth: 300,
-          background: '#fff', border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: C.shadowLg, padding: 6, color: C.text }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '.07em', padding: '6px 10px 4px' }}>{group.label}</div>
-          {group.items.map(i => {
-            const on = active === i.path
-            return (
-              <a key={i.path} href={`#/${i.path}`} className="ssk-menu-item" onClick={() => setFly(null)} aria-current={on ? 'page' : undefined}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, fontSize: 13.5, textDecoration: 'none',
-                  color: on ? C.primaryDark : C.text, fontWeight: on ? 650 : 500, background: on ? C.primaryBg : undefined }}>
-                <span style={{ flex: 1, minWidth: 0 }}>{i.label}{MENU[i.path] && <span style={{ display: 'block', fontSize: 11.5, color: C.muted, fontWeight: 400, lineHeight: 1.35, marginTop: 1 }}>{MENU[i.path]}</span>}</span>
-                {count(i) > 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '0 7px', lineHeight: '18px', borderRadius: 9, background: C.primary, color: '#fff' }}>{count(i)}</span>}
-              </a>
-            )
-          })}
-        </div>
-      )}
-    </nav>
-  )
 }
 
 function TopBar({ wide, me, profile, authDisabled, erp, onMenu, onSignOut, onChangePassword, onFind, onHelp, rail, onRail }) {

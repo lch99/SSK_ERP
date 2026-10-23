@@ -30,7 +30,7 @@ export function useCommandKey(onOpen) {
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
 
-export default function CommandPalette({ open, onClose, leaves, nav, erp }) {
+export default function CommandPalette({ open, onClose, leaves, erp }) {
   const [q, setQ] = useState('')
   const [at, setAt] = useState(0)
   const access = useAccess()
@@ -38,7 +38,11 @@ export default function CommandPalette({ open, onClose, leaves, nav, erp }) {
   const list = useRef(null)
   useEffect(() => { if (open) { setQ(''); setAt(0); setTimeout(() => input.current?.focus(), 0) } }, [open])
 
-  const groupOf = path => nav.find(g => g.items?.some(i => i.path === path))?.label
+  // Where a page sits: its module, and the heading it is under there.
+  const groupOf = path => {
+    const l = leaves.find(x => x.path === path)
+    return l && [l.moduleLabel, l.section !== l.moduleLabel && l.section].filter(Boolean).join(' · ')
+  }
   const results = useMemo(() => {
     if (!open) return []
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
