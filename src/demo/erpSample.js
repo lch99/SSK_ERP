@@ -6,7 +6,7 @@
 // Every payout goes through shared/payout.js, never through maths of its own.
 import * as P from '../../shared/payout.js'
 
-export const ERP_VERSION = 5
+export const ERP_VERSION = 6
 const SEED = 20261021
 const r2 = n => Math.round(n * 100) / 100
 
@@ -960,6 +960,28 @@ export function makeErpSample(setup, asOf = localToday()) {
       const sales = X.int(8, 60) * 10000
       v1.overrides.push({ id: id(), year, staffId: s.id, cases: X.int(3, 30), sales, override: r2(sales * X.pick([1, 1.5, 2, 2.5]) / 100) })
     }
+  }
+
+  // ── Office staff: admins, accounting and marketing (System → Users) ──
+  // Made last, so the agents and records above stay exactly the same.
+  const hq = setup.branches[0]?.id
+  const office = [...setup.branches.map(b => ['admin-staff2', b.id]), ['admin-staff', hq], ['account', hq], ['sale-marketing', hq]].filter(([, b]) => b != null)
+  for (const [type, branchId] of office) {
+    const p = person()
+    if (shorts.has(p.short)) p.short = p.alt && !shorts.has(p.alt) ? p.alt : p.name
+    shorts.add(p.short)
+    const born = `${R.int(1978, 2000)}-${String(R.int(1, 12)).padStart(2, '0')}-${String(R.int(1, 28)).padStart(2, '0')}`
+    const joined = addDays(asOf, -R.int(200, 6 * 365))
+    const first = p.short.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '') || 'office'
+    staff.push({
+      id: id(), code: `STAFF-${String(2401 + staff.length).padStart(5, '0')}`, name: p.name, short: p.short, sex: p.sex, ic: icNo(born), phone: phone(),
+      email: `${first}.${staff.length + 1}@${domain}`, branchId, role: null, uplineId: null, depth: 0, status: 'active', joined, leftOn: null, renNo: '', ...bankAcc(),
+      openingLifetime: 0, tierFloorId: null, whtExempt: false, username: `${first}${R.int(10, 99)}`, type, birthday: born,
+      language: R.pick(['English', 'Malay', 'Chinese']), education: R.pick(['Diploma', 'Degree']), address: '',
+      access: { agent: false, profilePage: false, profileDoc: false, addListing: type === 'sale-marketing', landlordVerify: false, vendorRequests: type !== 'account', tripIncentive: false },
+      regType: '', regNo: '', bio: '', socials: {}, awards: [], lastActive: addDays(asOf, -R.int(0, 3)), expiresOn: nextAnniversary(joined),
+      docs: { 'NRIC Copy': true, 'Application Form': true, 'Joining Fee Receipt': false }, marketing: [],
+    })
   }
 
   return {

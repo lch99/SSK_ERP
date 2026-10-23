@@ -24,13 +24,20 @@ export const MODULES = [
     { label: 'Dashboard', path: 'dashboard' },
     { label: 'My profile', path: 'settings' },
   ] },
-  { key: 'listings', label: 'Listings', icon: 'listings', home: 'listings', items: [
+  { key: 'listings', label: 'Listings', icon: 'building', home: 'listings', items: [
     { label: 'Add a listing', was: 'Add Property List', path: 'listing-new', add: true },
     { section: 'Properties', was: 'Property' },
     { label: 'All listings', was: 'My Property Listing', path: 'listings' },
     { label: 'Owner requests', was: 'Vendor Requests', path: 'vendor-requests', badge: todo.vendor },
     { label: 'Viewings', was: 'Appointment', path: 'appointments' },
     { label: 'Enquiries', was: 'Check Enquiry', path: 'enquiries' },
+    { section: 'Customers', was: 'Customer Database' },
+    { label: 'All customers', path: 'customers' },
+    { label: 'Add a customer', path: 'customers/new' },
+    { section: 'Projects' },
+    { label: 'All projects', path: 'projects' },
+    { label: 'Developer incentives', path: 'projects/incentives' },
+    { label: 'Add a project', was: 'Add Project', path: 'projects/new' },
     { section: 'By role', was: 'Listing' },
     { label: 'Branch managers', was: 'Branch Manager', path: 'listing-roles/bm' },
     { label: 'Area managers', was: 'Area Manager', path: 'listing-roles/am' },
@@ -42,28 +49,15 @@ export const MODULES = [
     { label: 'Buildings & estates', was: 'Title Management', path: 'titles' },
     { label: 'Areas', was: 'Area Management', path: 'areas' },
   ] },
-  { key: 'sales', label: 'Sales', icon: 'deals', home: 'deals', items: [
-    { label: 'Add a deal', was: 'Submit New Case / Add Sales Record / Add Rental Record', path: 'deals/new', add: true },
-    { section: 'Deals (E-Forms)', was: 'E-Forms' },
-    { label: 'All deals', was: 'Personal Sales', path: 'deals' },
+  // Agents claim their commission here: an E-Form is one sale or rental they
+  // submit; once its money clears it is closed, the payouts are approved and paid.
+  { key: 'commission', label: 'Commission', icon: 'wallet', home: 'deals', items: [
+    { label: 'Submit an E-Form', was: 'Submit New Case / Add Sales Record / Add Rental Record / Add a deal', path: 'deals/new', add: true },
+    { section: 'E-Forms', was: 'E-Forms / Deals' },
+    { label: 'All E-Forms', was: 'Personal Sales / All deals', path: 'deals' },
     { label: 'Ready to close', path: 'deals/ready', badge: todo.toClose },
     { label: 'By branch', was: 'Branch Sales', path: 'deals/branch' },
     { label: 'By team', was: 'Team Sales', path: 'deals/team' },
-    { section: 'Customers', was: 'Customer Database' },
-    { label: 'All customers', path: 'customers' },
-    { label: 'Add a customer', path: 'customers/new' },
-    { section: 'Projects' },
-    { label: 'All projects', path: 'projects' },
-    { label: 'Developer incentives', path: 'projects/incentives' },
-    { label: 'Add a project', was: 'Add Project', path: 'projects/new' },
-    { section: 'Reports', was: 'Report' },
-    { label: 'Agent totals', was: 'Total Report', path: 'reports/total' },
-    { label: 'Top sellers', was: 'Sales Over Agents', path: 'reports/agents' },
-    { label: 'Deal activity by person', was: 'E-Forms Summary Report', path: 'reports/summary' },
-    { label: 'Deal change log', was: 'E-Forms Update Tracker', path: 'reports/tracker' },
-    { label: 'Old records (V1)', was: 'Show more / E-Forms (Old) / Overide Module / Downline\'s E-Forms', path: 'old-records' },
-  ] },
-  { key: 'commission', label: 'Commission', icon: 'wallet', home: 'payouts', items: [
     { section: 'Approve payouts', was: 'Closed Case' },
     { label: 'To approve', was: 'Close Case List', path: 'payouts', badge: todo.cases },
     { label: 'Archived', was: 'Archived Case', path: 'payouts/archived' },
@@ -73,10 +67,15 @@ export const MODULES = [
     { label: 'Request creator fees', was: 'Request Creator Fees', path: 'salary/creator' },
     { label: 'Pay requests', was: 'All List / S.A.P List', path: 'salary', badge: todo.salary },
     { section: 'Reports', was: 'Report' },
+    { label: 'Agent totals', was: 'Total Report', path: 'reports/total' },
+    { label: 'Top sellers', was: 'Sales Over Agents', path: 'reports/agents' },
+    { label: 'E-Forms by person', was: 'E-Forms Summary Report / Deal activity by person', path: 'reports/summary' },
+    { label: 'E-Form change log', was: 'E-Forms Update Tracker / Deal change log', path: 'reports/tracker' },
     { label: 'Staff pay summary', was: 'Staff Summary', path: 'reports/staff' },
     { label: 'Payout calculator', was: 'E-Forms Case Summary', path: 'reports/cases' },
     { label: 'Landlord checks', was: 'Archived Case Landlord', path: 'reports/landlord' },
     { label: '2020 commission page', was: 'Commission', path: 'commission' },
+    { label: 'Old records (V1)', was: 'Show more / E-Forms (Old) / Overide Module / Downline\'s E-Forms', path: 'old-records' },
   ] },
   { key: 'accounts', label: 'Accounts', icon: 'bank', home: 'money-in', items: [
     { label: 'Record a payment', was: 'Add Transaction', path: 'money-in/new', add: true },
@@ -90,31 +89,36 @@ export const MODULES = [
     { label: 'Invoices', path: 'invoices' },
     { note: 'The ledger, bank reconciliation and profit & loss will live here too.' },
   ] },
-  { key: 'people', label: 'People', icon: 'staff', home: 'staff', items: [
-    { label: 'Add agent or staff', was: 'Add New Agent/Staff', path: 'staff/new', add: true },
-    { section: 'Team', was: 'H.R Portal' },
-    { label: 'All agents & staff', was: 'All Agent/Staff', path: 'staff' },
+  // Agent management: the sales force (account types Agent and Sales Agent).
+  { key: 'agents', label: 'Agents', icon: 'staff', home: 'staff', items: [
+    { label: 'Add an agent', was: 'Add New Agent/Staff', path: 'staff/new', add: true },
+    { section: 'Agents', was: 'H.R Portal / HR / People' },
+    { label: 'All agents', was: 'All Agent/Staff / Agents & staff', path: 'staff' },
     { label: 'Org chart', was: 'View Org. Chart', path: 'org-chart' },
     { section: 'Training', was: 'Video Gallery' },
     { label: 'Training videos', path: 'videos/training' },
     { label: 'Meeting recordings', path: 'videos/meeting' },
   ] },
+  // System, with user management: the office staff (admins, accounting,
+  // marketing), what each account type may do, and sign-in accounts.
   { key: 'system', label: 'System', icon: 'setup', home: 'system', items: [
     { label: 'Settings', was: 'System Settings / System Preference Portal', path: 'system' },
-    { label: 'Roles & access', was: 'Access & Permissions / Account Type', path: 'access' },
-    { label: 'Users (sign-in)', was: 'Users', path: 'users', perm: 'users.manage', needsSignIn: true },
     { label: 'Setup', path: 'setup', perm: 'setup.edit' },
+    { section: 'Users', was: 'H.R Portal' },
+    { label: 'Office staff', was: 'All Agent/Staff / Admin / Accounting', path: 'staff/office' },
+    { label: 'Add office staff', was: 'Add New Agent/Staff', path: 'staff/new/office' },
+    { label: 'Roles & access', was: 'Access & Permissions / Account Type', path: 'access' },
+    { label: 'Sign-in accounts', was: 'Users', path: 'users', perm: 'users.manage', needsSignIn: true },
   ] },
 ]
 
 // Roles & access lists each access area under the module it belongs to
-// (reports sit in two modules, so they go with the system settings).
+// (reports cover several modules, so they go with the system settings).
 export const ACCESS_GROUPS = [
-  { label: 'Listings', areas: ['listings'] },
-  { label: 'Sales', areas: ['customers', 'deals', 'projects'] },
-  { label: 'Commission', areas: ['payouts', 'salary'] },
+  { label: 'Listings', areas: ['listings', 'customers', 'projects'] },
+  { label: 'Commission', areas: ['deals', 'payouts', 'salary'] },
   { label: 'Accounts', areas: ['moneyIn', 'moneyOut', 'invoices'] },
-  { label: 'People', areas: ['staff', 'videos'] },
+  { label: 'Agents & users', areas: ['staff', 'videos'] },
   { label: 'Reports & system', areas: ['reports', 'system'] },
 ]
 

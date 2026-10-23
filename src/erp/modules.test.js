@@ -27,7 +27,7 @@ describe('ERP modules', () => {
 
   it('finds pages by their old names, their heading\'s included', () => {
     const page = modulePages(MODULES).find(p => p.path === 'staff')
-    expect(page.moduleLabel).toBe('People')
+    expect(page.moduleLabel).toBe('Agents')
     expect(page.was).toContain('H.R Portal')
   })
 

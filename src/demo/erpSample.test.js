@@ -111,7 +111,9 @@ describe('ERP sample records', () => {
     const rows = A.readAgentTable([A.AGENT_COLUMNS.map(A.templateHeader), ...A.exampleAgents(setup).map(r => A.AGENT_COLUMNS.map(c => r[c.key]))]).rows
     const team = applyStep(sampleState(), 'agents', { mode: 'replace', rows })
     const real = makeErpSample(view(team), AS_OF)
-    expect(real.staff.map(x => x.name).sort()).toEqual(team.agents.map(a => a.name).sort())
+    // The imported agents, plus the sample's office staff (admins, accounting, marketing).
+    expect(real.staff.filter(x => x.type === 'staff').map(x => x.name).sort()).toEqual(team.agents.map(a => a.name).sort())
+    expect(real.staff.filter(x => x.type !== 'staff').every(x => x.role == null && x.uplineId == null)).toBe(true)
     const lead = real.staff.find(x => x.uplineId != null)
     expect(real.staff.find(x => x.id === lead.uplineId).name).toBe(team.agents.find(a => a.id === team.agents.find(b => b.name === lead.name).uplineId).name)
     expect(real.deals.length).toBeGreaterThan(20)

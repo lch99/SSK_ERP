@@ -9,6 +9,7 @@ import { ErrorList } from '../setup/Section.jsx'
 import { ErpProvider, useErp, useRoute, useMedia } from './ErpContext.jsx'
 import { MENU, MODULE } from './help.js'
 import { activePath, moduleHome, modulePages, visibleModules, waiting } from './modules.js'
+import { isAgent } from './model.js'
 import { FeedbackProvider, useFeedback } from './feedback.jsx'
 import Icon from './Icon.jsx'
 import { Avatar, Card, Modal, Select, go, small, isTyping } from './ui.jsx'
@@ -46,7 +47,7 @@ const OWN = { setup: SetupPage, users: UsersPage }
 // "g" then a letter jumps to a page (shown in the shortcuts list, "?").
 const JUMPS = [
   ['d', 'dashboard', 'Dashboard'], ['u', 'customers', 'Customers'], ['l', 'listings', 'All listings'],
-  ['e', 'deals', 'Deals (E-Forms)'], ['p', 'projects', 'Projects'], ['m', 'money-in', 'Money in'], ['c', 'payouts', 'Payouts to approve'],
+  ['e', 'deals', 'E-Forms'], ['p', 'projects', 'Projects'], ['m', 'money-in', 'Money in'], ['c', 'payouts', 'Payouts to approve'],
   ['o', 'money-out', 'Payments out'], ['s', 'salary', 'Pay requests'], ['a', 'staff', 'Agents & staff'], ['r', 'reports/total', 'Reports'],
 ]
 
@@ -98,7 +99,9 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
     : erp.setup ? (!setupDone && leaves.some(l => l.path === 'setup') ? 'setup' : 'dashboard') : null
   const Own = OWN[key], Page = PAGES[key]
   const route = parts[0] === key ? parts : [key]
-  const active = activePath(route, leaves)
+  // An office staff member's record (#/staff/<id>) belongs to System → Users, not Agents.
+  const person = route[0] === 'staff' && Number(route[1]) ? erp.m?.staff[Number(route[1])] : null
+  const active = person && !isAgent(person) && leaves.some(l => l.path === 'staff/office') ? 'staff/office' : activePath(route, leaves)
   // A page the role does not open, or a record outside its reach, shows why instead.
   const blocked = !!key && (!access.opens(route.join('/')) || outOfReach(route, erp, access.scope))
 

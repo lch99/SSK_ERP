@@ -3,7 +3,7 @@ import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary, inp, sel } from '../../styles.js'
 import { payoutForClose } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { DEAL_STATUS, LANDLORD_STATUS, sum, r2 } from '../model.js'
+import { DEAL_STATUS, LANDLORD_STATUS, isAgent, sum, r2 } from '../model.js'
 import { Page, Card, DataTable, Who, Pill, Link, Status, Modal, Notice, FormField, TextArea, Toolbar, Select, cols, Stat, mono, tabular, field } from '../ui.jsx'
 import { RankBars } from '../charts.jsx'
 import { rm, pct, date, monthName, lastMonths, amt } from '../format.js'
@@ -23,8 +23,8 @@ const REPORTS = {
   total: ['Agent totals', 'What each person submitted and closed, by date (Total Report).'],
   staff: ['Staff pay summary', 'Each person’s deals, commission and pay this year.'],
   agents: ['Top sellers', 'Who sold the most, by agency fees on submitted E-Forms.'],
-  tracker: ['Deal change log', 'Every change made to an E-Form: who, when, before and after.'],
-  summary: ['Deal activity by person', 'Per person: submissions, closings, cases and payouts.'],
+  tracker: ['E-Form change log', 'Every change made to an E-Form: who, when, before and after.'],
+  summary: ['E-Forms by person', 'Per person: submissions, closings, cases and payouts.'],
   cases: ['Payout calculator', 'Pick a case and type a claim to preview who gets paid what.'],
   landlord: ['Landlord checks', 'Confirm each landlord after a rental case is archived.'],
 }
@@ -52,7 +52,7 @@ function useRange(m) {
 function Total() {
   const { m, scoped: d } = useErp()
   const r = useRange(m)
-  const rows = d.staff.map(s => {
+  const rows = d.staff.filter(isAgent).map(s => {
     const mine = d.deals.filter(x => x.agentId === s.id && x.status !== 'draft' && r.inRange(x.date))
     const closed = d.closes.filter(c => r.inRange(c.date) && m.deals[c.dealId].agentId === s.id)
     return { s, n: mine.length, total: sum(mine, x => x.money.billed), closing: sum(closed, c => c.claim), cleared: sum(mine, x => Math.min(m.cleared(x.id), x.money.billed)) }
@@ -87,7 +87,7 @@ function Total() {
 
 function StaffSummary() {
   const { m, scoped: d, setup } = useErp()
-  const rows = d.staff.filter(s => s.status !== 'pending').map(s => {
+  const rows = d.staff.filter(s => isAgent(s) && s.status !== 'pending').map(s => {
     const deals = m.dealsOf(s.id).filter(x => x.date.startsWith(m.year) && x.status !== 'cancelled' && x.status !== 'draft')
     const lines = (m.payoutsByStaff[s.id] || []).filter(p => p.date.startsWith(m.year))
     return { s, tier: m.tierInfo(s.id).tier, sales: deals.filter(x => x.agentId === s.id).length, product: deals.filter(x => x.holderId === s.id && x.agentId !== s.id).length,
@@ -114,7 +114,7 @@ function StaffSummary() {
 function Agents() {
   const { m, scoped: d } = useErp()
   const r = useRange(m)
-  const rows = d.staff.map(s => ({ s, v: sum(d.deals.filter(x => x.agentId === s.id && x.status !== 'draft' && x.status !== 'cancelled' && r.inRange(x.date)), x => x.fee) }))
+  const rows = d.staff.filter(isAgent).map(s => ({ s, v: sum(d.deals.filter(x => x.agentId === s.id && x.status !== 'draft' && x.status !== 'cancelled' && r.inRange(x.date)), x => x.fee) }))
     .filter(x => x.v > 0).sort((a, b) => b.v - a.v).slice(0, 20)
   return (
     <Card pad={16}>
@@ -151,7 +151,7 @@ function Summary() {
   const r = useRange(m)
   const [type, setType] = useState('')
   const [status, setStatus] = useState('')
-  const rows = d.staff.map(s => {
+  const rows = d.staff.filter(isAgent).map(s => {
     const deals = d.deals.filter(x => (x.agentId === s.id || x.holderId === s.id) && r.inRange(x.date) && (!type || x.type === type) && (!status || x.status === status))
     const lines = (m.payoutsByStaff[s.id] || []).filter(p => r.inRange(p.date))
     const closes = d.closes.filter(c => r.inRange(c.date) && c.sides.some(x => x.staffId === s.id))

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary, inp } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
-import { DEAL_STATUS, PARTY, readyToClose, sum, r2 } from '../model.js'
+import { DEAL_STATUS, PARTY, readyToClose, isAgent, sum, r2 } from '../model.js'
 import { FlowBar } from '../flow.jsx'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Progress, Menu, Modal, FormField, FileInput, TextArea, Notice, go, mono, tabular, field } from '../ui.jsx'
 import { COLUMN, PAGE } from '../help.js'
@@ -26,10 +26,10 @@ export default function Deals({ parts }) {
 const hashParam = k => new URLSearchParams(window.location.hash.split('?')[1] || '').get(k) || ''
 
 const VIEWS = {
-  personal: { title: 'All deals', sub: 'Every E-Form submitted' },
-  branch: { title: 'Deals by branch', sub: 'E-Forms under one branch manager' },
-  team: { title: 'Deals by team', sub: 'A leader’s E-Forms and everyone under them' },
-  ready: { title: 'Ready to close', sub: 'Deals whose cash has cleared. Request Close Case on each, so its payouts can be approved' },
+  personal: { title: 'All E-Forms', sub: 'Every sale and rental agents submitted to claim commission' },
+  branch: { title: 'E-Forms by branch', sub: 'E-Forms under one branch manager' },
+  team: { title: 'E-Forms by team', sub: 'A leader’s E-Forms and everyone under them' },
+  ready: { title: 'Ready to close', sub: 'E-Forms whose cash has cleared. Request Close Case on each, so its payouts can be approved' },
 }
 // A filter field that is set gets the same crimson tint as a set dropdown.
 const activeField = { borderColor: '#f7a3b8', background: C.primaryBg, color: C.primaryDark }
@@ -70,7 +70,7 @@ function DealList({ view }) {
       (!words || [x.code, x.property.address, x.property.title].join(' ').toLowerCase().includes(words)))
   }, [d.deals, q, type, who, team, view, from, to, price])
   const rows = (status ? base.filter(x => x.status === status) : base).filter(x => view !== 'ready' || readyToClose(x, m, setup) > 0)
-  const people = d.staff.filter(s => s.status !== 'pending').sort((a, b) => a.short.localeCompare(b.short))
+  const people = d.staff.filter(s => isAgent(s) && s.status !== 'pending').sort((a, b) => a.short.localeCompare(b.short))
   const filters = [from, to, price, who, type, status].filter(Boolean).length
   const clear = () => { setQ(''); setFrom(''); setTo(''); setPrice(''); setWho(''); setType(''); setStatus('') }
 
@@ -116,7 +116,7 @@ function DealList({ view }) {
   const yearDeals = d.deals.filter(x => x.date.startsWith(m.year) && x.status !== 'cancelled' && x.status !== 'draft')
   return (
     <Page title={v.title} help={PAGE[{ personal: 'deals', branch: 'dealsBranch', team: 'dealsTeam', ready: 'dealsReady' }[view] || 'deals']} sub={view === 'ready' ? `${v.sub}.` : <>{v.sub} · {num(yearDeals.length)} submitted in {m.year} · {rm(sum(yearDeals, x => x.fee))} in fees</>}
-      actions={can('deals', 'edit') && <button style={btnPrimary} onClick={() => go('deals/new')}>Add a deal</button>}>
+      actions={can('deals', 'edit') && <button style={btnPrimary} onClick={() => go('deals/new')}>Submit an E-Form</button>}>
       {view === 'ready' && <FlowBar here="close" />}
       <Card pad={16}>
         <Toolbar fold active={filters} onClear={clear}>

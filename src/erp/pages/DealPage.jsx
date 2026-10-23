@@ -22,7 +22,7 @@ export default function DealPage({ id }) {
   const [busy, setBusy] = useState(false)
   const deal = m.deals[id]
   const closeDeal = useCloseDeal(deal || { code: '' })
-  if (!deal) return <Page title="E-Form not found" back={{ to: 'deals', label: 'All deals' }}><Empty title="This E-Form no longer exists" /></Page>
+  if (!deal) return <Page title="E-Form not found" back={{ to: 'deals', label: 'All E-Forms' }}><Empty title="This E-Form no longer exists" /></Page>
   const listing = deal.listingId ? m.listings[deal.listingId] : null
   const party = PARTY[deal.type]
   const money = deal.money
@@ -37,7 +37,7 @@ export default function DealPage({ id }) {
   const total = r2(money.billed - money.coBroke - money.referral)
   const rent = deal.rental
   return (
-    <Page back={{ to: 'deals', label: 'All deals' }} help={PAGE.deal}
+    <Page back={{ to: 'deals', label: 'All E-Forms' }} help={PAGE.deal}
       title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         E-Form <span style={{ fontFamily: mono.fontFamily }}>{deal.code}</span><Status of={DEAL_STATUS} value={deal.status} />
       </span>}

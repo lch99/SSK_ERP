@@ -108,7 +108,11 @@ export const PARTY = {
   project: { buyer: 'Purchaser', owner: 'Developer' },
 }
 // Account types, named as in the client's new HR form (old names in brackets in the comments: Admin (lv2), Admin (lv1), Sales Agent).
-export const ACCOUNT_TYPES = { 'admin-staff': 'Admin Level 2', 'admin-staff2': 'Admin Level 1', account: 'Accounting', staff: 'Agent', 'sale-staff': 'Sales', marketing: 'Marketing', others: 'Others' }
+// Account types, with the current ERP's codes. Agents sell and earn commission
+// (Agents module); the rest are office staff (System → Users).
+export const ACCOUNT_TYPES = { staff: 'Agent', 'sale-staff': 'Sales Agent', 'admin-staff': 'Admin Level 2', 'admin-staff2': 'Admin Level 1', account: 'Accounting', 'sale-marketing': 'Marketing & Sales' }
+export const AGENT_TYPES = ['staff', 'sale-staff']
+export const isAgent = s => AGENT_TYPES.includes(s?.type || 'staff')
 export const closeType = c => (!c.full ? 'Partial Close' : c.partNo > 1 ? 'Balance Close' : 'Full Close')
 
 export function buildModel(data, setup) {

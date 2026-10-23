@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
+import * as A from '../../../shared/access.js'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { ROLE_COLORS } from '../../setup/colors.js'
 import { useErp } from '../ErpContext.jsx'
-import { STAFF_STATUS, DEAL_STATUS, PAYOUT_STATUS, ACCOUNT_TYPES, sum } from '../model.js'
+import { STAFF_STATUS, DEAL_STATUS, PAYOUT_STATUS, ACCOUNT_TYPES, AGENT_TYPES, isAgent, sum } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, Chips, DataTable, Status, Pill, Avatar, Who, Link, Empty, KV, Progress, Stat, Notice, FormField, FileInput, TextArea, Menu, Modal, cols, go, mono, small, tabular, field } from '../ui.jsx'
 import { ACCESS } from '../../demo/erpSample.js'
 import Icon from '../Icon.jsx'
@@ -16,12 +17,15 @@ import { OrgTree } from './OrgChart.jsx'
 import { buildOrg } from '../org.js'
 import { useNarrow } from '../../setup/useNarrow.js'
 import { makeXlsx, download, XLSX_TYPE } from '../../setup/sheet.js'
-import { NoAccess, useCan, useGate } from '../access.jsx'
+import { NoAccess, useAccess, useCan, useGate } from '../access.jsx'
 
-// Agents & staff ("H.R Portal" in the current ERP): the people, their position (tier), upline and status.
+// Agents and office staff ("H.R Portal" in the current ERP is one list for both).
+// Agents (Agents module): position (tier), upline and status. Office staff
+// (System → Users, #/staff/office): admins, accounting and marketing.
 export default function Staff({ parts }) {
   const can = useCan()
-  if (parts[1] === 'new') return <StaffForm />
+  if (parts[1] === 'new') return <StaffForm office={parts[2] === 'office'} />
+  if (parts[1] === 'office') return <StaffList key="office" office />
   const id = Number(parts[1])
   if (id) {
     if (parts[2] === 'edit') return can('staff', 'edit') ? <StaffForm key={id} id={id} /> : <NoAccess />
@@ -30,7 +34,7 @@ export default function Staff({ parts }) {
     if (parts[2] === 'profile-doc') return <ProfileDoc id={id} />
     return <Profile id={id} />
   }
-  return <StaffList />
+  return <StaffList key="agents" />
 }
 
 const roleTone = (setup, code) => ROLE_COLORS[Math.max(0, setup.roles.findIndex(r => r.code === code)) % ROLE_COLORS.length]
@@ -43,7 +47,7 @@ export function RoleTag({ code, setup }) {
 // Built for thousands of people: counts at the top (each one a filter),
 // filters for upline level, tier and a leader's team, 25 rows at a time, and
 // the whole filtered list as an Excel file.
-function StaffList() {
+function StaffList({ office = false }) {
   const { m, scoped: d, setup } = useErp()
   const can = useCan()
   const [tab, setTab] = useState('all')
@@ -53,43 +57,57 @@ function StaffList() {
   const [tier, setTier] = useState('')       // a tier code (T1…)
   const [leader, setLeader] = useState('')   // a leader's id: only the people under them
   const [quick, setQuick] = useState('')     // 'new' (joined this month) · 'expiring' (within 30 days)
+  const [kind, setKind] = useState('')       // office staff: an account type
   // Phones: the counts sit two by two, without icons, so the list starts on the first screen.
   const [statsBox, narrow] = useNarrow(560)
 
-  const org = useMemo(() => buildOrg(d.staff), [d.staff])
-  const tierOf = useMemo(() => new Map(d.staff.map(s => [s.id, m.tierInfo(s.id).tier])), [d.staff, m])
+  // Agents or office staff, never both (see isAgent in model.js).
+  const people = useMemo(() => d.staff.filter(s => isAgent(s) !== office), [d.staff, office])
+  const org = useMemo(() => buildOrg(people), [people])
+  const tierOf = useMemo(() => new Map(people.map(s => [s.id, m.tierInfo(s.id).tier])), [people, m])
   const month = m.today.slice(0, 7)
   const soon = addDaysIso(m.today, 30)
   const joinedNow = s => String(s.joined || '').startsWith(month)
   const expiring = s => s.status !== 'inactive' && !!s.expiresOn && s.expiresOn < soon
-  const leaders = d.staff.filter(s => s.role)
+  const leaders = people.filter(s => s.role)
 
   const match = useMemo(() => {
     const words = q.trim().toLowerCase()
     const lead = leader ? Number(leader) : null
-    return d.staff.filter(s => (!words || [s.name, s.short, s.code, s.phone, s.email, s.username, s.ic].join(' ').toLowerCase().includes(words))
+    return people.filter(s => (!words || [s.name, s.short, s.code, s.phone, s.email, s.username, s.ic].join(' ').toLowerCase().includes(words))
       && (!level || (level === 'leaders' ? !!s.role : level === 'none' ? !s.role : s.role === level))
       && (!tier || tierOf.get(s.id)?.name === tier)
       && (lead == null || (s.id !== lead && org.within(s.id, lead)))
-      && (!quick || (quick === 'new' ? joinedNow(s) : expiring(s))))
-  }, [d.staff, q, level, tier, leader, quick, org, tierOf]) // eslint-disable-line react-hooks/exhaustive-deps
+      && (!quick || (quick === 'new' ? joinedNow(s) : expiring(s)))
+      && (!kind || s.type === kind))
+  }, [people, q, level, tier, leader, quick, kind, org, tierOf]) // eslint-disable-line react-hooks/exhaustive-deps
   const rows = tab === 'all' ? match : match.filter(s => s.status === tab)
-  const set = [level, tier, leader, quick].filter(Boolean).length + (tab !== 'all' ? 1 : 0)
-  const clear = () => { setQ(''); setTab('all'); setLevel(''); setTier(''); setLeader(''); setQuick('') }
+  const set = [level, tier, leader, quick, kind].filter(Boolean).length + (tab !== 'all' ? 1 : 0)
+  const clear = () => { setQ(''); setTab('all'); setLevel(''); setTier(''); setLeader(''); setQuick(''); setKind('') }
 
   const count = (list, f) => list.filter(f).length
   const levelOptions = [{ value: '', label: 'All levels' },
     ...(setup.roles.length ? [{ value: 'leaders', label: `All leaders (${num(leaders.length)})` }] : []),
-    ...[...setup.roles].reverse().map(r => ({ value: r.code, label: `${r.code} · ${r.name} (${num(count(d.staff, s => s.role === r.code))})` })),
-    ...(setup.roles.length ? [{ value: 'none', label: `No upline level (${num(count(d.staff, s => !s.role))})` }] : [])]
-  const tierNames = [...new Set(d.staff.map(s => tierOf.get(s.id)?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-  const tierOptions = [{ value: '', label: 'All tiers' }, ...tierNames.map(t => ({ value: t, label: `${t} (${num(count(d.staff, s => tierOf.get(s.id)?.name === t))})` }))]
+    ...[...setup.roles].reverse().map(r => ({ value: r.code, label: `${r.code} · ${r.name} (${num(count(people, s => s.role === r.code))})` })),
+    ...(setup.roles.length ? [{ value: 'none', label: `No upline level (${num(count(people, s => !s.role))})` }] : [])]
+  const tierNames = [...new Set(people.map(s => tierOf.get(s.id)?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const tierOptions = [{ value: '', label: 'All tiers' }, ...tierNames.map(t => ({ value: t, label: `${t} (${num(count(people, s => tierOf.get(s.id)?.name === t))})` }))]
   const rank = s => setup.roles.findIndex(r => r.code === s.role)
   const leaderOptions = [{ value: '', label: 'Anyone' }, ...[...leaders].sort((a, b) => rank(b) - rank(a) || a.short.localeCompare(b.short))
     .map(s => ({ value: String(s.id), label: `${s.short} · ${s.role} (${num(org.team(s.id))})` }))]
 
+  const kindOptions = [{ value: '', label: 'All account types' }, ...Object.entries(ACCOUNT_TYPES).filter(([k]) => !AGENT_TYPES.includes(k))
+    .map(([value, label]) => ({ value, label: `${label} (${num(count(people, s => s.type === value))})` }))]
+
   // The filtered list, every row (not just the page on screen), for Excel.
   const exportRows = () => {
+    if (office) {
+      const head = ['Staff ID', 'Name', 'IC name', 'User name', 'Account type', 'Branch', 'Phone', 'Email', 'IC no.', 'Status', 'Joined', 'Account expiry', 'Last activity']
+      const body = rows.map(s => [s.code, s.short, s.name, s.username, ACCOUNT_TYPES[s.type] || s.type, m.branchName(s.branchId), s.phone, s.email, maskIc(s.ic),
+        STAFF_STATUS[s.status]?.label || s.status, s.joined || '', s.expiresOn || '', s.lastActive ? String(s.lastActive).slice(0, 10) : ''])
+      download(makeXlsx([{ name: 'Office staff', rows: [head, ...body], widths: [14, 22, 26, 14, 18, 16, 14, 28, 18, 10, 12, 14, 14] }]), `office-staff-${m.today}.xlsx`, XLSX_TYPE)
+      return
+    }
     const head = ['Staff ID', 'Name', 'IC name', 'User name', 'Branch', 'Upline level', 'Tier', 'Agent rate %', 'Upline', 'Upline staff ID',
       'Direct', 'In team', 'Phone', 'Email', 'IC no.', 'Status', 'Joined', 'Account expiry', 'Closing, lifetime (RM)', `Commission ${m.year} (RM)`, 'Last activity']
     const body = rows.map(s => {
@@ -99,7 +117,7 @@ function StaffList() {
         s.joined || '', s.expiresOn || '', m.credit(s.id).lifetime, m.credit(s.id).year, s.lastActive ? String(s.lastActive).slice(0, 10) : '']
     })
     const widths = [14, 22, 26, 14, 16, 24, 8, 10, 22, 14, 8, 8, 14, 28, 18, 10, 12, 14, 18, 18, 14]
-    download(makeXlsx([{ name: 'Agents & staff', rows: [head, ...body], widths }]), `agents-staff-${m.today}.xlsx`, XLSX_TYPE)
+    download(makeXlsx([{ name: 'Agents', rows: [head, ...body], widths }]), `agents-${m.today}.xlsx`, XLSX_TYPE)
   }
 
   const columns = [
@@ -120,32 +138,37 @@ function StaffList() {
     ) },
     { key: 'seen', label: 'Last Login/Activity', sort: s => s.lastActive || '', render: s => <span style={{ fontSize: 12.5, color: C.muted }}>{s.lastActive ? ago(s.lastActive, m.today) : 'Never'}</span> },
     { key: 'actions', label: '', card: false, render: s => <StaffMenu s={s} /> },
-  ]
-  const active = d.staff.filter(s => s.status === 'active')
-  const newNow = d.staff.filter(joinedNow)
-  const soonList = d.staff.filter(expiring)
+  ].flatMap(c => (!office ? [c] : c.key === 'level' ? [
+    { key: 'type', label: 'Account Type', sort: s => ACCOUNT_TYPES[s.type] || '', render: s => <Pill tone="violet" dot={false}>{ACCOUNT_TYPES[s.type] || s.type}</Pill> },
+    { key: 'branch', label: 'Branch', sort: s => m.branchName(s.branchId), render: s => m.branchName(s.branchId) },
+  ] : c.key === 'closing' || c.key === 'upline' ? [] : [c]))
+  const active = people.filter(s => s.status === 'active')
+  const newNow = people.filter(joinedNow)
+  const soonList = people.filter(expiring)
   const levelsLine = [...setup.roles].reverse().map(r => `${num(count(leaders, s => s.role === r.code))} ${r.code}`).join(' · ')
   const pick = (k, v) => () => { clear(); if (k === 'level') setLevel(v); else if (k === 'quick') setQuick(v) }
   return (
-    <Page title="Agents & staff" help={PAGE.staff} sub={<>{num(active.length)} active · position (tier), upline and pay come from Setup</>}
-      actions={can('staff', 'edit') && <button style={btnPrimary} onClick={() => go('staff/new')}>Add agent or staff</button>}>
-      {view === 'list' && (
+    <Page title={office ? 'Office staff' : 'Agents'} help={office ? PAGE.officeStaff : PAGE.staff}
+      sub={office ? <>{num(active.length)} active · admins, accounting and marketing. Their account type sets what they can do (Roles & access).</> : <>{num(active.length)} active · position (tier), upline and pay come from Setup</>}
+      actions={can('staff', 'edit') && <button style={btnPrimary} onClick={() => go(office ? 'staff/new/office' : 'staff/new')}>{office ? 'Add office staff' : 'Add an agent'}</button>}>
+      {(office || view === 'list') && (
         <div ref={statsBox} style={{ ...cols(narrow ? 140 : 210, narrow ? 10 : 14), marginBottom: 16 }}>
-          <Stat icon={narrow ? null : 'staff'} label="Agents & staff" value={num(d.staff.length)} sub={`${num(active.length)} active · ${num(count(d.staff, s => s.status === 'inactive'))} left`} onClick={clear} on={!set && !q} />
-          {setup.roles.length > 0 && <Stat icon={narrow ? null : 'crown'} tone="violet" label="Leaders" value={num(leaders.length)} sub={levelsLine || 'No upline levels'} onClick={pick('level', 'leaders')} on={level === 'leaders'} />}
-          <Stat icon={narrow ? null : 'plus'} tone="blue" label="Joined this month" value={num(newNow.length)} sub={`${num(count(d.staff, s => s.status === 'pending'))} waiting for HR to enable`} onClick={pick('quick', 'new')} on={quick === 'new'} />
+          <Stat icon={narrow ? null : 'staff'} label={office ? 'Office staff' : 'Agents'} value={num(people.length)} sub={`${num(active.length)} active · ${num(count(people, s => s.status === 'inactive'))} left`} onClick={clear} on={!set && !q} />
+          {!office && setup.roles.length > 0 && <Stat icon={narrow ? null : 'crown'} tone="violet" label="Leaders" value={num(leaders.length)} sub={levelsLine || 'No upline levels'} onClick={pick('level', 'leaders')} on={level === 'leaders'} />}
+          <Stat icon={narrow ? null : 'plus'} tone="blue" label="Joined this month" value={num(newNow.length)} sub={`${num(count(people, s => s.status === 'pending'))} waiting for HR to enable`} onClick={pick('quick', 'new')} on={quick === 'new'} />
           <Stat icon={narrow ? null : 'clock'} tone={soonList.length ? 'amber' : 'gray'} label="Expiring in 30 days" value={num(soonList.length)} sub="Accounts to renew" onClick={pick('quick', 'expiring')} on={quick === 'expiring'} />
         </div>
       )}
       <Card pad={16}>
-        <Tabs value={view} onChange={setView} tabs={[{ key: 'list', label: 'Staff list' }, { key: 'tree', label: 'Org chart' }]} />
-        {view === 'tree' ? <OrgTree /> : (
+        {!office && <Tabs value={view} onChange={setView} tabs={[{ key: 'list', label: 'List' }, { key: 'tree', label: 'Org chart' }]} />}
+        {!office && view === 'tree' ? <OrgTree /> : (
           <>
             <Toolbar fold active={set} onClear={clear}>
               <SearchBox value={q} onChange={setQ} placeholder="Name, code, phone or email" />
-              {setup.roles.length > 0 && <Select label="Level" value={level} onChange={setLevel} options={levelOptions} />}
-              {tierNames.length > 1 && <Select label="Tier" value={tier} onChange={setTier} options={tierOptions} />}
-              {leaders.length > 0 && <Select label="In the team of" value={leader} onChange={setLeader} options={leaderOptions} />}
+              {office && <Select label="Account type" value={kind} onChange={setKind} options={kindOptions} />}
+              {!office && setup.roles.length > 0 && <Select label="Level" value={level} onChange={setLevel} options={levelOptions} />}
+              {!office && tierNames.length > 1 && <Select label="Tier" value={tier} onChange={setTier} options={tierOptions} />}
+              {!office && leaders.length > 0 && <Select label="In the team of" value={leader} onChange={setLeader} options={leaderOptions} />}
               {quick && <Pill tone={quick === 'new' ? 'blue' : 'amber'}>{quick === 'new' ? 'Joined this month' : 'Expiring in 30 days'}</Pill>}
             </Toolbar>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -169,9 +192,11 @@ function Profile({ id }) {
   const fb = useFeedback()
   const erp = useErp()
   const can = useCan()
+  const access = useAccess()
   const { m, setup } = erp
   const s = m.staff[id]
-  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
+  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists" /></Page>
+  const agent = isAgent(s)
   const t = m.tierInfo(id)
   const chain = m.chain(id)
   const deals = m.dealsOf(id).sort((a, b) => b.date.localeCompare(a.date))
@@ -181,7 +206,7 @@ function Profile({ id }) {
   const yearDeals = deals.filter(d => d.date.startsWith(m.year) && d.status !== 'cancelled' && d.status !== 'draft')
 
   return (
-    <Page back={{ to: 'staff', label: 'Agents & staff' }} help={PAGE.profile}
+    <Page back={agent ? { to: 'staff', label: 'All agents' } : { to: 'staff/office', label: 'Office staff' }} help={agent ? PAGE.profile : PAGE.officeProfile}
       actions={<>
         {can('staff', 'edit') && <Select plain label="Enable/Unlock Staff" value={s.status} onChange={v => fb.run(() => erp.setStaffStatus(s.id, v), `${s.short} is now ${STAFF_STATUS[v].label}`)}
           options={[{ value: 'active', label: 'Enabled (Active)' }, { value: 'inactive', label: 'Disabled (Inactive)' }, { value: 'pending', label: 'Pending' }]} />}
@@ -189,16 +214,16 @@ function Profile({ id }) {
         <StaffMenu s={s} label="More" />
       </>}
       title={<span style={{ display: 'inline-flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}><Avatar name={s.short} size={42} photo={s.photo} />{s.short}<Status of={STAFF_STATUS} value={s.status} /></span>}
-      sub={<>{s.name} · {s.code} · {m.branchName(s.branchId)}{s.role ? ` · ${m.roleName(s.role)}` : ''} · joined {date(s.joined)}{s.leftOn ? ` · left ${date(s.leftOn)}` : ''}</>}>
-      <div style={{ ...cols(210, 14), marginBottom: 16 }}>
+      sub={<>{s.name} · {s.code} · {agent ? '' : `${ACCOUNT_TYPES[s.type] || s.type} · `}{m.branchName(s.branchId)}{s.role ? ` · ${m.roleName(s.role)}` : ''} · joined {date(s.joined)}{s.leftOn ? ` · left ${date(s.leftOn)}` : ''}</>}>
+      {agent && <div style={{ ...cols(210, 14), marginBottom: 16 }}>
         <Stat label="Tier now" value={P.tierLabel(t.tier)} sub={`Agent rate ${t.tier.agentRate}%${t.kept ? ' · kept from last year' : ''}`} tone="brand" icon="reports" />
         <Stat label={`Commission in ${m.year}`} value={rm(t.yearly)} sub={`Lifetime ${rm(t.lifetime)}`} />
         <Stat label={`Earned in ${m.year}`} value={rm(m.earned(id, { thisYear: true }))} sub="Own deals and upline overrides" />
         <Stat label={`Deals in ${m.year}`} value={num(yearDeals.length)} sub={`${yearDeals.filter(d => d.agentId === id).length} closed by them · ${yearDeals.filter(d => d.holderId === id && d.agentId !== id).length} on their listings`} />
-      </div>
+      </div>}
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', alignItems: 'start' }}>
-        <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+        {agent ? <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <Card title="Tier progress" help={CARD.tierProgress} sub={t.next ? `Next: ${P.tierLabel(t.next)} at ${t.next.agentRate}%` : 'At the top tier'}>
             {t.next && (
               <>
@@ -234,9 +259,18 @@ function Profile({ id }) {
               { key: 'status', label: 'Status', render: l => <Status of={PAYOUT_STATUS} value={l.status} /> },
             ]} />
           </Card>
-        </div>
+        </div> : (
+          <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+            <Card title="What they can do" help={CARD.officeRole}>
+              <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.5 }}>
+                As <b>{ACCOUNT_TYPES[s.type] || s.type}</b>, what they can open and change, and whose records they see, is set for the whole account type in Roles & access.
+              </p>
+              {access.opens('access') && <Link to={`access/${A.roleForType(s.type)}`} style={{ fontSize: 13.5 }}>Open {ACCOUNT_TYPES[s.type] || s.type} in Roles & access</Link>}
+            </Card>
+          </div>
+        )}
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
-          <Card title="Uplines" help={CARD.uplines} sub={setup.roles.length ? 'Who shares the upline pool on their deals' : 'No upline levels in Setup'}>
+          {agent && <Card title="Uplines" help={CARD.uplines} sub={setup.roles.length ? 'Who shares the upline pool on their deals' : 'No upline levels in Setup'}>
             {chain.length ? (
               <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                 {[...chain].reverse().map(p => (
@@ -251,8 +285,8 @@ function Profile({ id }) {
                 </li>
               </ol>
             ) : <p style={{ margin: 0, color: C.muted, fontSize: 13.5 }}>Nobody above. On their deals the company keeps whatever their tier doesn’t pay.</p>}
-          </Card>
-          {downline.length > 0 && (
+          </Card>}
+          {agent && downline.length > 0 && (
             <Card title={`Directly under ${s.short}`} help={CARD.downline} sub={`${downline.length} people`}>
               {downline.map(k => (
                 <div key={k.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${C.border}` }}>
@@ -267,9 +301,9 @@ function Profile({ id }) {
             <KV min={170} items={[
               ['User Name', s.username], ['Account Type', ACCOUNT_TYPES[s.type] || 'Agent'], ['Full Name (IC)', s.name], ['NRIC No', maskIc(s.ic)],
               ['Namecard Name', s.short], ['Phone', s.phone], ['E-Mail', s.email], ['Gender', s.sex === 'F' ? 'Female' : 'Male'], ['Date of Birth', s.birthday ? date(s.birthday) : '—'],
-              ['Registration (LPPEH)', s.regNo ? `${s.regType || 'REN'} ${s.regNo}` : s.renNo || '—'], ['Bank', `${s.bank} ${maskAcc(s.account)}`],
+              ...(agent ? [['Registration (LPPEH)', s.regNo ? `${s.regType || 'REN'} ${s.regNo}` : s.renNo || '—']] : []), ['Bank', `${s.bank} ${maskAcc(s.account)}`],
               ['Active Status Expiry', s.expiresOn ? date(s.expiresOn) : '—'], ['Last Login/Activity', s.lastActive ? date(s.lastActive) : 'Never'],
-              ['Withholding tax', s.whtExempt ? 'Exempt' : `${setup.dealTypes.whtPct}% on each payslip`],
+              ...(agent ? [['Withholding tax', s.whtExempt ? 'Exempt' : `${setup.dealTypes.whtPct}% on each payslip`]] : []),
             ]} />
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
               {Object.entries(s.docs || {}).map(([k, ok]) => <Pill key={k} tone={ok ? 'green' : 'amber'}>{k}{ok ? '' : ' missing'}</Pill>)}
@@ -277,14 +311,14 @@ function Profile({ id }) {
           </Card>
           <Card title="Access & Permissions" help={CARD.access}>
             <div style={{ display: 'grid', gap: 6 }}>
-              {[['active', 'Active Staff Account', s.status === 'active'], ...Object.entries(ACCESS).map(([k, label]) => [k, label, !!s.access?.[k]])].map(([k, label, on]) => (
+              {[['active', 'Active Staff Account', s.status === 'active'], ...Object.entries(agent ? ACCESS : {}).map(([k, label]) => [k, label, !!s.access?.[k]])].map(([k, label, on]) => (
                 <div key={k} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5 }}>
                   <span style={{ color: on ? C.ok : C.faint, display: 'inline-flex' }}><Icon name={on ? 'check' : 'close'} size={15} /></span>{label}
                 </div>
               ))}
             </div>
           </Card>
-          <Card title="Public profile" help={CARD.publicProfile} actions={<Link to={`staff/${s.id}/profile-doc`} style={{ fontSize: 13 }}>Profile PDF</Link>}>
+          {agent && <Card title="Public profile" help={CARD.publicProfile} actions={<Link to={`staff/${s.id}/profile-doc`} style={{ fontSize: 13 }}>Profile PDF</Link>}>
             {s.access?.profilePage ? <p style={{ margin: '0 0 8px', fontSize: 13, color: C.ok }}>Shown at subsaleking.com/property-agents/{s.username}</p>
               : <p style={{ margin: '0 0 8px', fontSize: 13, color: C.muted }}>The profile page is switched off (Access & Permissions).</p>}
             {s.bio ? <p style={{ margin: '0 0 8px', fontSize: 13.5 }}>{s.bio}</p> : <p style={{ margin: '0 0 8px', fontSize: 13, color: C.muted }}>No bio yet.</p>}
@@ -292,7 +326,7 @@ function Profile({ id }) {
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{Object.entries(s.socials).filter(([, v]) => v).map(([k]) => <Pill key={k} tone="blue" dot={false}>{SOCIALS.find(x => x[0] === k)?.[1] || k}</Pill>)}</div>
             )}
             {(s.awards || []).length > 0 && <div style={{ fontSize: 13 }}>{s.awards.map((a, i) => <div key={i}><Icon name="medal" size={14} /> {a.name} · {a.org} · {date(a.date)}</div>)}</div>}
-          </Card>
+          </Card>}
         </div>
       </div>
     </Page>
@@ -306,15 +340,19 @@ function StaffMenu({ s, label }) {
   const gate = useGate()
   const remove = async () => {
     const ok = await fb.confirm({ title: `Delete ${s.short}?`, body: 'Only someone with no deals, listings, customers or team can be deleted. Otherwise set them Inactive.', confirmLabel: 'Delete', danger: true })
-    if (ok && await fb.run(() => erp.deleteStaff(s.id), `${s.short} deleted`)) go('staff')
+    if (ok && await fb.run(() => erp.deleteStaff(s.id), `${s.short} deleted`)) go(isAgent(s) ? 'staff' : 'staff/office')
   }
+  // Charts, marketing staffs, E-Forms and the profile PDF are for agents only.
+  const agentOnly = isAgent(s) ? [
+    { label: 'View Chart', icon: 'staff', onClick: () => go(`staff/${s.id}/chart`) },
+    gate({ label: 'Manage Marketing Staffs', icon: 'customers', hint: s.marketing?.length ? String(s.marketing.length) : null, onClick: () => go(`staff/${s.id}/marketing`) }, 'staff', 'full'),
+    gate({ label: 'E-Forms', icon: 'deals', onClick: () => go(`deals?staff=${s.id}`) }, 'deals', 'view'),
+    { label: 'Agent Profile PDF', icon: 'print', onClick: () => go(`staff/${s.id}/profile-doc`) },
+  ] : []
   return (
     <Menu quiet={!label} label={label || 'Actions'} items={[
       gate({ label: 'Edit', icon: 'edit', onClick: () => go(`staff/${s.id}/edit`) }, 'staff'),
-      { label: 'View Chart', icon: 'staff', onClick: () => go(`staff/${s.id}/chart`) },
-      gate({ label: 'Manage Marketing Staffs', icon: 'customers', hint: s.marketing?.length ? String(s.marketing.length) : null, onClick: () => go(`staff/${s.id}/marketing`) }, 'staff', 'full'),
-      gate({ label: 'E-Forms', icon: 'deals', onClick: () => go(`deals?staff=${s.id}`) }, 'deals', 'view'),
-      { label: 'Agent Profile PDF', icon: 'print', onClick: () => go(`staff/${s.id}/profile-doc`) },
+      ...agentOnly,
       '-',
       gate({ label: 'Delete', icon: 'trash', danger: true, onClick: remove }, 'staff', 'full'),
     ]} />
@@ -329,7 +367,7 @@ const STAFF_DOCS = ['NRIC Copy', 'Application Form', 'Joining Fee Receipt']
 
 // Add / Edit staff, in the sections of the client's new HR form. The old form's
 // extra questions (smoker, transport, previous job…) sit under "More details".
-function StaffForm({ id }) {
+function StaffForm({ id, office = false }) {
   const fb = useFeedback()
   const erp = useErp()
   const { m, setup } = erp
@@ -341,15 +379,18 @@ function StaffForm({ id }) {
     bank: s.bank || '', account: s.account || '', docs: { ...(s.docs || {}) }, awards: [...(s.awards || [])], active: s.status === 'active',
     access: { ...(s.access || {}) }, expiresOn: s.expiresOn || '', address: s.address || '', language: s.language || '', education: s.education || '', extra: { ...(s.extra || {}) },
   } : {
-    type: 'staff', tierFloorId: '', branchId: String(setup.branches[0]?.id || ''), uplineId: '', role: '', username: '', password: '', name: '', ic: '', sex: 'male', birthday: '',
+    type: office ? 'admin-staff2' : 'staff', tierFloorId: '', branchId: String(setup.branches[0]?.id || ''), uplineId: '', role: '', username: '', password: '', name: '', ic: '', sex: 'male', birthday: '',
     short: '', phone: '', phone2: '', email: '', bio: '', socials: {}, regType: 'REN', regNo: '', bank: '', account: '', docs: {}, awards: [], active: false,
-    access: { agent: true, profilePage: false, profileDoc: false, addListing: true, landlordVerify: false, vendorRequests: false, tripIncentive: false },
+    access: { agent: !office, profilePage: false, profileDoc: false, addListing: !office, landlordVerify: false, vendorRequests: false, tripIncentive: false },
     expiresOn: addDaysIso(m.today, 365), address: '', language: '', education: '', extra: {},
   })
   const [error, setError] = useState(null)
   const [award, setAward] = useState(null)
   const [busy, setBusy] = useState(false)
-  if (id && !s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
+  if (id && !s) return <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists" /></Page>
+  // Office staff have no tier, upline, public profile or agent features.
+  const agentForm = isAgent({ type: f.type })
+  const listPath = agentForm ? 'staff' : 'staff/office'
   const set = k => e => setF(v => ({ ...v, [k]: e.target.value }))
   const setX = k => e => setF(v => ({ ...v, extra: { ...v.extra, [k]: e.target.value } }))
   const branchId = Number(f.branchId)
@@ -366,10 +407,11 @@ function StaffForm({ id }) {
   )
   async function save() {
     setError(null); setBusy(true)
-    const body = { type: f.type, tierFloorId: f.tierFloorId || null, branchId, uplineId: f.uplineId || null, role: f.role || null, username: f.username, name: f.name, ic: f.ic,
+    const agentOnly = v => (agentForm ? v : null)
+    const body = { type: f.type, tierFloorId: agentOnly(f.tierFloorId || null), branchId, uplineId: agentOnly(f.uplineId || null), role: agentOnly(f.role || null), username: f.username, name: f.name, ic: f.ic,
       sex: f.sex === 'female' ? 'F' : 'M', birthday: f.birthday, short: f.short || f.name, phone: f.phone, phone2: f.phone2, email: f.email, bio: f.bio,
       socials: Object.fromEntries(Object.entries(f.socials).filter(([, v]) => v)), regType: f.regType, regNo: f.regNo, bank: f.bank, account: f.account, docs: f.docs,
-      awards: f.awards, access: f.access, expiresOn: f.expiresOn, address: f.address, language: f.language, education: f.education, extra: f.extra }
+      awards: f.awards, access: agentForm ? f.access : Object.fromEntries(Object.keys(ACCESS).map(k => [k, false])), expiresOn: f.expiresOn, address: f.address, language: f.language, education: f.education, extra: f.extra }
     try {
       if (s) {
         await erp.updateStaff(s.id, body)
@@ -388,17 +430,18 @@ function StaffForm({ id }) {
     } catch (e) { setError(e.message); window.scrollTo({ top: 0, behavior: 'smooth' }) } finally { setBusy(false) }
   }
   return (
-    <Page title={s ? `Edit Staff · ${s.code}` : 'New Staff Application'} help={s ? PAGE.staffEdit : PAGE.staffNew} back={s ? { to: `staff/${s.id}`, label: s.short } : { to: 'staff', label: 'Agents & staff' }}
-      sub={s ? 'Manage the details for this staff member.' : 'Manage the details for adding a new staff member. They stay Pending until Active Staff Account is switched on.'}
-      actions={<><button style={btn} onClick={() => go(s ? `staff/${s.id}` : 'staff')}>Cancel</button><button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{s ? 'Save Changes' : 'Submit'}</button></>}>
+    <Page title={s ? `Edit Staff · ${s.code}` : office ? 'Add office staff' : 'Add an agent'} help={s ? PAGE.staffEdit : PAGE.staffNew}
+      back={s ? { to: `staff/${s.id}`, label: s.short } : office ? { to: 'staff/office', label: 'Office staff' } : { to: 'staff', label: 'All agents' }}
+      sub={s ? 'Manage the details for this staff member.' : `${office ? 'An admin, accountant or marketing person.' : 'A new agent.'} They stay Pending until Active Staff Account is switched on.`}
+      actions={<><button style={btn} onClick={() => go(s ? `staff/${s.id}` : listPath)}>Cancel</button><button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{s ? 'Save Changes' : 'Submit'}</button></>}>
       {error && <Notice tone="red">{error}</Notice>}
       <div style={{ display: 'grid', gap: 16 }}>
         {section('Account Details', 'The staff member’s role and type within the organisation.', <>
           {pick('type', 'Account Type', Object.entries(ACCOUNT_TYPES).map(([value, label]) => ({ value, label })), { required: true })}
           {pick('branchId', 'Branch', setup.branches.map(b => ({ value: String(b.id), label: b.name })), { required: true })}
-          {pick('tierFloorId', 'Rank (position)', [{ value: '', label: `${tiers[0] ? P.tierLabel(tiers[0]) : 'First tier'} (start)` }, ...tiers.slice(1).map(t => ({ value: t.id, label: P.tierLabel(t) }))], { help: 'The tier they start at. They move up as they earn.' })}
-          {setup.roles.length > 0 && pick('role', 'Upline level they hold', [{ value: '', label: 'None (negotiator)' }, ...setup.roles.map(r => ({ value: r.code, label: `${r.code} · ${r.name}` }))])}
-          {pick('uplineId', 'Upline', [{ value: '', label: 'No upline' }, ...uplines.map(x => ({ value: String(x.id), label: `${x.code} (${x.short})${x.role ? ` · ${x.role}` : ''}` }))], { help: 'An existing staff member to be the upline for this agent.' })}
+          {agentForm && pick('tierFloorId', 'Rank (position)', [{ value: '', label: `${tiers[0] ? P.tierLabel(tiers[0]) : 'First tier'} (start)` }, ...tiers.slice(1).map(t => ({ value: t.id, label: P.tierLabel(t) }))], { help: 'The tier they start at. They move up as they earn.' })}
+          {agentForm && setup.roles.length > 0 && pick('role', 'Upline level they hold', [{ value: '', label: 'None (negotiator)' }, ...setup.roles.map(r => ({ value: r.code, label: `${r.code} · ${r.name}` }))])}
+          {agentForm && pick('uplineId', 'Upline', [{ value: '', label: 'No upline' }, ...uplines.map(x => ({ value: String(x.id), label: `${x.code} (${x.short})${x.role ? ` · ${x.role}` : ''}` }))], { help: 'An existing staff member to be the upline for this agent.' })}
           {text('username', 'Username', { required: true })}
           {!s && text('password', 'Password', { type: 'password', required: true })}
         </>)}
@@ -414,6 +457,7 @@ function StaffForm({ id }) {
           {text('email', 'Email Address', { type: 'email', help: 'eg: example@domain.com' })}
           {text('phone2', 'Phone Number 2')}
         </>)}
+        {agentForm && <>
         <Card title="Profile Information" sub="Displayed publicly on the agent's profile page." help={CARD.publicProfile}>
           <FormField label="Bio"><TextArea rows={3} value={f.bio} onChange={set('bio')} placeholder="Brief biography displayed on the agent profile" /></FormField>
         </Card>
@@ -424,6 +468,7 @@ function StaffForm({ id }) {
           {pick('regType', 'Registration', ['REN', 'REA', 'PEA'].map(v => ({ value: v, label: v })))}
           {text('regNo', 'Registration Number', { placeholder: 'Enter certification number', inputMode: 'numeric' })}
         </>)}
+        </>}
         {section('Bank Information', 'Bank account details for the staff member.', <>
           {pick('bank', 'Bank', [{ value: '', label: 'Select bank' }, ...BANKS.map(b => ({ value: b, label: b }))])}
           {text('account', 'Bank Account Number', { inputMode: 'numeric' })}
@@ -432,17 +477,17 @@ function StaffForm({ id }) {
         {section('Documents', 'For staff verification and record-keeping.', STAFF_DOCS.map(d => (
           <FormField key={d} label={d} help={f.docs[d] ? 'Uploaded' : 'Not uploaded yet'}><FileInput kind="document" onChange={files => setF(x => ({ ...x, docs: { ...x.docs, [d]: files.length > 0 || !!s?.docs?.[d] } }))} /></FormField>
         )))}
-        <Card title="Awards" help={CARD.awards} actions={<button style={small} onClick={() => setAward({ name: '', org: '', date: '' })}>Add Award</button>}>
+        {agentForm && <Card title="Awards" help={CARD.awards} actions={<button style={small} onClick={() => setAward({ name: '', org: '', date: '' })}>Add Award</button>}>
           {!f.awards.length ? <p style={{ margin: 0, fontSize: 13.5, color: C.muted }}>No awards yet.</p> : f.awards.map((a, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.border}`, fontSize: 13.5 }}>
               <Icon name="medal" size={16} /><span style={{ flex: 1 }}><b>{a.name}</b> · {a.org}{a.date ? ` · ${date(a.date)}` : ''}</span>
               <button style={{ ...small, color: C.err }} onClick={() => setF(x => ({ ...x, awards: x.awards.filter((_, j) => j !== i) }))}>Remove</button>
             </div>
           ))}
-        </Card>
-        <Card title="Access & Permissions" sub="Access rights assigned to the staff member." help={CARD.access}>
+        </Card>}
+        <Card title="Access & Permissions" sub={agentForm ? 'Access rights assigned to the staff member.' : 'What they can open and change comes from their account type (System → Roles & access).'} help={CARD.access}>
           {toggle(f.active, v => setF(x => ({ ...x, active: v })), 'Active Staff Account')}
-          {Object.entries(ACCESS).map(([k, label]) => <div key={k}>{toggle(f.access[k], v => setF(x => ({ ...x, access: { ...x.access, [k]: v } })), label)}</div>)}
+          {agentForm && Object.entries(ACCESS).map(([k, label]) => <div key={k}>{toggle(f.access[k], v => setF(x => ({ ...x, access: { ...x.access, [k]: v } })), label)}</div>)}
           <div style={{ ...grid, marginTop: 10 }}>{text('expiresOn', 'Active Status Expiry Date', { type: 'date', help: 'When the account is due for renewal.' })}</div>
         </Card>
         <details style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
@@ -463,7 +508,7 @@ function StaffForm({ id }) {
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
         <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{s ? 'Save Changes' : 'Submit'}</button>
-        <button style={btn} onClick={() => go(s ? `staff/${s.id}` : 'staff')}>Cancel</button>
+        <button style={btn} onClick={() => go(s ? `staff/${s.id}` : listPath)}>Cancel</button>
       </div>
       <Modal open={!!award} onClose={() => setAward(null)} title="Add Award"
         footer={<><button style={btn} onClick={() => setAward(null)}>Cancel</button>
@@ -489,7 +534,7 @@ function MarketingStaffs({ id }) {
   const s = m.staff[id]
   const [rows, setRows] = useState(() => (s?.marketing || []).map(r => ({ ...r, staffId: String(r.staffId) })))
   const [adding, setAdding] = useState('')
-  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
+  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists" /></Page>
   const others = m.data.staff.filter(x => x.id !== id && x.status !== 'inactive' && !rows.some(r => r.staffId === String(x.id))).sort((a, b) => a.short.localeCompare(b.short))
   const dirty = JSON.stringify(rows.map(r => ({ ...r, staffId: Number(r.staffId) }))) !== JSON.stringify(s.marketing || [])
   const flip = (i, k) => setRows(rs => rs.map((r, j) => (j === i ? { ...r, [k]: !r[k] } : r)))
@@ -518,7 +563,7 @@ function MarketingStaffs({ id }) {
 function StaffChart({ id }) {
   const { m } = useErp()
   const s = m.staff[id]
-  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
+  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists" /></Page>
   return (
     <Page title={`Staff Chart · ${s.code}`} help={PAGE.staffChart} back={{ to: `staff/${s.id}`, label: s.short }} sub="View the staff organisational chart.">
       <Card pad={16}><OrgTree focus={id} /></Card>
@@ -533,7 +578,7 @@ function ProfileDoc({ id }) {
   const s = m.staff[id]
   const own = s ? m.data.listings.filter(l => l.holderId === id && l.status === 'active').sort((a, b) => b.updated.localeCompare(a.updated)) : []
   const [picked, setPicked] = useState(() => own.slice(0, 4).map(l => l.id))
-  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
+  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists" /></Page>
   const all = m.data.listings.filter(l => l.holderId === id)
   const areas = [...new Set(all.map(l => l.area))].slice(0, 4)
   const cats = [...new Set(all.map(l => l.category))].slice(0, 4)

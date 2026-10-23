@@ -112,7 +112,7 @@ export default function Dashboard({ me }) {
           { icon: 'moneyIn', value: toCollect ? `${Math.round(collected / toCollect * 100)}%` : '—', label: 'collected on open deals' },
         ]}
         actions={[
-          { icon: 'deals', label: 'Deals', primary: true, onClick: () => go('deals') },
+          { icon: 'deals', label: 'E-Forms', primary: true, onClick: () => go('deals') },
           { icon: 'plus', label: 'Record a payment', onClick: () => go('money-in/new') },
           { icon: 'payouts', label: 'Approve payouts', badge: new Set(toApprove.map(p => p.closeId)).size, onClick: () => go('payouts') },
           { icon: 'search', label: 'Quick search  ⌘K', onClick: () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true })) },

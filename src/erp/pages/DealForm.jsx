@@ -3,7 +3,7 @@ import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { docNames } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { PARTY, DEAL_STATUS, r2 } from '../model.js'
+import { PARTY, DEAL_STATUS, isAgent, r2 } from '../model.js'
 import { Page, Card, Segmented, Select, Notice, FormField, FileInput, TextArea, KV, Status, go, field, mono, tabular } from '../ui.jsx'
 import { CARD, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
@@ -50,7 +50,7 @@ export default function DealForm({ id }) {
   })
   const [errors, setErrors] = useState(null)
   const [busy, setBusy] = useState(false)
-  if (id && !deal) return <Page title="E-Form not found" back={{ to: 'deals', label: 'All deals' }}><Notice tone="red">This E-Form no longer exists.</Notice></Page>
+  if (id && !deal) return <Page title="E-Form not found" back={{ to: 'deals', label: 'All E-Forms' }}><Notice tone="red">This E-Form no longer exists.</Notice></Page>
   const locked = deal && (m.closesByDeal[deal.id] || []).length > 0
   const party = PARTY[f.type]
   const dt = setup.dealTypes
@@ -72,7 +72,7 @@ export default function DealForm({ id }) {
   const listing = f.listingId ? m.listings[Number(f.listingId)] : null
   const listings = m.data.listings.filter(l => l.type === f.type && (l.id === Number(f.listingId) || (l.status === 'active' && (!l.dealId || l.dealId === deal?.id || m.deals[l.dealId]?.status === 'cancelled'))))
     .sort((a, b) => b.id - a.id)
-  const agents = m.data.staff.filter(s => s.status === 'active' || String(s.id) === f.agentId).sort((a, b) => a.short.localeCompare(b.short))
+  const agents = m.data.staff.filter(s => (isAgent(s) && s.status === 'active') || String(s.id) === f.agentId).sort((a, b) => a.short.localeCompare(b.short))
   const holders = listing ? [...new Set([listing.holderId, ...(listing.share?.coPh || []).map(c => c.staffId)])].map(sid => m.staff[sid]).filter(Boolean) : []
   const agent = m.staff[Number(f.agentId)]
   const bm = agent && m.branchManagerOf(agent.id), am = agent && m.areaManagerOf(agent.id)
@@ -135,8 +135,8 @@ export default function DealForm({ id }) {
   )
 
   return (
-    <Page title={deal ? <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>Edit E-Form <span style={mono}>{deal.code}</span><Status of={DEAL_STATUS} value={deal.status} /></span> : 'Add a deal (E-Form)'}
-      help={PAGE.dealForm} back={deal ? { to: `deals/${deal.id}`, label: deal.code } : { to: 'deals', label: 'All deals' }}
+    <Page title={deal ? <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>Edit E-Form <span style={mono}>{deal.code}</span><Status of={DEAL_STATUS} value={deal.status} /></span> : 'Submit an E-Form'}
+      help={PAGE.dealForm} back={deal ? { to: `deals/${deal.id}`, label: deal.code } : { to: 'deals', label: 'All E-Forms' }}
       sub={deal ? 'Change the E-Form. Every change is kept in the Deal change log.' : 'One E-Form per sale, rental or project unit. Save as Draft to finish later, or Submit to start collecting the money.'}>
       {errors && <Notice tone="red">{errors}</Notice>}
       {locked && <Notice tone="blue">Part of this case is closed, so the people, listing, price and fees are fixed. Parties, documents and remarks can still change.</Notice>}

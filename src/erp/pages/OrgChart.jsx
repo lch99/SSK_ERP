@@ -7,6 +7,7 @@ import Icon from '../Icon.jsx'
 import { PAGE } from '../help.js'
 import { rm, num } from '../format.js'
 import { buildOrg, findPeople } from '../org.js'
+import { isAgent } from '../model.js'
 import { RoleTag } from './Staff.jsx'
 
 // The org chart, built for agencies with thousands of agents: only what is
@@ -45,7 +46,8 @@ export function OrgTree({ focus = null, highlight = null }) {
     const codes = setup.roles.map(r => r.code)
     return p => (p.role ? codes.indexOf(p.role) : -1)
   }, [setup.roles])
-  const people = useMemo(() => d.staff.filter(s => left || s.status !== 'inactive'), [d.staff, left])
+  // Agents only: office staff have no upline and sit in System → Users.
+  const people = useMemo(() => d.staff.filter(s => isAgent(s) && (left || s.status !== 'inactive')), [d.staff, left])
   const org = useMemo(() => buildOrg(people, { rank }), [people, rank])
   // Head counts per branch, and per upline level in each.
   const counts = useMemo(() => {

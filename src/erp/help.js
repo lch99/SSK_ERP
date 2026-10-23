@@ -7,12 +7,11 @@
 // and beside its icon when hovered.
 export const MODULE = {
   home: 'Your agency at a glance, and your own profile.',
-  listings: 'Houses we list: owners, viewings and enquiries.',
-  sales: 'Customers, deals (E-Forms) and developer projects.',
-  commission: 'What agents claim: approve payouts, then pay them.',
+  listings: 'Houses we list, buyers and tenants, and developer projects.',
+  commission: 'Agents submit E-Forms to claim commission; approve the payouts, then pay them.',
   accounts: 'Money in and out of the company, invoices and SST.',
-  people: 'Agents and staff, the org chart and training.',
-  system: 'Company settings, roles and Setup.',
+  agents: 'Agent management: the sales force, their tiers and uplines, the org chart and training.',
+  system: 'Company settings and Setup, and user management: office staff, roles and sign-ins.',
 }
 
 // One line per menu entry, by its path.
@@ -34,7 +33,7 @@ export const MENU = {
   'listing-roles/outdated': 'Listings not updated for a long time.',
   'listing-roles/vendor': 'Listings made from owner requests.',
   deals: 'Every E-Form, with its money and what to do next.',
-  'deals/ready': 'Deals whose money has cleared: close them so payouts can be approved.',
+  'deals/ready': 'E-Forms whose money has cleared: close them so payouts can be approved.',
   'deals/branch': 'E-Forms under one branch manager.',
   'deals/team': 'A leader’s E-Forms and everyone under them.',
   projects: 'Developer launches, their sales and pay rules.',
@@ -53,8 +52,10 @@ export const MENU = {
   salary: 'Every pay request. Approve, then mark it paid.',
   'invoices/tax': 'Tax invoices with SST, and official receipts.',
   invoices: 'One invoice per E-Form for the commission claim.',
-  staff: 'Everyone, with tier, leader role, upline and status.',
-  'staff/new': 'Add a new agent or staff member.',
+  staff: 'Every agent, with tier, leader role, upline and status.',
+  'staff/office': 'Admins, accounting and marketing: the people who run the office.',
+  'staff/new/office': 'Add an admin, accountant or marketing person.',
+  'staff/new': 'Add a new agent.',
   'org-chart': 'Who reports to whom, branch by branch.',
   'videos/training': 'How-to videos for agents and admins.',
   'videos/meeting': 'Recordings of company meetings.',
@@ -67,9 +68,9 @@ export const MENU = {
   'reports/landlord': 'Confirm landlords on archived rental cases.',
   setup: 'The rules: company, branches, rates, tiers, approvals.',
   system: 'Company details that print on documents.',
-  users: 'Who can sign in, and what they can do.',
+  users: 'Sign-in accounts: user names, passwords and locked accounts.',
   access: 'What each account type can do, and whose records it sees.',
-  'deals/new': 'Start a new E-Form for a sale, rental or project unit.',
+  'deals/new': 'Submit a sale, rental or project unit to claim its commission.',
   'old-records': 'E-Forms and Overide summaries from the first system (read only).',
 }
 
@@ -87,7 +88,7 @@ export const PAGE = {
   enquiries: 'Questions about a listing from the website and the app. Star the ones to follow up; move the rest to Trash.',
   titles: 'Buildings and housing estates that listings are filed under, so the same building is always spelt the same way. Agents request new titles; admins approve them.',
   areas: 'The areas listings and titles belong to, and the manager for each.',
-  deals: 'An E-Form is one deal: a sale, a rental or a project unit.\nEach deal is paid out in five steps: payment cleared → case closed → payouts approved → pay requested → paid. Click a deal to see where it is.',
+  deals: 'An E-Form is how an agent claims commission on one sale, rental or project unit.\nEach E-Form is paid out in five steps: payment cleared → case closed → payouts approved → pay requested → paid. Click an E-Form to see where it is.',
   dealsReady: 'These deals have all their money in and cleared, but are not closed yet.\nOpen each one and press Request Close Case. That works out who gets paid, and sends the payout lines for approval.',
   dealsBranch: 'E-Forms under one branch manager: theirs and everyone in their branch tree. Pick the branch manager at the top.',
   dealsTeam: 'A leader’s E-Forms and everyone under them. Pick the leader at the top.',
@@ -108,8 +109,10 @@ export const PAGE = {
   payRequests: 'Every salary and incentive request (the S.A.P list).\nCheck the documents, set Payment Ready, then Payment Clear once paid. Document Not Valid sends it back with a reason. Click one to see the payslip.',
   invoicesTax: 'Tax invoices (with SST) for each E-Form, and an official receipt for each cleared payment. Click one to view or print it.',
   invoices: 'One invoice per E-Form for the commission claimed from the owner (commission + SST).',
-  staff: 'Everyone in the agency: their position (tier, which sets their pay rate), leader role, upline and status.\nThe counts at the top are filters too: click one to see those people. Narrow the list by upline level, tier, or everyone in one leader’s team; the list shows 25 at a time.\nDownload Excel saves every person that matches the filters (not just the page on screen), with team sizes and commission, ready to sort and add up.\nClick a person for their deals, payouts, tier progress and team.',
+  staff: 'Agent management: every agent (account types Agent and Sales Agent), with their position (tier, which sets their pay rate), leader role, upline and status. Office staff are under System → Users.\nThe counts at the top are filters too: click one to see those people. Narrow the list by upline level, tier, or everyone in one leader’s team; the list shows 25 at a time.\nDownload Excel saves every person that matches the filters (not just the page on screen), with team sizes and commission, ready to sort and add up.\nClick a person for their deals, payouts, tier progress and team.',
   staffNew: 'Add a new agent or staff member. They start as Pending at the first tier, until HR enables them on their profile.',
+  officeStaff: 'User management: the people who run the office (admins, accounting, marketing). They have no tier or upline and earn no commission.\nWhat each account type may open and change is set in System → Roles & access. Download Excel saves every row that matches the filters.',
+  officeProfile: 'An office staff member: their account, contact and bank details, and whether their account is active. What they can do comes from their account type (System → Roles & access).',
   profile: 'This person’s tier and how close they are to the next, their deals, payout lines, uplines and team.\nUse the status menu at the top to enable or disable them.',
   orgChart: 'Who reports to whom, branch by branch, with each person’s tier and team size.\nBuilt for big agencies: only what you open is shown, and a big team shows 20 people at a time. Type a name, code or phone number to jump to anyone. “View team” opens one leader’s team on its own, with their uplines as a trail at the top. “Leaders only” hides the agents, to see the structure.',
   videos: 'How-to videos for agents and admins, and recordings of company meetings.',
@@ -125,6 +128,7 @@ export const PAGE = {
 
 // The (?) beside section headings.
 export const CARD = {
+  officeRole: 'Office staff get their permissions from their account type, the same for everyone of that type. Change them in System → Roles & access (Superadmin only).',
   accessRole: 'Pick a role, then set how far it reaches and what it may do in each area. No access hides the area from the menu; View lets them look; Edit lets them add and change; Full also lets them approve, pay out and delete.\nNothing changes until you press Save changes. "View the ERP as" shows the ERP exactly as a person with this role would see it, until you go back or reload.',
   accessOverview: 'Every role side by side. Changes you have not saved yet show here too.',
   myDetails: 'Your display name and photo show in the top bar and on your records. The IC name and bank account are used for payslips and pay vouchers, so keep them exact. Nothing changes until you press Save changes.',
