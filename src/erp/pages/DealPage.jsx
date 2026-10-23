@@ -11,11 +11,13 @@ import { DealActions, useCloseDeal } from './Deals.jsx'
 import { DealProgress } from '../flow.jsx'
 import { rm, pct, date, maskIc, num } from '../format.js'
 import Icon from '../Icon.jsx'
+import { useCan } from '../access.jsx'
 
 const OTHER_COLORS = { cobroke: '#c3c7cf', referral: '#d9b38c' }
 
 export default function DealPage({ id }) {
   const erp = useErp()
+  const can = useCan()
   const { m, setup } = erp
   const [busy, setBusy] = useState(false)
   const deal = m.deals[id]
@@ -39,11 +41,11 @@ export default function DealPage({ id }) {
       title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         E-Form <span style={{ fontFamily: mono.fontFamily }}>{deal.code}</span><Status of={DEAL_STATUS} value={deal.status} />
       </span>}
-      actions={<>{deal.status !== 'cancelled' && <button style={btn} onClick={() => go(`deals/${deal.id}/edit`)}>Edit E-Form</button>}<DealActions deal={deal} /></>}
+      actions={<>{deal.status !== 'cancelled' && can('deals', 'edit') && <button style={btn} onClick={() => go(`deals/${deal.id}/edit`)}>Edit E-Form</button>}<DealActions deal={deal} /></>}
       sub={<>{deal.property.address} · {P.DEAL_TYPE_LABELS[deal.type]} · {branch?.name}</>}>
 
       {deal.status === 'cancelled' && <Notice tone="red"><b>Abort/Cancel on {date(deal.cancelledOn)}.</b> {deal.cancelReason}</Notice>}
-      {deal.status === 'draft' && <Notice tone="amber"><b>This E-Form is a draft.</b> Payments can be recorded once it is submitted. <button style={{ ...small, marginLeft: 6 }} onClick={() => go(`deals/${deal.id}/edit`)}>Edit &amp; submit</button></Notice>}
+      {deal.status === 'draft' && <Notice tone="amber"><b>This E-Form is a draft.</b> Payments can be recorded once it is submitted. {can('deals', 'edit') && <button style={{ ...small, marginLeft: 6 }} onClick={() => go(`deals/${deal.id}/edit`)}>Edit &amp; submit</button>}</Notice>}
       {deal.status !== 'cancelled' && <DealProgress deal={deal} busy={busy} onClose={async amount => { setBusy(true); await closeDeal(amount); setBusy(false) }} />}
 
       <div style={{ ...cols(150, 12), marginBottom: 16 }}>
@@ -297,6 +299,7 @@ function PartyCard({ title, p, others = [], help }) {
 // Supporting Document Attachments: each one can be uploaded (or replaced) here.
 function Docs({ deal }) {
   const erp = useErp()
+  const can = useCan()
   const fb = useFeedback()
   const [upload, setUpload] = useState(null)
   const [file, setFile] = useState('')
@@ -311,7 +314,7 @@ function Docs({ deal }) {
           <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, padding: '6px 8px', borderRadius: 6, background: ok ? C.bg : C.warnBg, minWidth: 0 }}>
             <span style={{ color: ok ? C.ok : C.warn, display: 'inline-flex' }}><Icon name={ok ? 'check' : 'file'} size={16} /></span>
             <span style={{ flex: 1, minWidth: 0 }}>{name}{deal.files?.[name] && <span style={{ display: 'block', fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deal.files[name]}</span>}</span>
-            {deal.status !== 'cancelled' && <button style={{ ...small, fontSize: 12, padding: '3px 8px' }} onClick={() => open(name)}>{ok ? 'Replace' : 'Upload'}</button>}
+            {deal.status !== 'cancelled' && can('deals', 'edit') && <button style={{ ...small, fontSize: 12, padding: '3px 8px' }} onClick={() => open(name)}>{ok ? 'Replace' : 'Upload'}</button>}
           </div>
         ))}
       </div>
@@ -326,6 +329,7 @@ function Docs({ deal }) {
 // Each close of this case, with its case lines: Re-run (Make Close Case Rerun) or delete them.
 function Closes({ deal, m }) {
   const erp = useErp()
+  const can = useCan()
   const fb = useFeedback()
   const closes = m.closesByDeal[deal.id] || []
   if (!closes.length) return null
@@ -351,8 +355,10 @@ function Closes({ deal, m }) {
               <b style={{ fontSize: 13.5 }}>{closeType(c)} · {rm(c.claim)}</b>
               <span style={{ display: 'block', fontSize: 12.5, color: C.muted }}>{date(c.date)} · {lines.length} case lines · {locked ? 'requested for salary' : 'not requested yet'}</span>
             </span>
-            <button style={small} disabled={locked} title={locked ? 'Already requested for salary' : undefined} onClick={() => rerun(c)}>Re-run</button>
-            <button style={{ ...small, color: C.err }} disabled={locked || !last} title={locked ? 'Already requested for salary' : !last ? 'Delete the later close first' : undefined} onClick={() => remove(c)}>Delete</button>
+            {can('payouts', 'full') && <>
+              <button style={small} disabled={locked} title={locked ? 'Already requested for salary' : undefined} onClick={() => rerun(c)}>Re-run</button>
+              <button style={{ ...small, color: C.err }} disabled={locked || !last} title={locked ? 'Already requested for salary' : !last ? 'Delete the later close first' : undefined} onClick={() => remove(c)}>Delete</button>
+            </>}
           </div>
         )
       })}

@@ -28,7 +28,7 @@ export const SCOPE_HELP = {
 // What Edit and Full mean in each area, for the Roles & access page.
 export const AREAS = [
   { key: 'customers', label: 'Customers', edit: 'Add customers, follow-ups and remarks', full: 'Same as Edit' },
-  { key: 'listings', label: 'Properties & listings', edit: 'Add and update listings, follow-ups, enquiries', full: 'Delete listings; owner requests, buildings and areas' },
+  { key: 'listings', label: 'Properties & listings', edit: 'Add and update listings, follow-ups, enquiries and owner requests', full: 'Delete listings; buildings and areas' },
   { key: 'deals', label: 'Deals (E-Forms)', edit: 'Submit and update E-Forms, upload documents', full: 'Delete E-Forms' },
   { key: 'projects', label: 'Projects', edit: 'Add and update projects', full: 'Same as Edit' },
   { key: 'moneyIn', label: 'Money in', edit: 'Record and correct payments', full: 'Clear or reject payments, delete them' },
@@ -36,7 +36,7 @@ export const AREAS = [
   { key: 'moneyOut', label: 'Payments out', edit: 'Raise and correct payment requests', full: 'Mark paid or queried, delete' },
   { key: 'salary', label: 'Salary', edit: 'Request salary, incentives and creator fees', full: 'Pay requests, mark Not Valid, delete' },
   { key: 'invoices', label: 'Invoices & receipts', edit: 'Request invoices', full: 'Same as Edit' },
-  { key: 'staff', label: 'Agents & staff', edit: 'Add and update agents and staff', full: 'Lock, unlock and delete accounts; marketing access' },
+  { key: 'staff', label: 'Agents & staff', edit: 'Add and update agents and staff, switch accounts on or off', full: 'Delete accounts; marketing access' },
   { key: 'videos', label: 'Training videos', edit: 'Add and update videos', full: 'Delete videos' },
   { key: 'reports', label: 'Reports', edit: 'Same as View', full: 'Verify landlords' },
   { key: 'system', label: 'System settings', edit: 'Same as View', full: 'Change company details and property types' },
@@ -110,7 +110,7 @@ const need = (area, level) => ({ area, level })
 export const ACTIONS = {
   addCustomer: need('customers', 'edit'), updateCustomer: need('customers', 'edit'), addCustomerFollowUp: need('customers', 'edit'),
   addListing: need('listings', 'edit'), updateListing: need('listings', 'edit'), addListingFollowUp: need('listings', 'edit'), updateEnquiry: need('listings', 'edit'),
-  deleteListing: need('listings', 'full'), setVendorRequest: need('listings', 'full'),
+  setVendorRequest: need('listings', 'edit'), deleteListing: need('listings', 'full'),
   saveTitle: need('listings', 'full'), setTitleStatus: need('listings', 'full'), deleteTitle: need('listings', 'full'),
   saveArea: need('listings', 'full'), setAreaStatus: need('listings', 'full'), deleteArea: need('listings', 'full'),
   addDeal: need('deals', 'edit'), updateDeal: need('deals', 'edit'), setDealDoc: need('deals', 'edit'), requestInvoice: need('invoices', 'edit'),
@@ -123,8 +123,8 @@ export const ACTIONS = {
   raiseRequest: need('moneyOut', 'edit'), updateMoneyOut: need('moneyOut', 'edit'),
   setMoneyOutStatus: need('moneyOut', 'full'), deleteMoneyOut: need('moneyOut', 'full'),
   createRequests: need('salary', 'edit'), setRequestStatus: need('salary', 'full'), deleteSalaryRequest: need('salary', 'full'),
-  addStaff: need('staff', 'edit'), updateStaff: need('staff', 'edit'),
-  setStaffStatus: need('staff', 'full'), setMarketingStaffs: need('staff', 'full'), deleteStaff: need('staff', 'full'),
+  addStaff: need('staff', 'edit'), updateStaff: need('staff', 'edit'), setStaffStatus: need('staff', 'edit'),
+  setMarketingStaffs: need('staff', 'full'), deleteStaff: need('staff', 'full'),
   saveVideo: need('videos', 'edit'), deleteVideo: need('videos', 'full'),
   verifyLandlord: need('reports', 'full'),
   addPropertyType: need('system', 'full'), deletePropertyType: need('system', 'full'),
@@ -142,7 +142,7 @@ export function refusal(policy, role, action) {
 // What each page address needs, by its start (the longest match wins).
 // Addresses not listed (the dashboard, your own settings) are open to all.
 const PATHS = [
-  ['customers', 'customers'],
+  ['customers', 'customers'], ['customers/new', 'customers', 'edit'],
   ['listing-new', 'listings', 'edit'], ['listings', 'listings'], ['listing-roles', 'listings'], ['vendor-requests', 'listings'],
   ['appointments', 'listings'], ['enquiries', 'listings'], ['titles', 'listings'], ['areas', 'listings'],
   ['deals', 'deals'], ['deals/new', 'deals', 'edit'], ['old-records', 'deals'],
@@ -215,5 +215,7 @@ export function visibleData(data, who, scope) {
     enquiries: data.enquiries.filter(x => listingIds.has(x.listingId)),
     titles: data.titles.filter(inBranch),
     areas: data.areas.filter(inBranch),
+    // Records from the first system (V1), by the person they belong to.
+    ...(data.v1 && { v1: { eforms: data.v1.eforms.filter(x => mine.has(x.staffId)), overrides: data.v1.overrides.filter(x => mine.has(x.staffId)) } }),
   }
 }

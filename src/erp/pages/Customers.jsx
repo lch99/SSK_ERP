@@ -7,6 +7,7 @@ import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm0, date, ago } from '../format.js'
 import { localToday, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
+import { useCan } from '../access.jsx'
 
 // Customer Database: leads, with the current ERP's Action and Status per row.
 export default function Customers({ parts }) {
@@ -16,6 +17,7 @@ export default function Customers({ parts }) {
 
 function NameList({ openId }) {
   const erp = useErp()
+  const editable = useCan()('customers', 'edit')
   const { m, scoped: d } = erp
   const [q, setQ] = useState('')
   const [type, setType] = useState('')
@@ -47,12 +49,12 @@ function NameList({ openId }) {
     { key: 'from', label: 'From Where', render: c => CUSTOMER_FROM[c.from] || c.from },
     { key: 'budget', label: 'Min. · Max. Budget', align: 'right', sort: c => c.budgetMin, render: c => <span style={{ fontSize: 13 }}>{rm0(c.budgetMin)}<span style={{ display: 'block', color: C.muted }}>{rm0(c.budgetMax)}</span></span> },
     { key: 'action', label: 'Action', render: c => (
-      <select style={inline} value={c.action} aria-label="Action" onClick={e => e.stopPropagation()} onChange={e => save(c, { action: e.target.value })}>
+      <select style={inline} disabled={!editable} value={c.action} aria-label="Action" onClick={e => e.stopPropagation()} onChange={e => save(c, { action: e.target.value })}>
         {Object.entries(CUSTOMER_ACTION).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
     ) },
     { key: 'track', label: 'Status', render: c => (
-      <select style={inline} value={c.track} aria-label="Status" onClick={e => e.stopPropagation()} onChange={e => save(c, { track: e.target.value })}>
+      <select style={inline} disabled={!editable} value={c.track} aria-label="Status" onClick={e => e.stopPropagation()} onChange={e => save(c, { track: e.target.value })}>
         {Object.entries(CUSTOMER_TRACK).map(([v, t]) => <option key={v} value={v}>{t.label}</option>)}
       </select>
     ) },
@@ -60,7 +62,7 @@ function NameList({ openId }) {
   ]
   return (
     <Page title="Customers" help={PAGE.customers} sub="Buyers and tenants the team is working with. Action and Status save as soon as they are changed."
-      actions={<button style={btnPrimary} onClick={() => go('customers/new')}>Add customer</button>}>
+      actions={editable && <button style={btnPrimary} onClick={() => go('customers/new')}>Add customer</button>}>
       <div style={{ ...cols(200, 14), marginBottom: 16 }}>
         <Stat icon="customers" tone="green" label="Active" value={d.customers.filter(c => c.track === 0).length} sub={`${d.customers.filter(c => c.track === 0 && c.action === 0).length} on Admin Follow-Up`} onClick={() => setTrack(track === '0' ? '' : '0')} on={track === '0'} />
         <Stat icon="check" tone="blue" label="Closing" value={d.customers.filter(c => c.track === 1).length} sub="Signed an offer through us" onClick={() => setTrack(track === '1' ? '' : '1')} on={track === '1'} />
@@ -87,6 +89,7 @@ function NameList({ openId }) {
 function Details({ c, erp }) {
   const { m } = erp
   const fb = useFeedback()
+  const editable = useCan()('customers', 'edit')
   const [remarks, setRemarks] = useState(c.remarks || '')
   const [edit, setEdit] = useState(null)
   const [fu, setFu] = useState(null)
@@ -104,8 +107,8 @@ function Details({ c, erp }) {
   return (
     <>
       <Block title="Customer" right={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Status of={CUSTOMER_TRACK} value={c.track} />
-        <button style={{ ...btn, fontSize: 12.5, padding: '3px 10px' }} onClick={() => { setError(null); setEdit({ date: c.date, name: c.name, phone: c.phone, area: c.area, type: c.type, from: c.from,
-          budgetMin: c.budgetMin, budgetMax: c.budgetMax, ownerId: String(c.ownerId) }) }}>Edit</button></span>}>
+        {editable && <button style={{ ...btn, fontSize: 12.5, padding: '3px 10px' }} onClick={() => { setError(null); setEdit({ date: c.date, name: c.name, phone: c.phone, area: c.area, type: c.type, from: c.from,
+          budgetMin: c.budgetMin, budgetMax: c.budgetMax, ownerId: String(c.ownerId) }) }}>Edit</button>}</span>}>
         <KV min={160} items={[
           ['Type', c.type], ['Area', c.area], ['Min. Budget', rm0(c.budgetMin)], ['Max. Budget', rm0(c.budgetMax)],
           ['Phone', c.phone], ['From Where', CUSTOMER_FROM[c.from] || c.from], ['Action', CUSTOMER_ACTION[c.action]],
@@ -114,13 +117,13 @@ function Details({ c, erp }) {
         ]} />
       </Block>
       <Block title="Remarks">
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {!editable ? <p style={{ margin: 0, fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{c.remarks || <span style={{ color: C.muted }}>No remarks.</span>}</p> : <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <TextArea style={{ flex: '1 1 220px', width: 'auto' }} value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="e.g. Wants a corner lot, viewing on Saturday"
             onSubmit={() => { if (remarks !== (c.remarks || '')) fb.run(() => erp.updateCustomer(c.id, { remarks }), 'Remarks saved') }} />
           <button style={btn} disabled={remarks === (c.remarks || '')} onClick={() => fb.run(() => erp.updateCustomer(c.id, { remarks }), 'Remarks saved')}>Save</button>
-        </div>
+        </div>}
       </Block>
-      <Block title="Follow-up History" right={<button style={{ ...btn, fontSize: 12.5, padding: '3px 10px' }} onClick={() => { setError(null); setFu({ date: m.today, action: FOLLOW_UP_ACTIONS[0], property: '', price: '', listingId: '', remark: '' }) }}>Add follow-up</button>}>
+      <Block title="Follow-up History" right={editable && <button style={{ ...btn, fontSize: 12.5, padding: '3px 10px' }} onClick={() => { setError(null); setFu({ date: m.today, action: FOLLOW_UP_ACTIONS[0], property: '', price: '', listingId: '', remark: '' }) }}>Add follow-up</button>}>
         {!c.followUps.length ? <p style={{ margin: 0, color: C.muted, fontSize: 13.5 }}>No follow-ups yet.</p> : (
           <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
             {[...c.followUps].reverse().map((f, i) => (

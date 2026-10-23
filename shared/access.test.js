@@ -77,6 +77,7 @@ describe('whose records', () => {
     payouts: [{ id: 1, dealId: 100, staffId: 4 }, { id: 2, dealId: 100, staffId: 6 }],
     requests: [{ id: 1, staffId: 2 }, { id: 2, staffId: 5 }],
     vendorRequests: [{ id: 1, branchId: 10, listingId: 7 }], enquiries: [{ id: 1, listingId: 8 }], titles: [{ id: 1, branchId: 20 }], areas: [],
+    v1: { eforms: [{ id: 1, staffId: 2 }, { id: 2, staffId: 5 }], overrides: [{ id: 1, staffId: 6 }] },
   }
   it('finds a leader\'s whole downline', () => {
     expect([...A.teamOf(1, staff)].sort()).toEqual([1, 2, 3, 4])
@@ -93,6 +94,7 @@ describe('whose records', () => {
     expect(d.requests.map(x => x.id)).toEqual([1])
     expect(d.vendorRequests.map(x => x.id)).toEqual([1])
     expect(d.enquiries).toEqual([])
+    expect(d.v1).toEqual({ eforms: [{ id: 1, staffId: 2 }], overrides: [] })
   })
   it('branch: everything in the viewer\'s branch', () => {
     const d = A.visibleData(data, { staffId: 2 }, 'branch')

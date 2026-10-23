@@ -7,6 +7,7 @@ import { BANKS } from './options.js'
 import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm, date, maskAcc } from '../format.js'
+import { useCan } from '../access.jsx'
 
 // Request Form: money paid out of the client account or to other parties.
 const TABS = ['new', 'queried', 'ready', 'paid', 'all']
@@ -106,6 +107,7 @@ function save(name, text, type = 'text/plain') {
 // cheque no., bank and account, the receipt; plus the letter and Delete.
 function PaymentDetails({ x, erp }) {
   const fb = useFeedback()
+  const can = useCan()
   const [f, setF] = useState({ chequeNo: x.chequeNo || '', account: x.payee.account || '' })
   const upd = (body, done) => fb.run(() => erp.updateMoneyOut(x.id, body), done)
   const paidOk = x.status === 'ready' || x.status === 'paid'
@@ -117,7 +119,7 @@ function PaymentDetails({ x, erp }) {
   const doc = kind => `${kind.toUpperCase()} · ${x.voucherNo}\n${MONEY_OUT_TYPES[x.type]}\nPay to: ${x.payee.name}\nBank: ${x.payee.bank} ${x.payee.account}\nAmount: ${rm(x.amount)}\nDate: ${x.paidOn || x.date}\n`
   return (
     <Block title="Payment">
-      <div style={grid}>
+      {!can('moneyOut', 'edit') ? <KV items={[['Bank', x.payee.bank || '—'], ['Bank Account Number', maskAcc(x.payee.account) || '—'], ['Receipt', x.receipt || 'Not uploaded']]} /> : <div style={grid}>
         <FormField label="Payment Date" help={paidOk ? 'Saves when you pick a date' : 'After Payment Ready'}>
           <input type="date" style={field} value={x.paidOn || ''} disabled={!paidOk} onChange={e => e.target.value && upd({ paidOn: e.target.value }, `${x.voucherNo} payment date set`)} />
         </FormField>
@@ -131,12 +133,12 @@ function PaymentDetails({ x, erp }) {
         <FormField label="Receipt" help={x.receipt ? `Uploaded: ${x.receipt}` : 'Upload the bank slip once paid'}>
           <FileInput kind="document" onChange={files => files[0] && upd({ receipt: files[0].name }, 'Receipt uploaded')} />
         </FormField>
-      </div>
+      </div>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
         <button style={btn} onClick={() => save(`${x.voucherNo}-letter.txt`, doc('letter'))}>Download Letter{x.letter ? ` (${x.letter})` : ''}</button>
         <button style={btn} disabled={!x.receipt && x.status !== 'paid'} onClick={() => save(`${x.voucherNo}-receipt.txt`, doc('receipt'))}>Download Receipt</button>
         <span style={{ flex: 1 }} />
-        {(x.status === 'new' || x.status === 'queried') && <button style={{ ...btn, color: C.err }} onClick={remove}>Delete</button>}
+        {(x.status === 'new' || x.status === 'queried') && can('moneyOut', 'full') && <button style={{ ...btn, color: C.err }} onClick={remove}>Delete</button>}
       </div>
     </Block>
   )
@@ -144,6 +146,7 @@ function PaymentDetails({ x, erp }) {
 
 function Actions({ x, erp, next }) {
   const fb = useFeedback()
+  const can = useCan()
   const [asking, setAsking] = useState(false)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -155,6 +158,7 @@ function Actions({ x, erp, next }) {
     setBusy(false)
   }
   if (x.status === 'paid') return <span style={{ fontSize: 13, color: C.muted, flex: 1 }}>Payment Clear on {date(x.paidOn)}.</span>
+  if (!can('moneyOut', 'full')) return <span style={{ fontSize: 13, color: C.muted, flex: 1 }}>Waiting for Accounts to pay it.</span>
   if (asking) {
     return (
       <>

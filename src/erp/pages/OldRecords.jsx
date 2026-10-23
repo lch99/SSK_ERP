@@ -5,6 +5,7 @@ import { DEAL_STATUS, sum } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Who, Notice, Stat, cols, mono } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { rm, date } from '../format.js'
+import { useAccess } from '../access.jsx'
 
 // Old records from the first system (V1): the pre-Ver2 E-Forms and the yearly
 // Overide summaries (2016–2019). Kept read only, so nothing is lost when the
@@ -19,8 +20,10 @@ const csv = (name, head, rows) => {
 const download = { ...btn, fontSize: 13, padding: '5px 12px' }
 
 export default function OldRecords() {
-  const { m } = useErp()
-  const v1 = m.data.v1 || { eforms: [], overrides: [] }
+  const { m, scoped } = useErp()
+  // Only the viewer's reach (their own and their downline's, or their branch).
+  const reach = useAccess().scope === 'all' ? m.data : scoped
+  const v1 = reach.v1 || { eforms: [], overrides: [] }
   const [tab, setTab] = useState('eforms')
   return (
     <Page title="Old records (V1)" help={PAGE.oldRecords} sub="E-Forms and Overide summaries from the first system, before Ver 2. Read only.">

@@ -5,6 +5,7 @@ import { readyToClose, sum } from './model.js'
 import { go, tabular } from './ui.jsx'
 import { rm, date } from './format.js'
 import Icon from './Icon.jsx'
+import { useCan } from './access.jsx'
 
 // A deal's money goes through five pages in a row. These show the chain, so
 // nobody has to know which menu holds the next step:
@@ -92,6 +93,7 @@ export function FlowBar({ here }) {
 // One deal from submitted to paid, and the one thing to do next.
 export function DealProgress({ deal, onClose, busy }) {
   const { m, setup } = useErp()
+  const can = useCan()
   const [ref, narrow] = useNarrow(720)
   const billed = deal.money.billed
   const got = Math.min(m.cleared(deal.id), billed)
@@ -115,12 +117,12 @@ export function DealProgress({ deal, onClose, busy }) {
 
   // The next step: one button, worded as the thing to do.
   const next = draft ? { text: 'Waiting for the agent to submit this E-Form.' }
-    : toClose > 0 ? { text: <>{rm(toClose)} of cleared cash can be closed now. Closing makes the payout lines for approval.</>, label: `Request Close Case · ${rm(toClose)}`, primary: true, onClick: () => onClose(toClose) }
-    : got < billed && pending ? { text: <>{pending.code} ({rm(pending.amount)}) is waiting to be checked against the bank.</>, label: 'Clear the payment', onClick: () => go(`money-in/${pending.id}`) }
-    : got < billed ? { text: <>{rm(billed - got)} still to come in from the {deal.type === 'rental' ? 'landlord' : 'owner'}.</>, label: 'Record a payment', onClick: () => go(`money-in/new/${deal.id}`) }
-    : approved.length < lines.length ? { text: `${lines.length - approved.length} payout lines are waiting for approval.`, label: 'Approve payouts', onClick: () => go('payouts') }
-    : requested.length < lines.length ? { text: `${lines.length - requested.length} Ready lines are not in a salary or incentive request yet.`, label: 'Request pay', onClick: () => go('salary/request') }
-    : paid.length < lines.length ? { text: `${lines.length - paid.length} lines are requested and wait for the pay day.`, label: 'Open pay requests', onClick: () => go('salary') }
+    : toClose > 0 ? { text: <>{rm(toClose)} of cleared cash can be closed now. Closing makes the payout lines for approval.</>, label: `Request Close Case · ${rm(toClose)}`, primary: true, need: ['payouts', 'full'], onClick: () => onClose(toClose) }
+    : got < billed && pending ? { text: <>{pending.code} ({rm(pending.amount)}) is waiting to be checked against the bank.</>, label: 'Clear the payment', need: ['moneyIn', 'full'], onClick: () => go(`money-in/${pending.id}`) }
+    : got < billed ? { text: <>{rm(billed - got)} still to come in from the {deal.type === 'rental' ? 'landlord' : 'owner'}.</>, label: 'Record a payment', need: ['moneyIn', 'edit'], onClick: () => go(`money-in/new/${deal.id}`) }
+    : approved.length < lines.length ? { text: `${lines.length - approved.length} payout lines are waiting for approval.`, label: 'Approve payouts', need: ['payouts', 'full'], onClick: () => go('payouts') }
+    : requested.length < lines.length ? { text: `${lines.length - requested.length} Ready lines are not in a salary or incentive request yet.`, label: 'Request pay', need: ['salary', 'edit'], onClick: () => go('salary/request') }
+    : paid.length < lines.length ? { text: `${lines.length - paid.length} lines are requested and wait for the pay day.`, label: 'Open pay requests', need: ['salary', 'view'], onClick: () => go('salary') }
     : { text: 'Everyone on this case is paid.', done: true }
 
   return (
@@ -150,7 +152,7 @@ export function DealProgress({ deal, onClose, busy }) {
         <span style={{ flex: '1 1 260px', minWidth: 0, fontSize: 13.5, color: next.done ? C.ok : C.text, fontWeight: next.done ? 600 : 400 }}>
           {!next.done && <b style={{ marginRight: 6 }}>Next:</b>}{next.text}
         </span>
-        {next.label && <button style={{ ...(next.primary ? btnPrimary : btn), opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={next.onClick}>{next.label}</button>}
+        {next.label && (!next.need || can(...next.need)) && <button style={{ ...(next.primary ? btnPrimary : btn), opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={next.onClick}>{next.label}</button>}
       </div>
     </section>
   )

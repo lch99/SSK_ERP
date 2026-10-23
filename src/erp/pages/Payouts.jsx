@@ -9,6 +9,7 @@ import { COLUMN, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { FlowBar } from '../flow.jsx'
 import { rm, pct, date, amt } from '../format.js'
+import { useCan } from '../access.jsx'
 
 // Closed Case: one line per person per closed claim (CASE-…), New → Pending Queries → Ready,
 // then requested for salary and archived weekly.
@@ -21,8 +22,9 @@ const TYPES = ['Full Close', 'Partial Close', 'Balance Close']
 function CaseList({ archived }) {
   const erp = useErp()
   const { m, scoped: d } = erp
+  const can = useCan()
   // Approvers start on "Approve by case" when something is waiting.
-  const [view, setView] = useState(() => (!archived && d.payouts.some(p => !p.archiveId && (p.status === 'new' || p.status === 'queried')) ? 'cases' : 'list'))
+  const [view, setView] = useState(() => (!archived && can('payouts', 'edit') && d.payouts.some(p => !p.archiveId && (p.status === 'new' || p.status === 'queried')) ? 'cases' : 'list'))
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('')
   const [salary, setSalary] = useState('')
@@ -98,9 +100,9 @@ function CaseList({ archived }) {
   return (
     <Page title={archived ? 'Archived payouts' : 'Payouts to approve'} help={archived ? PAGE.archived : PAGE.payouts}
       sub={archived ? 'Weekly archives of Ready, paid case lines.' : <>One line per person paid on each closed case, worked out from Setup. Set them Ready to approve. Ready lines are requested for salary under <Link to="salary/request">Salary</Link>.</>}
-      actions={!archived ? <button style={{ ...btnPrimary, opacity: eligible.length ? 1 : 0.5 }} disabled={!eligible.length} onClick={archive}
+      actions={!can('payouts', 'full') ? null : !archived ? <button key="archive" style={{ ...btnPrimary, opacity: eligible.length ? 1 : 0.5 }} disabled={!eligible.length} onClick={archive}
         title={eligible.length ? undefined : 'Nothing to archive: no Ready line has its salary requested yet'}>Create Archive ({eligible.length} Cases)</button>
-        : arc && <button style={btn} onClick={unarchive}>Unarchive this week</button>}>
+        : arc && <button key="unarchive" style={btn} onClick={unarchive}>Unarchive this week</button>}>
       {!archived && <FlowBar here="approve" />}
       {!archived && (
         <div style={{ ...cols(220, 14), marginBottom: 16 }}>
@@ -124,11 +126,11 @@ function CaseList({ archived }) {
             </Toolbar>
             <DataTable columns={columns} rows={match} defaultSort={{ key: 'code', dir: 'desc' }} pageSize={25} narrowAt={1000} empty="No case lines here"
               onClear={filters || q ? clear : undefined}
-              selection={archived ? null : { selected: picked, onChange: setPicked, can: p => p.status === 'new' || p.status === 'queried' }} />
+              selection={archived || !can('payouts', 'edit') ? null : { selected: picked, onChange: setPicked, can: p => p.status === 'new' || p.status === 'queried' }} />
             <SelectionBar count={picked.size} summary={rm(sum(pickedLines, p => p.amount))} onClear={() => setPicked(new Set())}>
               <button style={small} onClick={() => setAsking(true)}>Pending Queries…</button>
-              <button style={{ ...small, ...btnPrimary, fontSize: 13, padding: '5px 12px' }}
-                onClick={() => run(`${picked.size} case line${picked.size === 1 ? '' : 's'} set to Ready`, erp.approvePayouts, [...picked])}>Set Ready</button>
+              {can('payouts', 'full') && <button style={{ ...small, ...btnPrimary, fontSize: 13, padding: '5px 12px' }}
+                onClick={() => run(`${picked.size} case line${picked.size === 1 ? '' : 's'} set to Ready`, erp.approvePayouts, [...picked])}>Set Ready</button>}
             </SelectionBar>
           </>
         )}
@@ -146,6 +148,8 @@ function CaseList({ archived }) {
 // Approvers see one card per close: the case, everyone it pays, and the buttons.
 function ApprovalList({ lines, erp }) {
   const { m, setup } = erp
+  const can = useCan()
+  const approver = can('payouts', 'full')
   const [asking, setAsking] = useState(null)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
@@ -205,19 +209,19 @@ function ApprovalList({ lines, erp }) {
                   <button style={{ ...btnPrimary, opacity: busy || !reason.trim() ? 0.5 : 1 }} disabled={busy || !reason.trim()} onClick={() => run(`${deal.code} moved to Pending Queries`, erp.queryPayouts, ls.map(l => l.id), reason)}>Save query</button>
                   <button style={btn} onClick={() => { setAsking(null); setReason('') }}>Cancel</button>
                 </div>
-              ) : (
+              ) : can('payouts', 'edit') && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  <button style={small} title="Make Close Case Rerun: work the lines out again on today's tiers and uplines" onClick={async () => {
+                  {approver && <><button style={small} title="Make Close Case Rerun: work the lines out again on today's tiers and uplines" onClick={async () => {
                     if (await fb.confirm({ title: `Re-run ${deal.code}?`, confirmLabel: 'Confirm Re-Run', body: 'Works these case lines out again on everyone’s tier and upline today (for example after a rank or upline change). They stay New for approval.' }))
                       run(`${deal.code}: case lines re-run`, erp.rerunClose, close.id)
                   }}>Re-run</button>
                   <button style={{ ...small, color: C.err }} onClick={async () => {
                     if (await fb.confirm({ title: `Delete the case lines of ${deal.code}?`, danger: true, confirmLabel: 'Delete', body: <>The {rm(close.claim)} close is undone and the case can be closed again.</> }))
                       run(`${deal.code}: close deleted`, erp.deleteClose, close.id)
-                  }}>Delete</button>
+                  }}>Delete</button></>}
                   <span style={{ flex: 1 }} />
                   <button style={small} onClick={() => setAsking(close.id)}>{queried ? 'Change query' : 'Pending Queries'}</button>
-                  <button style={{ ...small, ...btnPrimary, padding: '5px 12px', fontSize: 13 }} disabled={busy} onClick={() => run(`${deal.code}: ${ls.length} line${ls.length === 1 ? '' : 's'} set to Ready (${rm(total)})`, erp.approvePayouts, ls.map(l => l.id))}>Set Ready</button>
+                  {approver && <button style={{ ...small, ...btnPrimary, padding: '5px 12px', fontSize: 13 }} disabled={busy} onClick={() => run(`${deal.code}: ${ls.length} line${ls.length === 1 ? '' : 's'} set to Ready (${rm(total)})`, erp.approvePayouts, ls.map(l => l.id))}>Set Ready</button>}
                 </div>
               )}
             </div>

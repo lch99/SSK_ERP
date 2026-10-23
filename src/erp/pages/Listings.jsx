@@ -9,6 +9,7 @@ import { rm, rm0, date, num, ago, maskIc } from '../format.js'
 import Icon from '../Icon.jsx'
 import ListingActions, { PORTALS, photosOf } from './ListingActions.jsx'
 import { useFeedback } from '../feedback.jsx'
+import { useCan } from '../access.jsx'
 
 // My Property Listing (Property menu) and the same list by role (Listing menu).
 const VIEWS = [
@@ -184,9 +185,11 @@ function ListingCard({ l, m, base }) {
 function AdPrice({ l }) {
   const erp = useErp()
   const fb = useFeedback()
+  const editable = useCan()('listings', 'edit')
   const [v, setV] = useState(String(l.askPrice))
   const changed = Number(v) !== l.askPrice && Number(v) >= 0 && v !== ''
   const save = () => changed && fb.run(() => erp.updateListing(l.id, { askPrice: Number(v) }), `${l.code} Ad Price set to ${rm(Number(v))}`)
+  if (!editable) return <b>{rm(l.askPrice)}</b>
   return (
     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
       <input type="number" min="0" value={v} onChange={e => setV(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save() }} aria-label="Ad Price"

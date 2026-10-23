@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { C, btn, btnPrimary, sel } from '../../styles.js'
+import { C, btn, btnPrimary } from '../../styles.js'
 import { CATEGORIES } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { PARTY, METHODS, LISTING_CATEGORY, listingCategory, sum } from '../model.js'
-import { Page, Card, Tabs, DataTable, Status, Link, Empty, Modal, KV, Notice, FormField, FileInput, Avatar, go, mono, tabular, field } from '../ui.jsx'
-import { PAGE } from '../help.js'
+import { Page, Card, Tabs, DataTable, Status, Link, Empty, Modal, KV, Notice, FormField, FileInput, TextArea, go, mono, tabular, field } from '../ui.jsx'
+import { useFeedback } from '../feedback.jsx'
+import { CARD, PAGE } from '../help.js'
 import { rm, date, maskAcc, amt } from '../format.js'
 import Icon from '../Icon.jsx'
 import { TeamTree } from './Staff.jsx'
-import { BANKS } from './options.js'
+import { useCan } from '../access.jsx'
 
 // ── Commission (2020): the old pay-detail confirmation, superseded by Closed Case ──
 export function Commission() {
@@ -148,15 +149,28 @@ function DocView({ dealId, kind }) {
   )
 }
 
-// ── Video Gallery: Meetings and Trainings ──
+// ── Video Gallery: Meetings and Trainings, with Add / Edit / Delete ──
 export function Videos({ parts }) {
-  const { m } = useErp()
+  const erp = useErp()
+  const can = useCan()
+  const { m } = erp
+  const fb = useFeedback()
   const cate = parts[1] === 'meeting' ? 'meeting' : 'training'
   const [open, setOpen] = useState(null)
-  const list = m.data.videos.filter(v => v.cate === cate)
+  const [edit, setEdit] = useState(null)
+  const [error, setError] = useState(null)
+  const list = m.data.videos.filter(v => v.cate === cate).sort((a, b) => b.date.localeCompare(a.date))
+  const dates = [...new Set(list.map(v => v.date))]
+  const save = async () => {
+    setError(null)
+    try { await erp.saveVideo({ ...edit, cate }); fb.toast(edit.id ? `${edit.title} saved` : `${edit.title} published`); setEdit(null) } catch (e) { setError(e.message) }
+  }
+  const remove = async v => {
+    if (await fb.confirm({ title: `Delete ${v.title}?`, body: 'The video is removed from the gallery.', confirmLabel: 'Delete', danger: true }) && await fb.run(() => erp.deleteVideo(v.id), `${v.title} deleted`)) setOpen(null)
+  }
   return (
-    <Page title={cate === 'meeting' ? 'Meeting recordings' : 'Training videos'} help={PAGE.videos} sub={cate === 'training' ? 'How-to videos for agents and admins.' : 'Recordings of company meetings.'}
-      actions={<button style={btnPrimary} disabled title="Demo only">Add</button>}>
+    <Page title={cate === 'meeting' ? 'Meeting recordings' : 'Training videos'} help={PAGE.videos} sub={`${cate === 'training' ? 'How-to videos for agents and admins.' : 'Recordings of company meetings.'} ${dates.length} dates.`}
+      actions={can('videos', 'edit') && <button style={btnPrimary} onClick={() => { setError(null); setEdit({ title: '', date: m.today, description: '', minutes: '', file: '' }) }}>Add</button>}>
       <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))' }}>
         {list.map(v => (
           <button key={v.id} onClick={() => setOpen(v)} style={{ all: 'unset', cursor: 'pointer', background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', boxShadow: C.shadow }}>
@@ -171,71 +185,66 @@ export function Videos({ parts }) {
           </button>
         ))}
       </div>
-      <Modal open={!!open} onClose={() => setOpen(null)} title={open?.title} width={640}>
+      {!list.length && <Empty title="No videos yet" text="Press Add to upload the first one." icon="video" />}
+      <Modal open={!!open} onClose={() => setOpen(null)} title={open?.title} width={640}
+        footer={open && can('videos', 'edit') && <>{can('videos', 'full') && <button style={{ ...btn, color: C.err }} onClick={() => remove(open)}>Delete</button>}<span style={{ flex: 1 }} />
+          <button style={btn} onClick={() => { setError(null); setEdit({ id: open.id, title: open.title, date: open.date, description: open.description || '', minutes: open.minutes }); setOpen(null) }}>Edit</button></>}>
         {open && (
           <>
             <div style={{ aspectRatio: '16 / 9', background: C.side, borderRadius: 8, display: 'grid', placeItems: 'center', color: '#fff' }}><Icon name="video" size={36} /></div>
-            <p style={{ fontSize: 13.5, color: C.muted }}>{date(open.date)} · {open.minutes} min · {open.description}</p>
+            <p style={{ fontSize: 13.5, color: C.muted }}>{date(open.date)} · {open.minutes} min{open.file ? ` · ${open.file}` : ''}</p>
+            {open.description && <p style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{open.description}</p>}
           </>
+        )}
+      </Modal>
+      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Edit · ${edit.title}` : `Add ${cate === 'meeting' ? 'meeting recording' : 'training video'}`} width={540}
+        footer={<><button style={btn} onClick={() => setEdit(null)}>Cancel</button><button style={btnPrimary} onClick={save}>{edit?.id ? 'Save' : 'Save & Publish'}</button></>}>
+        {error && <Notice tone="red">{error}</Notice>}
+        {edit && (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <FormField label="Title" required><input style={field} autoFocus value={edit.title} onChange={e => setEdit({ ...edit, title: e.target.value })} placeholder="e.g. 1.2 Submit New Case" /></FormField>
+            <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))' }}>
+              <FormField label="Date" required><input type="date" style={field} value={edit.date} onChange={e => setEdit({ ...edit, date: e.target.value })} /></FormField>
+              <FormField label="Length (minutes)"><input type="number" min="1" style={field} value={edit.minutes} onChange={e => setEdit({ ...edit, minutes: e.target.value })} /></FormField>
+            </div>
+            {!edit.id && <FormField label="Video file" required><FileInput kind="video" onChange={files => setEdit(v => ({ ...v, file: files[0]?.name || '' }))} /></FormField>}
+            <FormField label="Description"><TextArea rows={3} value={edit.description} onChange={e => setEdit({ ...edit, description: e.target.value })} /></FormField>
+          </div>
         )}
       </Modal>
     </Page>
   )
 }
 
-// ── Settings (the signed-in user) ──
-export function Settings({ me }) {
-  const { setup } = useErp()
-  return (
-    <Page title="My profile & settings" help={PAGE.settings} sub="Your profile, password and personal information.">
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(380px, 100%), 1fr))', alignItems: 'start' }}>
-        <Card title="Profile">
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 14 }}>
-            <Avatar name={me?.name || 'Demo'} size={56} />
-            <div><b style={{ fontSize: 16 }}>{me?.username || 'demo'}</b><div style={{ fontSize: 13, color: C.muted }}>{me?.role}, {setup.company.name}</div></div>
-          </div>
-          <FormField label="Upload Profile"><FileInput kind="avatar" disabled /></FormField>
-        </Card>
-        <Card title="Update Password">
-          <Notice tone="blue">Sign-in is off in the demo. Passwords are changed from the user menu once sign-in is on.</Notice>
-          <div style={{ display: 'grid', gap: 10 }}>
-            <FormField label="Current Password"><input type="password" style={field} disabled /></FormField>
-            <FormField label="New Password"><input type="password" style={field} disabled /></FormField>
-          </div>
-        </Card>
-        <Card title="Personal Information">
-          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(min(200px, 100%), 1fr))' }}>
-            {['IC Name', 'E-Mail', 'Phone', 'House Address'].map(l => <FormField key={l} label={l}><input style={field} defaultValue={l === 'IC Name' ? me?.name : ''} /></FormField>)}
-            <FormField label="Bank"><select style={{ ...sel, width: '100%' }}>{BANKS.map(b => <option key={b}>{b}</option>)}</select></FormField>
-            <FormField label="Bank Account"><input style={field} /></FormField>
-          </div>
-          <button style={{ ...btnPrimary, marginTop: 14 }} disabled title="Demo only">Update Information</button>
-        </Card>
-        <Card title="Your Org Chart"><TeamTree /></Card>
-      </div>
-    </Page>
-  )
-}
-
 // ── System Settings: company details (from Setup) and property types ──
 export function SystemSettings() {
-  const { m, setup } = useErp()
+  const erp = useErp()
+  const can = useCan()
+  const { m, setup } = erp
+  const fb = useFeedback()
+  const [name, setName] = useState('')
   const co = setup.company
   const counts = {}
   for (const l of m.data.listings) counts[l.category] = (counts[l.category] || 0) + 1
-  const types = Object.keys(CATEGORIES).map((name, i) => ({ id: i + 1, name, cate: LISTING_CATEGORY[listingCategory({ category: name })], n: counts[name] || 0 }))
+  const types = (m.data.propertyTypes || Object.keys(CATEGORIES).map((n, i) => ({ id: -i - 1, name: n }))).map((t, i) => ({ ...t, no: i + 1, cate: LISTING_CATEGORY[listingCategory({ category: t.name })], n: counts[t.name] || 0 }))
+  const add = async () => { if (await fb.run(() => erp.addPropertyType(name), `${name.trim()} added`)) setName('') }
   return (
     <Page title="System settings" help={PAGE.system} sub="Company details print on invoices, receipts and salary slips.">
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(400px, 100%), 1fr))', alignItems: 'start' }}>
-        <Card title="Company Details" actions={<button style={btn} onClick={() => go('setup/company')}>Edit in Setup</button>}>
+        <Card title="Company Details" actions={can('system', 'full') && <button style={btn} onClick={() => go('setup/company')}>Edit in Setup</button>}>
           <KV min={180} items={[['Company Name', co.name], ['Company Reg. Number', co.regNo], ['Estate Agency Licence', co.licenceNo], ['SST Number', co.sstNo], ['Company Address', co.address],
             ['Bank accounts', setup.bankAccounts.map(a => `${a.bank} ${maskAcc(a.accountNo)}`).join(' · ')]]} />
         </Card>
-        <Card title="Property Type" sub="Types agents pick on a listing">
+        <Card title="Property Type" sub="Types agents pick on a listing" help={CARD.propertyTypes}>
+          {can('system', 'full') && <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <input style={{ ...field, flex: '1 1 200px', width: 'auto' }} value={name} onChange={e => setName(e.target.value)} placeholder="Type Name, e.g. Cluster House" onKeyDown={e => { if (e.key === 'Enter' && name.trim()) add() }} />
+            <button style={btnPrimary} disabled={!name.trim()} onClick={add}>ADD</button>
+          </div>}
           <DataTable rows={types} narrowAt={420} columns={[
-            { key: 'no', label: 'No', render: t => t.id },
+            { key: 'no', label: 'No', render: t => t.no },
             { key: 'name', label: 'Type Name', render: t => <span>{t.name}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{t.cate}</span></span> },
             { key: 'n', label: 'Listings', align: 'right', render: t => t.n },
+            { key: 'act', label: '', render: t => t.id > 0 && !t.n && can('system', 'full') ? <button style={{ ...btn, fontSize: 12.5, padding: '3px 9px', color: C.err }} onClick={() => fb.run(() => erp.deletePropertyType(t.id), `${t.name} deleted`)}>Delete</button> : null },
           ]} />
         </Card>
       </div>

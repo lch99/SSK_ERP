@@ -8,10 +8,12 @@ import { STATES } from './options.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm0, date, ago } from '../format.js'
 import Icon from '../Icon.jsx'
+import { useCan, useGate } from '../access.jsx'
 
 // ── Vendor Requests: owners who asked us (through the public site) to list ──
 export function VendorRequests() {
   const erp = useErp()
+  const gate = useGate()
   const { m, scoped: d } = erp
   const [status, setStatus] = useState('')
   const [ticket, setTicket] = useState('')
@@ -36,7 +38,7 @@ export function VendorRequests() {
         '-',
         { label: 'Cancelled', icon: 'close', disabled: v.status === -1, why: 'Cancelled already', onClick: () => set(v, -1) },
         { label: 'Invalid', icon: 'ban', danger: true, disabled: v.status === -2, why: 'Marked invalid already', onClick: () => set(v, -2) },
-      ]} />
+      ].map(i => (i?.label ? gate(i, 'listings') : i))} />
     ) },
   ]
   return (
@@ -82,6 +84,7 @@ export function Appointments() {
 // ── Check Enquiry: messages from the website and app, with star and trash ──
 export function Enquiries() {
   const erp = useErp()
+  const editable = useCan()('listings', 'edit')
   const { m, scoped: d } = erp
   const [tab, setTab] = useState('inbox')
   const pick = { inbox: e => !e.trashed, star: e => e.starred && !e.trashed, trash: e => e.trashed }
@@ -97,7 +100,7 @@ export function Enquiries() {
     { key: 'listing', label: 'Listing', render: e => <span><Link to={`listings/${e.listingId}`} style={mono}>{m.listings[e.listingId]?.code}</Link><span style={{ display: 'block', fontSize: 12.5 }}>{m.listings[e.listingId]?.title}</span></span> },
     { key: 'msg', label: 'Message', render: e => <span style={{ fontSize: 13 }}>{e.message}</span> },
     { key: 'holder', label: 'Product Handler', render: e => m.staffName(m.listings[e.listingId]?.holderId) },
-    { key: 'actions', label: '', render: e => (
+    { key: 'actions', label: '', render: e => editable && (
       <span style={{ display: 'inline-flex', gap: 6 }}>
         <button style={{ ...small, color: e.starred ? '#c98500' : C.muted }} aria-label={e.starred ? 'Unstar' : 'Star'} onClick={() => upd(e, { starred: !e.starred })}><Icon name="star" size={15} /></button>
         <button style={{ ...small, color: C.muted }} aria-label={e.trashed ? 'Restore' : 'Move to trash'} onClick={() => upd(e, { trashed: !e.trashed })}><Icon name={e.trashed ? 'refresh' : 'trash'} size={15} /></button>
@@ -119,6 +122,7 @@ const grid2 = { display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill
 
 export function Titles() {
   const erp = useErp()
+  const manage = useCan()('listings', 'full')
   const { m, scoped: d } = erp
   const fb = useFeedback()
   const [tab, setTab] = useState('list')
@@ -160,7 +164,7 @@ export function Titles() {
       : { key: 'by', label: 'Create By', render: t => <span style={{ fontSize: 13 }}>{m.staffName(t.requestedBy)}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{t.requestedOn ? date(t.requestedOn) : ''}</span></span> },
     { key: 'count', label: 'Listings', align: 'right', sort: t => counts[t.id] || 0, render: t => counts[t.id] || 0 },
     { key: 'status', label: 'Status', render: t => <Status of={TITLE_STATUS} value={t.status} /> },
-    { key: 'actions', label: '', card: false, render: t => (
+    { key: 'actions', label: '', card: false, render: t => manage && (
       <Menu quiet items={tab === 'list' ? [
         { label: 'Edit Title', icon: 'edit', onClick: () => startEdit(t) },
         t.status === 0 ? { label: 'Disable Title', icon: 'ban', onClick: () => setStatus([t.id], 3, `${t.name} disabled`) } : { label: 'Enable Title', icon: 'check', onClick: () => setStatus([t.id], 0, `${t.name} enabled`) },
@@ -177,7 +181,7 @@ export function Titles() {
   const otherReplacements = removing ? m.data.titles.filter(t => t.status === 0 && t.id !== removing.title.id && t.area !== removing.title.area) : []
   return (
     <Page title="Buildings & estates" help={PAGE.titles} sub="Buildings and housing estates that listings are filed under. Agents request new titles; admins approve them."
-      actions={<button style={btnPrimary} onClick={() => startEdit(null)}>Create New Title</button>}>
+      actions={manage && <button style={btnPrimary} onClick={() => startEdit(null)}>Create New Title</button>}>
       <Card pad={16}>
         <Tabs value={tab} onChange={v => { setTab(v); setPicked(new Set()) }} tabs={[{ key: 'list', label: 'Titles', count: d.titles.filter(t => t.status === 0 || t.status === 3).length },
           { key: 'requests', label: 'Title Requests', count: d.titles.filter(t => t.status === 1).length }]} />
@@ -188,7 +192,7 @@ export function Titles() {
         </Toolbar>
         {tab === 'requests' && <p style={{ fontSize: 13, color: C.muted, margin: '0 0 10px' }}>{CARD.titleRequests} Tick several to approve them at once.</p>}
         <DataTable columns={columns} rows={rows} defaultSort={{ key: tab === 'list' ? 'count' : 'name', dir: 'desc' }} narrowAt={820} empty="No titles here"
-          selection={tab === 'requests' ? { selected: picked, onChange: setPicked, can: t => t.status === 1 } : null} />
+          selection={tab === 'requests' && manage ? { selected: picked, onChange: setPicked, can: t => t.status === 1 } : null} />
         <SelectionBar count={picked.size} onClear={() => setPicked(new Set())}>
           <button style={small} onClick={() => setStatus([...picked], 2, `${picked.size} request${picked.size > 1 ? 's' : ''} rejected`)}>Reject</button>
           <button style={{ ...small, ...btnPrimary, fontSize: 13, padding: '5px 12px' }} onClick={() => setStatus([...picked], 0, `${picked.size} title${picked.size > 1 ? 's' : ''} approved`)}>Approve</button>
@@ -228,6 +232,7 @@ export function Titles() {
 // ── Area Management ──
 export function Areas() {
   const erp = useErp()
+  const manage = useCan()('listings', 'full')
   const { m, scoped: d, setup } = erp
   const fb = useFeedback()
   const [tab, setTab] = useState('list')
@@ -257,7 +262,7 @@ export function Areas() {
       : { key: 'by', label: 'Requested by', render: a => <span>{m.staffName(a.requestedBy)}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{a.requestedOn ? date(a.requestedOn) : ''}</span></span> },
     { key: 'count', label: 'Listings', align: 'right', sort: a => counts[a.name] || 0, render: a => counts[a.name] || 0 },
     { key: 'status', label: 'Status', render: a => <Status of={AREA_STATUS} value={a.status} /> },
-    { key: 'actions', label: '', card: false, render: a => (
+    { key: 'actions', label: '', card: false, render: a => manage && (
       <Menu quiet items={tab === 'list' ? [
         { label: 'Edit Area', icon: 'edit', onClick: () => startEdit(a) },
         a.status === 0 ? { label: 'Disable Area', icon: 'ban', onClick: () => fb.run(() => erp.setAreaStatus(a.id, 1), `${a.name} disabled`) }
@@ -272,7 +277,7 @@ export function Areas() {
     ) },
   ]
   return (
-    <Page title="Areas" help={PAGE.areas} sub="Areas listings and titles belong to, and who manages each." actions={<button style={btnPrimary} onClick={() => startEdit(null)}>Add Area</button>}>
+    <Page title="Areas" help={PAGE.areas} sub="Areas listings and titles belong to, and who manages each." actions={manage && <button style={btnPrimary} onClick={() => startEdit(null)}>Add Area</button>}>
       <Card pad={16}>
         <Tabs value={tab} onChange={setTab} tabs={[{ key: 'list', label: 'Areas', count: d.areas.filter(a => a.status !== 2).length }, { key: 'requests', label: 'Area Requests', count: d.areas.filter(a => a.status === 2).length }]} />
         <Toolbar>

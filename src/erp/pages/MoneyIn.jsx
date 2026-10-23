@@ -9,6 +9,7 @@ import { useFeedback } from '../feedback.jsx'
 import { FlowBar } from '../flow.jsx'
 import { rm, date, maskAcc, lastMonths, monthName } from '../format.js'
 import { localToday } from '../../demo/erpSample.js'
+import { useCan } from '../access.jsx'
 
 // Transactions: money in from buyers, tenants, owners and developers.
 export default function MoneyIn({ parts }) {
@@ -28,6 +29,7 @@ const TABS = [
 
 function TransactionList({ openId }) {
   const erp = useErp()
+  const can = useCan()
   const { m, scoped: d } = erp
   const [tab, setTab] = useState('all')
   const [q, setQ] = useState('')
@@ -59,7 +61,7 @@ function TransactionList({ openId }) {
   ]
   return (
     <Page title="Money in" help={PAGE.moneyIn} sub="Every payment received (transactions). Only Clear payments count as cleared cash when a case is closed."
-      actions={<button style={btnPrimary} onClick={() => go('money-in/new')}>Record a payment</button>}>
+      actions={can('moneyIn', 'edit') && <button style={btnPrimary} onClick={() => go('money-in/new')}>Record a payment</button>}>
       <FlowBar here="clear" />
       <div style={{ ...cols(220, 14), marginBottom: 16 }}>
         <Stat icon="moneyIn" tone="amber" label="Draft and Pending" value={rm(sum(toCheck, t => t.amount))} sub={`${toCheck.length} to check against the bank`} onClick={() => setTab('pending')} on={tab === 'pending'} />
@@ -122,8 +124,10 @@ function downloadCsv(name, head, rows) {
 function TxEdit({ t, erp }) {
   const { m } = erp
   const fb = useFeedback()
+  const can = useCan()
   const [f, setF] = useState(null)
   const [error, setError] = useState(null)
+  if (!can('moneyIn', 'edit')) return null
   const used = t.status === 'cleared' && (m.closesByDeal[t.dealId] || []).length > 0
   if (used) return <p style={{ fontSize: 12.5, color: C.muted, margin: 0 }}>This payment has been paid out on a close, so it can no longer be edited or deleted.</p>
   const set = k => e => setF(v => ({ ...v, [k]: e.target.value }))
@@ -141,7 +145,7 @@ function TxEdit({ t, erp }) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button style={btn} onClick={() => setF({ dealId: String(t.dealId), date: t.date, bankOn: t.bankOn, amount: String(t.amount), method: t.method, purpose: t.purpose, remark: t.remark,
           chequeNo: t.method === 'cheque' ? t.ref.replace(/^Cheque /, '') : '', reference: t.method === 'online' ? t.ref : '', cashMethod: t.cashMethod || 'cashtocompany' })}>Update Transaction</button>
-        <button style={{ ...btn, color: C.err }} onClick={remove}>Delete</button>
+        {can('moneyIn', 'full') && <button style={{ ...btn, color: C.err }} onClick={remove}>Delete</button>}
       </div>
     )
   }
@@ -171,6 +175,7 @@ function TxEdit({ t, erp }) {
 
 function TxActions({ t, erp, next }) {
   const fb = useFeedback()
+  const can = useCan()
   const [reason, setReason] = useState('')
   const [asking, setAsking] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -184,6 +189,7 @@ function TxActions({ t, erp, next }) {
   if (t.status !== 'pending' && t.status !== 'draft') {
     return <span style={{ fontSize: 13, color: C.muted, flex: 1 }}>{t.status === 'cleared' ? `Clear since ${date(t.clearsOn)}.` : 'No further action.'}</span>
   }
+  if (!can('moneyIn', 'full')) return <span style={{ fontSize: 13, color: C.muted, flex: 1 }}>Waiting for Accounts to check it against the bank.</span>
   if (asking) {
     return (
       <>

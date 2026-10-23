@@ -10,6 +10,7 @@ import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { FlowBar } from '../flow.jsx'
 import { rm, pct, date, maskAcc, maskIc } from '../format.js'
+import { useCan } from '../access.jsx'
 
 // Salary (own case lines) and Incentives (upline lines): each person requests
 // their Ready lines, accounts pays them on the Setup pay day.
@@ -134,6 +135,7 @@ function AllList({ openId }) {
 function RequestActions({ slip, next }) {
   const erp = useErp()
   const fb = useFeedback()
+  const can = useCan()
   const r = slip.request
   const [asking, setAsking] = useState(false)
   const [text, setText] = useState('')
@@ -146,6 +148,7 @@ function RequestActions({ slip, next }) {
     setBusy(false)
   }
   if (r.status === 'clear') return <span style={{ fontSize: 13, color: C.muted, flex: 1 }}>Payment Clear on {date(r.paidOn)}.</span>
+  if (!can('salary', 'full')) return <span style={{ fontSize: 13, color: C.muted, flex: 1 }}>{r.status === 'invalid' ? 'Sent back: see the reason above.' : 'Waiting for Accounts to pay it.'}</span>
   if (asking) {
     return (
       <>
@@ -155,8 +158,14 @@ function RequestActions({ slip, next }) {
       </>
     )
   }
+  const remove = async () => {
+    if (await fb.confirm({ title: 'Confirm to delete this salary case?', body: <>{r.code} is removed. Its {slip.lines.length} case line{slip.lines.length === 1 ? '' : 's'} go back to Salary Not-Requested, so they can be requested again.</>, confirmLabel: 'Delete', danger: true })
+      && await fb.run(() => erp.deleteSalaryRequest(r.id), `${r.code} deleted`)) go('salary')
+  }
   return (
     <>
+      <button style={{ ...btn, color: C.err }} onClick={remove}>Delete</button>
+      <span style={{ flex: 1 }} />
       <button style={btn} onClick={() => setAsking(true)}>Document Not Valid…</button>
       {r.status !== 'ready' && <button style={btn} disabled={busy} onClick={() => set('ready')}>Payment Ready</button>}
       <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => set('clear')}>Payment Clear</button>

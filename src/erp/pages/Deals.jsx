@@ -9,14 +9,16 @@ import { COLUMN, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm, date, num, amt } from '../format.js'
 import DealPage from './DealPage.jsx'
+import { NoAccess, useCan, useGate } from '../access.jsx'
 import DealForm from './DealForm.jsx'
 import { BANKS } from './options.js'
 
 // E-Forms: Personal Sales (every form), Branch Sales (by branch manager) and
 // Team Sales (a leader and everyone under them), as in the current ERP.
 export default function Deals({ parts }) {
+  const can = useCan()
   if (parts[1] === 'new') return <DealForm />
-  if (/^\d+$/.test(parts[1] || '')) return parts[2] === 'edit' ? <DealForm key={parts[1]} id={Number(parts[1])} /> : <DealPage id={Number(parts[1])} />
+  if (/^\d+$/.test(parts[1] || '')) return parts[2] !== 'edit' ? <DealPage id={Number(parts[1])} /> : can('deals', 'edit') ? <DealForm key={parts[1]} id={Number(parts[1])} /> : <NoAccess />
   return <DealList view={parts[1] || 'personal'} />
 }
 
@@ -34,6 +36,7 @@ const activeField = { borderColor: '#f7a3b8', background: C.primaryBg, color: C.
 const STATUS_FILTER = [['', 'All'], ['draft', 'Draft'], ['submitted', 'Submitted'], ['cancelled', 'Abort/Cancel'], ['closed', 'Closed Full'], ['partial', 'Closed Partial']]
 
 function DealList({ view }) {
+  const can = useCan()
   const { m, scoped: d, setup } = useErp()
   const [status, setStatus] = useState('')
   const [q, setQ] = useState('')
@@ -113,7 +116,7 @@ function DealList({ view }) {
   const yearDeals = d.deals.filter(x => x.date.startsWith(m.year) && x.status !== 'cancelled' && x.status !== 'draft')
   return (
     <Page title={v.title} help={PAGE[{ personal: 'deals', branch: 'dealsBranch', team: 'dealsTeam', ready: 'dealsReady' }[view] || 'deals']} sub={view === 'ready' ? `${v.sub}.` : <>{v.sub} · {num(yearDeals.length)} submitted in {m.year} · {rm(sum(yearDeals, x => x.fee))} in fees</>}
-      actions={<button style={btnPrimary} onClick={() => go('deals/new')}>Add a deal</button>}>
+      actions={can('deals', 'edit') && <button style={btnPrimary} onClick={() => go('deals/new')}>Add a deal</button>}>
       {view === 'ready' && <FlowBar here="close" />}
       <Card pad={16}>
         <Toolbar fold active={filters} onClear={clear}>
@@ -188,6 +191,7 @@ export function DealActions({ deal, quiet }) {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const closeDeal = useCloseDeal(deal)
+  const gate = useGate()
   const got = Math.min(m.cleared(deal.id), deal.money.billed)
   const closed = sum(m.closesByDeal[deal.id] || [], c => c.claim)
   const left = r2(got - closed)
@@ -204,7 +208,7 @@ export function DealActions({ deal, quiet }) {
     try { await fn(); setDialog(null); setForm({}); fb.toast(done, { action: { label: 'View', onClick: () => go('money-out') } }) } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
   const set = k => e => setForm({ ...form, [k]: e.target.value })
-  const print = (label, doc, ok, why) => ({ label, icon: 'print', disabled: !ok, why, onClick: () => go(`invoices/doc/${deal.id}/${doc}`) })
+  const print = (label, doc, ok, why) => gate({ label, icon: 'print', disabled: !ok, why, onClick: () => go(`invoices/doc/${deal.id}/${doc}`) }, 'invoices', 'view')
   // Each request form starts with what the E-Form already knows.
   const ask = type => {
     const ta = deal.rental?.taFee || 0
@@ -220,7 +224,7 @@ export function DealActions({ deal, quiet }) {
   }
   const request = (type, show) => {
     const done = outs.find(x => x.type === type)
-    return show && { label: REQUESTS[type].title, icon: 'moneyOut', disabled: !open || !!done, why: done ? `Requested already (${done.voucherNo})` : notOpen, onClick: () => ask(type) }
+    return show && gate({ label: REQUESTS[type].title, icon: 'moneyOut', disabled: !open || !!done, why: done ? `Requested already (${done.voucherNo})` : notOpen, onClick: () => ask(type) }, 'moneyOut')
   }
   const req = REQUESTS[dialog]
   return (
@@ -228,19 +232,19 @@ export function DealActions({ deal, quiet }) {
       <Menu quiet={quiet} label="Actions" items={[
         deal.status !== 'closed' && deal.status !== 'cancelled' && { note: deal.status === 'draft' ? 'This E-Form is a draft. Edit it and press Submit.' : 'This case is not yet full close!' },
         { section: 'Case' },
-        { label: deal.status === 'draft' ? 'Edit & submit E-Form' : 'Edit E-Form', icon: 'edit', disabled: deal.status === 'cancelled', why: 'This case was aborted', onClick: () => go(`deals/${deal.id}/edit`) },
-        { label: 'Add Transaction', icon: 'plus', disabled: !open, why: notOpen, onClick: () => go(`money-in/new/${deal.id}`) },
-        { label: 'Request Close Case', icon: 'payouts', hint: closable ? rm(left) : null, disabled: !closable, why: closeWhy, onClick: () => closeDeal(left) },
+        gate({ label: deal.status === 'draft' ? 'Edit & submit E-Form' : 'Edit E-Form', icon: 'edit', disabled: deal.status === 'cancelled', why: 'This case was aborted', onClick: () => go(`deals/${deal.id}/edit`) }, 'deals'),
+        gate({ label: 'Add Transaction', icon: 'plus', disabled: !open, why: notOpen, onClick: () => go(`money-in/new/${deal.id}`) }, 'moneyIn'),
+        gate({ label: 'Request Close Case', icon: 'payouts', hint: closable ? rm(left) : null, disabled: !closable, why: closeWhy, onClick: () => closeDeal(left) }, 'payouts', 'full'),
         { section: 'Request Form' },
         request('balance', deal.type !== 'project'),
         request('transfer', true),
         request('cobroke', !!deal.coBroke),
         request('referral', !!deal.referral),
         request('ta', deal.type === 'rental'),
-        { label: 'Abort Case', icon: 'ban', danger: true, disabled: !open || closed > 0, why: closed > 0 ? 'Part of this case is closed already' : notOpen, onClick: () => { setError(null); setForm({}); setDialog('abort') } },
+        gate({ label: 'Abort Case', icon: 'ban', danger: true, disabled: !open || closed > 0, why: closed > 0 ? 'Part of this case is closed already' : notOpen, onClick: () => { setError(null); setForm({}); setDialog('abort') } }, 'moneyOut'),
         { section: 'Documents' },
-        { label: deal.invoiceNo ? `Invoice requested (${deal.invoiceNo})` : 'Request Invoice', icon: 'file', disabled: deal.status === 'draft' || !!deal.invoiceNo, why: deal.invoiceNo ? `On ${date(deal.invoiceOn)}` : 'Not for drafts',
-          onClick: () => fb.run(() => erp.requestInvoice(deal.id), `Invoice INV-${deal.code} requested`, { action: { label: 'Open', onClick: () => go(`invoices/doc/${deal.id}/tax-invoice`) } }) },
+        gate({ label: deal.invoiceNo ? `Invoice requested (${deal.invoiceNo})` : 'Request Invoice', icon: 'file', disabled: deal.status === 'draft' || !!deal.invoiceNo, why: deal.invoiceNo ? `On ${date(deal.invoiceOn)}` : 'Not for drafts',
+          onClick: () => fb.run(() => erp.requestInvoice(deal.id), `Invoice INV-${deal.code} requested`, { action: { label: 'Open', onClick: () => go(`invoices/doc/${deal.id}/tax-invoice`) } }) }, 'invoices'),
         print('Print Tax Invoice', 'tax-invoice', deal.status !== 'draft', 'Not for drafts'),
         print('Print Tax Receipt', 'tax-receipt', m.cleared(deal.id) > 0, 'No cleared payment yet'),
         print('Print SST Invoice', 'sst-invoice', deal.status !== 'draft', 'Not for drafts'),

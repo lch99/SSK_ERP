@@ -9,6 +9,7 @@ import { CARD, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm, rm0, pct } from '../format.js'
 import { BANKS } from './options.js'
+import { useCan } from '../access.jsx'
 
 // New E-Form ("Submit New Case") and Edit E-Form, in the current form's order:
 // the case, purchaser/tenant, vendor/landlord, deposits (rent), others (fees,
@@ -31,6 +32,7 @@ function fromDeal(d) {
 
 export default function DealForm({ id }) {
   const erp = useErp()
+  const can = useCan()
   const { m, setup } = erp
   const fb = useFeedback()
   const deal = id ? m.deals[id] : null
@@ -260,7 +262,7 @@ export default function DealForm({ id }) {
         <button style={deal && deal.status !== 'draft' ? { ...btnPrimary, opacity: busy ? 0.6 : 1 } : btn} disabled={busy} onClick={() => save(false)}>{deal ? 'Save changes' : 'Save as Draft'}</button>
         <button style={btn} onClick={() => go(deal ? `deals/${deal.id}` : 'deals')}>Cancel</button>
         <span style={{ flex: 1 }} />
-        {deal && !locked && <button style={{ ...btn, color: C.err }} onClick={remove}>Delete E-Form</button>}
+        {deal && !locked && can('deals', 'full') && <button style={{ ...btn, color: C.err }} onClick={remove}>Delete E-Form</button>}
       </div>
     </Page>
   )

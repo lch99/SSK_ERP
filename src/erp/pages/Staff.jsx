@@ -13,14 +13,16 @@ import { useFeedback } from '../feedback.jsx'
 import { rm, date, maskIc, maskAcc, num, ago } from '../format.js'
 import { lineRole } from './Payouts.jsx'
 import { BANKS } from './options.js'
+import { NoAccess, useCan, useGate } from '../access.jsx'
 
 // Agents & staff ("H.R Portal" in the current ERP): the people, their position (tier), upline and status.
 export default function Staff({ parts }) {
+  const can = useCan()
   if (parts[1] === 'new') return <StaffForm />
   const id = Number(parts[1])
   if (id) {
-    if (parts[2] === 'edit') return <StaffForm key={id} id={id} />
-    if (parts[2] === 'marketing') return <MarketingStaffs id={id} />
+    if (parts[2] === 'edit') return can('staff', 'edit') ? <StaffForm key={id} id={id} /> : <NoAccess />
+    if (parts[2] === 'marketing') return can('staff', 'full') ? <MarketingStaffs id={id} /> : <NoAccess />
     if (parts[2] === 'chart') return <StaffChart id={id} />
     if (parts[2] === 'profile-doc') return <ProfileDoc id={id} />
     return <Profile id={id} />
@@ -37,6 +39,7 @@ export function RoleTag({ code, setup }) {
 
 function StaffList() {
   const { m, scoped: d, setup } = useErp()
+  const can = useCan()
   const [tab, setTab] = useState('all')
   const [view, setView] = useState('list')
   const [q, setQ] = useState('')
@@ -66,7 +69,7 @@ function StaffList() {
   const active = d.staff.filter(s => s.status === 'active')
   return (
     <Page title="Agents & staff" help={PAGE.staff} sub={<>{active.length} active · position (tier), upline and pay come from Setup</>}
-      actions={<button style={btnPrimary} onClick={() => go('staff/new')}>Add agent or staff</button>}>
+      actions={can('staff', 'edit') && <button style={btnPrimary} onClick={() => go('staff/new')}>Add agent or staff</button>}>
       <Card pad={16}>
         <Tabs value={view} onChange={setView} tabs={[{ key: 'list', label: 'Staff list' }, { key: 'tree', label: 'Org chart' }]} />
         {view === 'tree' ? <TeamTree /> : (
@@ -122,6 +125,7 @@ export function TeamTree() {
 function Profile({ id }) {
   const fb = useFeedback()
   const erp = useErp()
+  const can = useCan()
   const { m, setup } = erp
   const s = m.staff[id]
   if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'Agents & staff' }}><Empty title="This person no longer exists" /></Page>
@@ -136,9 +140,9 @@ function Profile({ id }) {
   return (
     <Page back={{ to: 'staff', label: 'Agents & staff' }} help={PAGE.profile}
       actions={<>
-        <Select plain label="Enable/Unlock Staff" value={s.status} onChange={v => fb.run(() => erp.setStaffStatus(s.id, v), `${s.short} is now ${STAFF_STATUS[v].label}`)}
-          options={[{ value: 'active', label: 'Enabled (Active)' }, { value: 'inactive', label: 'Disabled (Inactive)' }, { value: 'pending', label: 'Pending' }]} />
-        <button style={btn} onClick={() => go(`staff/${s.id}/edit`)}>Edit</button>
+        {can('staff', 'edit') && <Select plain label="Enable/Unlock Staff" value={s.status} onChange={v => fb.run(() => erp.setStaffStatus(s.id, v), `${s.short} is now ${STAFF_STATUS[v].label}`)}
+          options={[{ value: 'active', label: 'Enabled (Active)' }, { value: 'inactive', label: 'Disabled (Inactive)' }, { value: 'pending', label: 'Pending' }]} />}
+        {can('staff', 'edit') && <button style={btn} onClick={() => go(`staff/${s.id}/edit`)}>Edit</button>}
         <StaffMenu s={s} label="More" />
       </>}
       title={<span style={{ display: 'inline-flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}><Avatar name={s.short} size={42} photo={s.photo} />{s.short}<Status of={STAFF_STATUS} value={s.status} /></span>}
@@ -256,19 +260,20 @@ function Profile({ id }) {
 function StaffMenu({ s, label }) {
   const erp = useErp()
   const fb = useFeedback()
+  const gate = useGate()
   const remove = async () => {
     const ok = await fb.confirm({ title: `Delete ${s.short}?`, body: 'Only someone with no deals, listings, customers or team can be deleted. Otherwise set them Inactive.', confirmLabel: 'Delete', danger: true })
     if (ok && await fb.run(() => erp.deleteStaff(s.id), `${s.short} deleted`)) go('staff')
   }
   return (
     <Menu quiet={!label} label={label || 'Actions'} items={[
-      { label: 'Edit', icon: 'edit', onClick: () => go(`staff/${s.id}/edit`) },
+      gate({ label: 'Edit', icon: 'edit', onClick: () => go(`staff/${s.id}/edit`) }, 'staff'),
       { label: 'View Chart', icon: 'staff', onClick: () => go(`staff/${s.id}/chart`) },
-      { label: 'Manage Marketing Staffs', icon: 'customers', hint: s.marketing?.length ? String(s.marketing.length) : null, onClick: () => go(`staff/${s.id}/marketing`) },
-      { label: 'E-Forms', icon: 'deals', onClick: () => go(`deals?staff=${s.id}`) },
+      gate({ label: 'Manage Marketing Staffs', icon: 'customers', hint: s.marketing?.length ? String(s.marketing.length) : null, onClick: () => go(`staff/${s.id}/marketing`) }, 'staff', 'full'),
+      gate({ label: 'E-Forms', icon: 'deals', onClick: () => go(`deals?staff=${s.id}`) }, 'deals', 'view'),
       { label: 'Agent Profile PDF', icon: 'print', onClick: () => go(`staff/${s.id}/profile-doc`) },
       '-',
-      { label: 'Delete', icon: 'trash', danger: true, onClick: remove },
+      gate({ label: 'Delete', icon: 'trash', danger: true, onClick: remove }, 'staff', 'full'),
     ]} />
   )
 }

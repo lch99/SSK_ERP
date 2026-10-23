@@ -6,6 +6,7 @@ import { Menu, Modal, FormField, FileInput, TextArea, Select, Notice, go, field,
 import { useFeedback } from '../feedback.jsx'
 import { rm0 } from '../format.js'
 import Icon from '../Icon.jsx'
+import { useGate } from '../access.jsx'
 
 // Everything the current ERP lets you do to a listing, from its row or its
 // details: edit, Update Tracking, Listing Settings, Follow-up (with an
@@ -18,6 +19,7 @@ export const photosOf = l => l.photoSet || Array.from({ length: l.photos || 0 },
 
 export default function ListingActions({ l, quiet }) {
   const erp = useErp()
+  const gate = useGate()
   const { m } = erp
   const fb = useFeedback()
   const [dialog, setDialog] = useState(null)
@@ -60,7 +62,7 @@ export default function ListingActions({ l, quiet }) {
         { label: 'Marketing Tools', icon: 'eye', onClick: () => openWith('marketing', { portals: [...(l.portals || [])], marketingRemarks: l.marketingRemarks || '', remarksPrivate: l.remarksPrivate !== false }) },
         '-',
         { label: 'Delete listing', icon: 'trash', danger: true, disabled: !!l.dealId, why: 'It has an E-Form. Set it Not Valid instead.', onClick: remove },
-      ]} />
+      ].map(i => (i?.label ? gate(i, 'listings', i.danger ? 'full' : 'edit') : i))} />
 
       <Modal open={dialog === 'edit'} onClose={close} title={`Edit ${l.code}`} width={620}
         footer={footer('Save & Publish', () => save(() => erp.updateListing(l.id, { askPrice: f.askPrice, bestPrice: f.bestPrice, marketValue: f.marketValue, commission: f.commission,

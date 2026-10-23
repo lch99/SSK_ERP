@@ -135,7 +135,7 @@ export default function Dashboard({ me }) {
             foot={<>{num(thisMonth.length)} E-Forms · {rm(sum(thisMonth, x => x.fee))} fees<br />Year {m.year}: <b>{rm(sum(submitted.filter(x => x.date.startsWith(m.year)), x => x.money.billed))}</b> · last month {rm(billed(prevYm))}</>} />,
           <Kpi key="net" tone="green" icon="check" label={`Net commission closed · ${monthName(ym).split(' ')[0]}`} value={sum(closedNow, c => c.net)} money
             delta={change(sum(closedNow, c => c.net), sum(closedBefore, c => c.net))} spark={months.map(mo => sum(d.closes.filter(c => c.date.startsWith(mo)), c => c.net))}
-            foot={<>{closedNow.length} close{closedNow.length === 1 ? '' : 's'} this month<br />All closed claims: <b>{rm(sum(d.closes, c => c.claim))}</b></>} />,
+            foot={<>{closedNow.length} close{closedNow.length === 1 ? '' : 's'} this month<br />Total Close Case (V1 + V2): <b>{rm(sum(d.closes, c => c.claim) + (branchId ? 0 : sum(m.data.v1?.eforms || [], x => x.closing)))}</b></>} />,
           <Kpi key="app" tone="amber" icon="payouts" label="Payouts to approve" value={sum(toApprove, p => p.amount)} money onClick={() => go('payouts')}
             foot={<>{new Set(toApprove.map(p => p.closeId)).size} closes waiting<br />{queried.length ? <span style={{ color: C.err, fontWeight: 600 }}>{queried.length} lines in Pending Queries</span> : 'None queried'}</>} />,
           <Kpi key="sal" tone="blue" icon="payRuns" label={payDay ? `Salary to pay · ${date(payDay, { short: true })}` : 'Salary to pay'} value={unpaidTotal} money onClick={() => go('salary')}

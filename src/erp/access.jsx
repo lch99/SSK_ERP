@@ -13,6 +13,15 @@ const Ctx = createContext(null)
 export const useAccess = () => useContext(Ctx)
 // (area, level) → may the viewer? Everything is open outside the ERP shell.
 export const useCan = () => useAccess()?.can || (() => true)
+// For menus: (item, area, level) → the item, greyed out with the reason when
+// the viewer's role lacks the level (Menu shows `why` on disabled items).
+export function useGate() {
+  const a = useAccess()
+  return (item, area, level = 'edit') => {
+    if (!item || !a || a.can(area, level)) return item
+    return { ...item, disabled: true, why: `Needs ${A.LEVEL_LABEL[level]} on ${A.AREAS.find(x => x.key === area)?.label || area}` }
+  }
+}
 
 export function AccessProvider({ me, children }) {
   const [policy, setPolicy] = useState(A.defaultPolicy)

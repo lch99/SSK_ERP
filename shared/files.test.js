@@ -29,6 +29,14 @@ describe('upload rules', () => {
     expect(F.checkFile({ name: 'agents.csv', size: csv.length }, 'spreadsheet', csv)).toBe(null)
     expect(F.checkFile({ name: 'agents.csv', size: 8 }, 'spreadsheet', EXE)).toMatch(/not a real CSV/)
   })
+  it('checks videos by the box at byte 4', () => {
+    const box = name => new Uint8Array([0, 0, 0, 0x20, ...new TextEncoder().encode(name), 0x69, 0x73, 0x6f, 0x6d])
+    expect(F.checkFile({ name: 'Close case.mp4', size: 80 * MB }, 'video', box('ftyp'))).toBe(null)
+    expect(F.checkFile({ name: 'Old meeting.MOV', size: 80 * MB }, 'video', box('moov'))).toBe(null)
+    expect(F.checkFile({ name: 'fake.mp4', size: 80 * MB }, 'video', box('moov'))).toBe('fake.mp4 is not a real MP4 file.')
+    expect(F.checkFile({ name: 'huge.mp4', size: 501 * MB }, 'video', box('ftyp'))).toMatch(/limit is 500 MB/)
+    expect(F.uploadHint('video')).toBe('MP4 or MOV · max 500 MB')
+  })
   it('builds the accept list and the hint from the same rule', () => {
     expect(F.acceptFor('avatar')).toBe('.jpg,.jpeg,image/jpeg,.png,image/png')
     expect(F.uploadHint('document')).toBe('PDF, JPG or PNG · max 10 MB')
@@ -38,6 +46,6 @@ describe('upload rules', () => {
     expect([...await F.fileHead(new Blob([PDF]))]).toEqual([...PDF])
   })
   it('refuses an unknown upload kind', () => {
-    expect(() => F.checkFile({ name: 'a.pdf', size: 1 }, 'video')).toThrow(/Unknown upload kind/)
+    expect(() => F.checkFile({ name: 'a.pdf', size: 1 }, 'audio')).toThrow(/Unknown upload kind/)
   })
 })
