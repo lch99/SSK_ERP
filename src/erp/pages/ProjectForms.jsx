@@ -8,6 +8,7 @@ import { Page, Card, Drawer, FormField, field, cols, go, small } from '../ui.jsx
 import { Choice } from '../../setup/ui.jsx'
 import { ErrorList } from '../../setup/Section.jsx'
 import { rm0, date } from '../format.js'
+import { useReview, changedRows, missing, needText } from '../review.jsx'
 
 const pctBox = (value, onChange, props = {}) => (
   <span style={{ whiteSpace: 'nowrap' }}><input style={{ ...inp, width: 90 }} type="number" step="0.01" min="0" value={value ?? ''} onChange={e => onChange(e.target.value)} {...props} /> %</span>
@@ -17,6 +18,7 @@ const pctBox = (value, onChange, props = {}) => (
 
 export function ProjectForm({ project, onSaved }) {
   const { setup } = useErp()
+  const review = useReview()
   const [p, setP] = useState(() => project ? structuredClone(project) : {
     id: null, name: '', developer: '', location: '', category: '', units: '', priceFrom: '',
     devCommissionPct: setup.dealTypes?.project?.defaultRate ?? '', payout: { mode: 'setup' },
@@ -26,7 +28,30 @@ export function ProjectForm({ project, onSaved }) {
   const setPayout = patch => setP({ ...p, payout: { ...p.payout, ...patch } })
   const normal = t => P.resolveTotal(setup.totals, { branchId: P.COMPANY_SCOPE, dealType: 'project', tierId: t.id })?.pct
 
-  function save() {
+  // Before saving: the project, and what each tier is paid on it under its rule.
+  async function save() {
+    const gaps = missing([['Project name', p.name], ['Developer', p.developer], ["Developer's commission", p.devCommissionPct]])
+    if (gaps.length) { setErrors([needText(gaps)]); window.scrollTo(0, 0); return }
+    setErrors([])
+    const mode = q => J.PAYOUT_MODES.find(x => x.value === (q.payout?.mode || 'setup'))?.label
+    const flat = q => ({ name: q.name, developer: q.developer, location: q.location, category: q.category, units: q.units, devCommissionPct: q.devCommissionPct,
+      mode: mode(q), boost: q.payout?.mode === 'boost' ? q.payout.boostPct : '' })
+    const pays = setup.tiers.map(t => {
+      const r = J.projectPayout(p, t, normal(t))
+      return [P.tierLabel(t), `agent ${r.agentRate}%${r.totalPct != null ? ` · total payout ${r.totalPct}%` : ''}${r.totalPct !== normal(t) || r.agentRate !== Number(t.agentRate) ? ' (changed from Setup)' : ''}`]
+    })
+    const ok = await review({
+      title: project ? `Review changes · ${project.name}` : 'Preview the project', confirmLabel: project ? 'Save changes' : 'Add project',
+      intro: 'The pay rule applies to every unit booked under this project.',
+      changes: project ? changedRows(flat(project), flat(p), [['name', 'Project name'], ['developer', 'Developer'], ['location', 'Location'], ['category', 'Property type'],
+        ['units', 'Total units'], ['devCommissionPct', "Developer's commission", v => `${v}%`], ['mode', 'How it pays agents'], ['boost', 'Extra for the negotiator', v => `${v}%`]]) : undefined,
+      sections: [
+        { title: 'Project', rows: [['Project name', p.name], ['Developer', p.developer], ['Location', p.location], ['Property type', p.category], ['Total units', p.units],
+          ["Developer's commission", `${p.devCommissionPct}% of the selling price`]] },
+        { title: `Pays agents: ${mode(p)}`, rows: pays },
+      ],
+    })
+    if (!ok) return
     try { onSaved(saveProject(p, setup.tiers)) } catch (e) { setErrors(e.errors || [e.message]); window.scrollTo(0, 0) }
   }
 
@@ -70,7 +95,7 @@ export function ProjectForm({ project, onSaved }) {
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button style={btn} onClick={() => go(project ? `projects/${project.id}` : 'projects')}>Cancel</button>
-          <button style={btnPrimary} onClick={save}>{project ? 'Save changes' : 'Add project'}</button>
+          <button style={btnPrimary} onClick={save}>{project ? 'Review changes' : 'Preview & add'}</button>
         </div>
       </div>
     </Page>

@@ -8,7 +8,8 @@ import Icon from './Icon.jsx'
 //   const fb = useFeedback()
 //   fb.toast('TRAN#82739 set to Clear')
 //   fb.error(e)                                  → red toast with the message
-//   if (await fb.confirm({ title, body, confirmLabel, danger })) …
+//   if (await fb.confirm({ title, body, confirmLabel, danger, cancelLabel?, width? })) …
+// (Previews before saving use useReview() in review.jsx, which builds on this.)
 //   await fb.run(() => erp.x(…), 'Saved')        → toast on success, error toast on failure
 const Ctx = createContext(null)
 export const useFeedback = () => useContext(Ctx)
@@ -53,7 +54,7 @@ export function FeedbackProvider({ children }) {
   return (
     <Ctx.Provider value={api}>
       {children}
-      <Modal open={!!ask} onClose={() => answer(false)} title={ask?.title || 'Are you sure?'} width={440}
+      <Modal open={!!ask} onClose={() => answer(false)} title={ask?.title || 'Are you sure?'} width={ask?.width || 440}
         footer={<>
           <button style={btn} onClick={() => answer(false)}>{ask?.cancelLabel || 'Cancel'}</button>
           <button autoFocus style={ask?.danger ? { ...btn, background: C.err, borderColor: C.err, color: '#fff' } : btnPrimary} onClick={() => answer(true)}>

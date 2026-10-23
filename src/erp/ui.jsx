@@ -937,7 +937,7 @@ function FileThumb({ file }) {
   }, [file])
   return url
     ? <img src={url} alt="" onError={() => setUrl(null)} style={{ ...tile, objectFit: 'cover', border: `1px solid ${C.border}`, boxSizing: 'border-box' }} />
-    : <span style={{ ...tile, background: C.okBg, color: C.ok }}><Icon name="file" size={15} /></span>
+    : <span style={{ ...tile, background: C.okBg, color: C.ok }}><Icon name={file.type.startsWith('video/') ? 'video' : 'file'} size={15} /></span>
 }
 
 function RemoveFile({ name, onClick }) {
@@ -971,7 +971,7 @@ export function FileInput({ kind = 'document', onChange, disabled = false, place
     if (multiple) {
       const key = f => `${f.name}|${f.size}`
       const seen = new Set(files.map(key))
-      next = [...files, ...ok.filter(f => !seen.has(key(f)))]
+      next = [...files, ...ok.filter(f => !seen.has(key(f)) && seen.add(key(f)))]
       if (next.length > maxFiles) { why.push(`Up to ${maxFiles} ${noun}s here: ${next.length - maxFiles} left out.`); next = next.slice(0, maxFiles) }
     } else if (ok.length > 1) why.push(`One ${noun} only: the first was used.`)
     setProblems(why)

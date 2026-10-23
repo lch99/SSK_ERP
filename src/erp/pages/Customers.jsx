@@ -8,6 +8,7 @@ import { useFeedback } from '../feedback.jsx'
 import { rm0, date, ago } from '../format.js'
 import { localToday, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
 import { useCan } from '../access.jsx'
+import { useReview, missing, needText } from '../review.jsx'
 
 // Customer Database: leads, with the current ERP's Action and Status per row.
 export default function Customers({ parts }) {
@@ -179,9 +180,26 @@ function AddName() {
   const [f, setF] = useState({ date: localToday(), type: 'Sale', from: 'iProperty', ownerId: String(d.staff.find(s => s.status === 'active')?.id || '') })
   const [error, setError] = useState(null)
   const fb = useFeedback()
+  const review = useReview()
   const set = k => e => setF({ ...f, [k]: e.target.value })
+  // Before adding: the customer as saved, and anyone already on file with the same phone.
+  async function preview() {
+    const gaps = missing([['Name', f.name], ['Phone', f.phone]])
+    if (gaps.length) { setError(needText(gaps)); window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
+    const digits = String(f.phone).replace(/\D/g, '')
+    const same = m.data.customers.filter(c => digits.length >= 7 && String(c.phone || '').replace(/\D/g, '') === digits)
+    const budget = [f.budgetMin, f.budgetMax].some(v => Number(v) > 0) ? `${Number(f.budgetMin) > 0 ? rm0(f.budgetMin) : '—'} to ${Number(f.budgetMax) > 0 ? rm0(f.budgetMax) : '—'}` : ''
+    return review({
+      title: 'Preview the customer', confirmLabel: 'Add customer',
+      intro: `They go into the Customer Database for ${m.staffName(Number(f.ownerId))} to follow up.`,
+      warnings: [same.length > 0 && `Already in the Customer Database with this phone: ${same.map(c => `${c.name} (${m.staffName(c.ownerId)})`).join(', ')}. Add them again only if this is a different person.`],
+      sections: [{ title: 'Customer', rows: [['Name', f.name], ['Phone', f.phone], ['Looking to', f.type === 'Rent' ? 'Rent' : 'Buy'], ['Area', f.area], ['Budget', budget],
+        ['From Where', f.from === 'others' ? f.fromOther || 'Others' : CUSTOMER_FROM[f.from]], ['Date', date(f.date)], ['Staff', m.staffName(Number(f.ownerId))], ['Remarks', f.remarks]] }],
+    })
+  }
   async function save() {
     setError(null)
+    if (!await preview()) return
     try { await erp.addCustomer(f); fb.toast(`${f.name} added to the Customer Database`); go('customers') } catch (e) { setError(e.message); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   }
   const people = d.staff.filter(s => s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
@@ -209,7 +227,7 @@ function AddName() {
           <FormField label="Remarks" wide><TextArea value={f.remarks || ''} onChange={set('remarks')} /></FormField>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-          <button style={btnPrimary} onClick={save}>Submit</button>
+          <button style={btnPrimary} onClick={save}>Preview &amp; add</button>
           <button style={btn} onClick={() => go('customers')}>Cancel</button>
         </div>
       </Card>

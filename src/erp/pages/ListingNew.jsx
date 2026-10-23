@@ -2,17 +2,23 @@ import { useState } from 'react'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { LISTING_SETTINGS, CATEGORIES } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
+import { isAgent } from '../model.js'
 import { Page, Card, Notice, FormField, FileInput, go, field } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
+import { useReview, missing, needText } from '../review.jsx'
+import { rm } from '../format.js'
+import ListingPreview from './ListingPreview.jsx'
 import { STATES } from './options.js'
 
 // Add Property List: the current form's fields, in the same order.
 export default function ListingNew() {
   const erp = useErp()
   const fb = useFeedback()
+  const review = useReview()
   const { scoped: d, m } = erp
-  const holders = d.staff.filter(s => s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
+  // Product handlers are agents (office staff don't hold listings).
+  const holders = d.staff.filter(s => isAgent(s) && s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
   // "Create Listing" on an owner request (#/listing-new?vr=<id>) fills in what the owner told us.
   const vr = m.data.vendorRequests.find(v => v.id === Number(new URLSearchParams(window.location.hash.split('?')[1] || '').get('vr')))
   const [f, setF] = useState(() => ({ type: vr?.forType === 'Rent' ? 'rental' : 'sale', state: vr ? m.data.areas.find(a => a.name === vr.area)?.state || 'Selangor' : 'Selangor',
@@ -20,16 +26,35 @@ export default function ListingNew() {
     flags: [], holderId: String((vr?.handledBy && holders.find(s => s.id === vr.handledBy)?.id) || holders[0]?.id || ''),
     ...(vr ? { area: vr.area, askPrice: String(vr.price), ownerName: vr.name, ownerPhone: vr.phone } : {}) }))
   const [photos, setPhotos] = useState(0)
+  const [videos, setVideos] = useState(0)
   const [error, setError] = useState(null)
   const set = k => e => setF({ ...f, [k]: e.target.value })
   const toggle = flag => setF({ ...f, flags: f.flags.includes(flag) ? f.flags.filter(x => x !== flag) : [...f.flags, flag] })
   const areas = [...new Set(m.data.areas.map(a => a.name))].sort()
   const titles = [...new Set(m.data.titles.filter(t => !f.area || t.area === f.area).map(t => t.name))].sort()
+  // Before publishing: how it will look on the website, and the private details.
+  async function preview() {
+    const gaps = missing([['Area', f.area], ['Title (building / taman)', f.title], ['Advertised Price', f.askPrice], ['Unit Number & Jalan', f.unit], ['Owner Name', f.ownerName], ['Owner Contact', f.ownerPhone]])
+    if (gaps.length) { setError(needText(gaps)); window.scrollTo(0, 0); return false }
+    const race = { cina: 'Chinese', india: 'Indian', melayu: 'Malay', 'malay-reserved': 'Malay Reserved' }[f.race]
+    const price = v => (Number(v) > 0 ? rm(Number(v)) : '')
+    return review({
+      title: 'Preview before publishing', confirmLabel: 'Publish listing',
+      intro: 'This is how the listing will look on the SubSaleKing website once it is published. Check it, then publish, or go back to edit.',
+      warnings: [!photos && 'No photos yet. Listings with photos get far more enquiries; you can add them now or later in Album.', !f.desc && 'No description yet.'],
+      preview: <ListingPreview photos={photos} videos={videos} agent={m.staff[Number(f.holderId)]} l={{ ...f, description: f.desc }} />,
+      sections: [{ title: 'Private', note: 'Never shown on the website', rows: [
+        ['Owner', `${f.ownerName} · ${f.ownerPhone}`], ['Unit Number & Jalan', f.unit], ['Product Handler', m.staffName(Number(f.holderId))],
+        ['Best Price', price(f.bestPrice)], ['Market Price', price(f.marketValue)], ['Vendor/Landlord Race', race],
+        ['Settings', f.flags.join(', ')], ['Personal Use Remarks', f.remarks],
+      ] }],
+    })
+  }
   async function save(draft) {
     setError(null)
-    if (!draft && !await fb.confirm({ title: 'Confirm to publish?', body: 'This will make the listing show to public.', confirmLabel: 'Save & Publish' })) return
+    if (!draft && !await preview()) return
     try {
-      const st = await erp.addListing({ ...f, draft, photos, askPrice: f.askPrice, ownerName: f.ownerName, ownerPhone: f.ownerPhone, address: [f.unit, f.title, f.area].filter(Boolean).join(', ') })
+      const st = await erp.addListing({ ...f, draft, photos, videos, askPrice: f.askPrice, ownerName: f.ownerName, ownerPhone: f.ownerPhone, address: [f.unit, f.title, f.area].filter(Boolean).join(', ') })
       const made = st.data.listings.reduce((a, b) => (b.id > a.id ? b : a))
       if (vr) await erp.setVendorRequest(vr.id, 2, made.id)
       fb.toast(`${made.code} ${draft ? 'saved as draft' : 'published'}${vr ? ` · ticket ${vr.ticket} set to Listing Created` : ''}`)
@@ -107,13 +132,16 @@ export default function ListingNew() {
             <FormField label="Personal Use Remarks" wide><textarea style={{ ...field, minHeight: 60 }} value={f.remarks || ''} onChange={set('remarks')} /></FormField>
           </div>
         </Card>
-        <Card title="Manage Photos">
-          <FileInput kind="photo" onChange={files => setPhotos(files.length)} />
-          <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>Pick a cover photo after uploading. (Demo: photos are not stored.)</p>
+        <Card title="Photos and videos">
+          <div style={{ display: 'grid', gap: 12 }}>
+            <FormField label="Photos" help="Pick a cover photo later in Album."><FileInput kind="photo" onChange={files => setPhotos(files.length)} /></FormField>
+            <FormField label="Videos" help="Optional: a walk-through of the house, the facilities or the neighbourhood."><FileInput kind="listingVideo" onChange={files => setVideos(files.length)} /></FormField>
+          </div>
+          <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>(Demo: the files themselves are not stored.)</p>
         </Card>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-        <button style={btnPrimary} onClick={() => save(false)}>Save &amp; Publish</button>
+        <button style={btnPrimary} onClick={() => save(false)}>Preview &amp; publish</button>
         <button style={btn} onClick={() => save(true)}>Save as Draft</button>
         <button style={btn} onClick={() => go('listings')}>Cancel</button>
       </div>

@@ -6,7 +6,7 @@
 // Every payout goes through shared/payout.js, never through maths of its own.
 import * as P from '../../shared/payout.js'
 
-export const ERP_VERSION = 6
+export const ERP_VERSION = 7
 const SEED = 20261021
 const r2 = n => Math.round(n * 100) / 100
 
@@ -700,6 +700,8 @@ export function makeErpSample(setup, asOf = localToday()) {
   for (const l of listings) {
     const last = l.closedOn || asOf
     if (l.photos) l.photosOn = addDays(l.created, R.int(0, Math.min(20, Math.max(0, daysBetween(l.created, last)))))
+    // One in five well-photographed listings has a walk-through video (picked by id, not R, so the rest of the sample stays the same).
+    l.videos = l.photos >= 8 && l.id % 5 === 0 ? 1 + (l.id % 3 === 0) : 0
     if (l.status !== 'active') continue
     if (R.chance(0.35)) {
       const on = addDays(l.created, R.int(0, Math.max(0, daysBetween(l.created, asOf))))

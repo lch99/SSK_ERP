@@ -7,7 +7,7 @@ import { Page, Card, Tabs, Toolbar, SearchBox, Select, Chips, Segmented, DataTab
 import { CARD, COLUMN, PAGE } from '../help.js'
 import { rm, rm0, date, num, ago, maskIc } from '../format.js'
 import Icon from '../Icon.jsx'
-import ListingActions, { PORTALS, photosOf } from './ListingActions.jsx'
+import ListingActions, { PORTALS, photosOf, videosOf, mediaCount } from './ListingActions.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { useCan } from '../access.jsx'
 
@@ -74,7 +74,7 @@ export default function Listings({ parts }) {
     { key: 'updated', label: 'Listing · C.Date / U.Date', help: COLUMN.listingDates, sort: l => (view === 'photos' ? l.photosOn || '' : l.updated), render: l => (
       <span><b style={{ ...mono, color: C.primaryDark }}>{l.code}</b>
         <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(l.created, { short: true })} / {date(l.updated, { short: true })}</span>
-        {l.photos > 0 && <span style={{ display: 'block', fontSize: 11.5, color: C.muted }}>{l.photos} photos{view === 'photos' ? ` · ${date(l.photosOn, { short: true })}` : ''}</span>}</span>
+        {mediaCount(l) && <span style={{ display: 'block', fontSize: 11.5, color: C.muted }}>{mediaCount(l)}{view === 'photos' && l.photos > 0 ? ` · ${date(l.photosOn, { short: true })}` : ''}</span>}</span>
     ) },
     { key: 'title', label: 'Title · Area · Category', sort: l => l.title, render: l => (
       <span style={{ fontSize: 13 }}><b>{l.title}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{l.area} · {l.category} · {l.type === 'sale' ? 'Sale' : 'Rent'}</span></span>
@@ -165,7 +165,7 @@ function ListingCard({ l, m, base }) {
         <Icon name="listings" size={40} stroke={1.4} />
         <span style={{ position: 'absolute', top: 8, left: 8 }}><Pill tone={l.type === 'sale' ? 'brand' : 'blue'} dot={false} style={{ background: '#fff' }}>{l.type === 'sale' ? 'For Sale' : 'For Rent'}</Pill></span>
         <span style={{ position: 'absolute', top: 8, right: 8 }}><Status of={LISTING_STATUS} value={l.status} /></span>
-        {l.photos > 0 && <span style={{ position: 'absolute', bottom: 8, right: 8, fontSize: 11, fontWeight: 600, color: C.text, background: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '1px 6px' }}>{l.photos} photos</span>}
+        {mediaCount(l) && <span style={{ position: 'absolute', bottom: 8, right: 8, fontSize: 11, fontWeight: 600, color: C.text, background: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '1px 6px' }}>{mediaCount(l)}</span>}
       </div>
       <div style={{ padding: '10px 12px 12px' }}>
         <div style={{ fontSize: 17, fontWeight: 700 }}>{rm0(l.askPrice)}{l.type === 'rental' && <span style={{ fontSize: 12, fontWeight: 500, color: C.muted }}> /month</span>}</div>
@@ -204,6 +204,7 @@ export function ListingDetails({ l, m }) {
   const title = m.titles[l.titleId]
   const share = l.share || { users: [], pmId: null, coPh: [] }
   const photos = photosOf(l)
+  const videos = videosOf(l)
   return (
     <>
       <Block title="Listing" right={<Status of={LISTING_STATUS} value={l.status} />}>
@@ -260,7 +261,8 @@ export function ListingDetails({ l, m }) {
       </Block>
       <Block title="Marketing Tools" help={CARD.marketing}>
         <KV min={130} items={[['Views (website)', num(l.views - (l.viewsApp || 0))], ['Views (app)', num(l.viewsApp || 0)], ['Enquiries', num(l.enquiries)],
-          ['Photos', `${photos.filter(p => p.published).length} published of ${photos.length}`]]} />
+          ['Photos', `${photos.filter(p => p.published).length} published of ${photos.length}`],
+          ['Videos', videos.length ? `${videos.filter(v => v.published).length} published of ${videos.length}` : 'None yet']]} />
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
           {PORTALS.map(p => <Pill key={p} tone={l.portals.includes(p) ? 'green' : 'gray'}>{p}{l.portals.includes(p) ? '' : ' (off)'}</Pill>)}
         </div>

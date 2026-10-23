@@ -36,6 +36,10 @@ describe('upload rules', () => {
     expect(F.checkFile({ name: 'fake.mp4', size: 80 * MB }, 'video', box('moov'))).toBe('fake.mp4 is not a real MP4 file.')
     expect(F.checkFile({ name: 'huge.mp4', size: 501 * MB }, 'video', box('ftyp'))).toMatch(/limit is 500 MB/)
     expect(F.uploadHint('video')).toBe('MP4 or MOV · max 500 MB')
+    expect(F.checkFile({ name: 'Walk-through.mov', size: 120 * MB }, 'listingVideo', box('ftyp'))).toBe(null)
+    expect(F.checkFile({ name: 'Walk-through 4K.mp4', size: 301 * MB }, 'listingVideo', box('ftyp'))).toMatch(/limit is 300 MB/)
+    expect(F.checkFile({ name: 'Unit.jpg', size: MB }, 'listingVideo')).toMatch(/only MP4 or MOV/)
+    expect(F.uploadHint('listingVideo')).toBe('MP4 or MOV · max 300 MB each · up to 3 videos')
   })
   it('builds the accept list and the hint from the same rule', () => {
     expect(F.acceptFor('avatar')).toBe('.jpg,.jpeg,image/jpeg,.png,image/png')

@@ -4,6 +4,7 @@
 // rebuilds them, so the ERP always pays by the current rules.
 import { setupView } from './localApi.js'
 import * as P from '../../shared/payout.js'
+import { UPLOADS } from '../../shared/files.js'
 import { makeErpSample, setupSignature, erpBlockers, nextPayDate, payoutApprovers, payoutForClose, localToday, docNames, ERP_VERSION } from './erpSample.js'
 
 const KEY = 'ssk-demo-erp-v1'
@@ -296,7 +297,7 @@ export const addListing = body => change((data, setup, today) => {
     beds: Number(body.beds) || 0, baths: Number(body.baths) || 0, builtUp: Number(body.builtUp) || 0, land: null, tenure: body.tenure || 'Freehold',
     furnishing: body.furnishing || 'Partly furnished', askPrice: ask, bestPrice: Number(body.bestPrice) || ask, marketValue: Number(body.marketValue) || null, status: 'active', closedOn: null,
     branchId: branch?.id ?? holder.branchId, holderId: holder.id, creatorId: holder.id, flags: body.flags || [], portals: [], created: today, updated: today,
-    views: 0, viewsApp: 0, enquiries: 0, photos: Number(body.photos) || 0, owner: { name: str(body.ownerName), ic: '', phone: str(body.ownerPhone) }, dealId: null, priceUpdated: today, photosOn: today,
+    views: 0, viewsApp: 0, enquiries: 0, photos: Number(body.photos) || 0, videos: Number(body.videos) || 0, owner: { name: str(body.ownerName), ic: '', phone: str(body.ownerPhone) }, dealId: null, priceUpdated: today, photosOn: today,
     followUps: [], titleId: data.titles.find(t => same(t.name, body.title) && same(t.area, body.area))?.id ?? null,
     share: { users: [], pmId: null, coPh: [] }, marketingRemarks: '', remarksPrivate: true, description: str(body.desc), remarks: str(body.remarks), draft: !!body.draft })
 })
@@ -681,7 +682,7 @@ const PHONE = /^(01)[02-46-9]-*[0-9]{7}$|^(01)[1]-*[0-9]{8}$/
 export const validPhone = p => PHONE.test(String(p || '').replace(/\s/g, ''))
 const EMOJI = /\p{Extended_Pictographic}/u
 const LISTING_EDIT = ['askPrice', 'bestPrice', 'marketValue', 'flags', 'status', 'trackingPrice', 'holderId', 'portals', 'marketingRemarks', 'remarksPrivate',
-  'description', 'remarks', 'photoSet', 'share', 'title', 'area', 'category', 'beds', 'baths', 'builtUp', 'tenure', 'furnishing', 'commission']
+  'description', 'remarks', 'photoSet', 'videoSet', 'share', 'title', 'area', 'category', 'beds', 'baths', 'builtUp', 'tenure', 'furnishing', 'commission']
 export const updateListing = (id, fields) => change((data, setup, today) => {
   const l = data.listings.find(x => x.id === id)
   if (!l) return 'That listing no longer exists.'
@@ -695,6 +696,8 @@ export const updateListing = (id, fields) => change((data, setup, today) => {
   if (f.status && !['active', 'rented', 'invalid', 'sold_other', 'outdated', 'sold'].includes(f.status)) return 'Unknown status.'
   if (f.holderId != null && !data.staff.some(s => s.id === Number(f.holderId))) return 'Pick the new listing owner.'
   if ('askPrice' in f && !(Number(f.askPrice) >= 0)) return 'The price cannot be negative.'
+  const maxVideos = UPLOADS.listingVideo.maxFiles
+  if (f.videoSet?.length > maxVideos) return `A listing holds up to ${maxVideos} videos. Delete one before adding another.`
   for (const k of LISTING_EDIT) {
     if (!(k in f)) continue
     if (k === 'askPrice' && Number(f.askPrice) !== l.askPrice) Object.assign(l, { priceBefore: l.askPrice, priceUpdated: today })
@@ -702,6 +705,7 @@ export const updateListing = (id, fields) => change((data, setup, today) => {
       : k === 'holderId' ? Number(f[k]) : f[k]
   }
   if (f.photoSet) Object.assign(l, { photos: f.photoSet.length, photosOn: today })
+  if (f.videoSet) l.videos = f.videoSet.length
   l.updated = today
 })
 export const addListingFollowUp = (id, body) => change((data, setup, today) => {

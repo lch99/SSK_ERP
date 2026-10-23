@@ -18,6 +18,7 @@ import { buildOrg } from '../org.js'
 import { useNarrow } from '../../setup/useNarrow.js'
 import { makeXlsx, download, XLSX_TYPE } from '../../setup/sheet.js'
 import { NoAccess, useAccess, useCan, useGate } from '../access.jsx'
+import { useReview, changedRows, missing, needText } from '../review.jsx'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
 // Agents (Agents module): position (tier), upline and status. Office staff
@@ -365,20 +366,26 @@ export const SOCIALS = [['facebook', 'Facebook', 'https://www.facebook.com/usern
   ['xiaohongshu', 'Xiaohongshu', 'https://www.xiaohongshu.com/username'], ['lemon8', 'Lemon8', 'https://www.lemon8.com/username'], ['linkedin', 'LinkedIn', 'https://www.linkedin.com/in/username']]
 const STAFF_DOCS = ['NRIC Copy', 'Application Form', 'Joining Fee Receipt']
 
-// Add / Edit staff, in the sections of the client's new HR form. The old form's
-// extra questions (smoker, transport, previous job…) sit under "More details".
-function StaffForm({ id, office = false }) {
-  const fb = useFeedback()
-  const erp = useErp()
-  const { m, setup } = erp
-  const s = id ? m.staff[id] : null
-  const [f, setF] = useState(() => s ? {
+// The edit form's starting values for a person (also what Review changes compares against).
+function StaffFormStart(s) {
+  return {
     type: s.type || 'staff', tierFloorId: s.tierFloorId || '', branchId: String(s.branchId), uplineId: s.uplineId ? String(s.uplineId) : '', role: s.role || '',
     username: s.username, password: '', name: s.name, ic: String(s.ic || '').replace(/\D/g, ''), sex: s.sex === 'F' ? 'female' : 'male', birthday: s.birthday || '',
     short: s.short, phone: s.phone, phone2: s.phone2 || '', email: s.email, bio: s.bio || '', socials: { ...(s.socials || {}) }, regType: s.regType || 'REN', regNo: s.regNo || '',
     bank: s.bank || '', account: s.account || '', docs: { ...(s.docs || {}) }, awards: [...(s.awards || [])], active: s.status === 'active',
     access: { ...(s.access || {}) }, expiresOn: s.expiresOn || '', address: s.address || '', language: s.language || '', education: s.education || '', extra: { ...(s.extra || {}) },
-  } : {
+  }
+}
+
+// Add / Edit staff, in the sections of the client's new HR form. The old form's
+// extra questions (smoker, transport, previous job…) sit under "More details".
+function StaffForm({ id, office = false }) {
+  const fb = useFeedback()
+  const review = useReview()
+  const erp = useErp()
+  const { m, setup } = erp
+  const s = id ? m.staff[id] : null
+  const [f, setF] = useState(() => s ? StaffFormStart(s) : {
     type: office ? 'admin-staff2' : 'staff', tierFloorId: '', branchId: String(setup.branches[0]?.id || ''), uplineId: '', role: '', username: '', password: '', name: '', ic: '', sex: 'male', birthday: '',
     short: '', phone: '', phone2: '', email: '', bio: '', socials: {}, regType: 'REN', regNo: '', bank: '', account: '', docs: {}, awards: [], active: false,
     access: { agent: !office, profilePage: false, profileDoc: false, addListing: !office, landlordVerify: false, vendorRequests: false, tripIncentive: false },
@@ -405,8 +412,46 @@ function StaffForm({ id, office = false }) {
       <input type="checkbox" checked={!!on} onChange={e => onChange(e.target.checked)} style={{ accentColor: C.primary, width: 18, height: 18 }} />{label}
     </label>
   )
+  // Before saving: a new person in full, or what an edit changes.
+  const tierName = tid => P.tierLabel(tiers.find(t => t.id === tid) || tiers[0] || { name: '—' })
+  const view = x => ({ type: ACCOUNT_TYPES[x.type] || x.type, branch: m.branchName(Number(x.branchId)), tier: agentForm ? tierName(x.tierFloorId) : '',
+    role: agentForm && x.role ? `${x.role} · ${m.roleName(x.role)}` : '', upline: agentForm && x.uplineId ? m.staffName(Number(x.uplineId)) : '',
+    username: x.username, name: x.name, ic: x.ic, short: x.short, phone: x.phone, email: x.email, bank: x.bank, account: x.account, reg: agentForm && x.regNo ? `${x.regType} ${x.regNo}` : '',
+    expiresOn: x.expiresOn, active: x.active ? 'Active' : 'Not active' })
+  async function preview() {
+    const gaps = missing([['Username', f.username], ['Full Name', f.name], ['Branch', f.branchId], ...(s ? [] : [['Password', f.password]])])
+    if (gaps.length) { setError(needText(gaps)); window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
+    const who = office || !agentForm ? 'office staff' : 'agent'
+    if (s) {
+      return review({ title: `Review changes · ${s.code}`, confirmLabel: 'Save changes', intro: `Check what changes for ${s.short}.`,
+        changes: changedRows(view(StaffFormStart(s)), view(f), [['type', 'Account Type'], ['branch', 'Branch'], ['tier', 'Rank (position)'], ['role', 'Upline level'], ['upline', 'Upline'],
+          ['username', 'Username'], ['name', 'Full Name'], ['ic', 'NRIC Number', maskIc], ['short', 'Namecard Name'], ['phone', 'Phone Number'], ['email', 'Email Address'],
+          ['bank', 'Bank'], ['account', 'Bank Account', maskAcc], ['reg', 'Registration'], ['expiresOn', 'Active Status Expiry', date], ['active', 'Account']]) })
+    }
+    const digits = v => String(v || '').replace(/\D/g, '')
+    const twin = m.data.staff.find(x => (digits(f.ic).length >= 6 && digits(x.ic) === digits(f.ic)) || (digits(f.phone).length >= 7 && digits(x.phone) === digits(f.phone)))
+    const up = f.uplineId ? m.staff[Number(f.uplineId)] : null
+    const chain = up ? [...m.chain(up.id)].reverse().concat(up).map(x => `${x.short}${x.role ? ` (${x.role})` : ''}`).join(' › ') : ''
+    const on = Object.entries(ACCESS).filter(([k]) => f.access[k]).map(([, label]) => label.replace(/^Enable /, '').replace(/ Features$/, ''))
+    return review({
+      title: `Preview the ${who}`, confirmLabel: office || !agentForm ? 'Add office staff' : 'Add agent',
+      intro: f.active ? 'They can sign in as soon as they are added.' : 'They are added as Pending, and can sign in once Active Staff Account is switched on.',
+      warnings: [twin && `${twin.short} (${twin.code}) already has this ${digits(twin.ic) === digits(f.ic) ? 'NRIC number' : 'phone number'}. Add them again only if this is a different person.`,
+        !f.ic && 'No NRIC number yet.'],
+      sections: [
+        { title: 'Account', rows: [['Account Type', ACCOUNT_TYPES[f.type]], ['Branch', m.branchName(branchId)], ['Username', f.username], ['Account', f.active ? 'Active' : 'Pending'],
+          ['Active Status Expiry', f.expiresOn ? date(f.expiresOn) : '']] },
+        agentForm && { title: 'Agent', rows: [['Starts at', tierName(f.tierFloorId)], ['Upline level they hold', f.role ? `${f.role} · ${m.roleName(f.role)}` : 'None (negotiator)'],
+          ['Upline', chain || 'No upline'], ['Registration', f.regNo ? `${f.regType} ${f.regNo}` : ''], ['Agent features', on.join(', ') || 'None']] },
+        { title: 'Personal and contact', rows: [['Full Name', f.name], ['NRIC Number', maskIc(f.ic)], ['Gender', f.sex === 'female' ? 'Female' : 'Male'], ['Date of Birth', f.birthday ? date(f.birthday) : ''],
+          ['Namecard Name', f.short || f.name], ['Phone Number', f.phone], ['Email Address', f.email], ['Bank', f.bank ? `${f.bank} ${maskAcc(f.account)}` : '']] },
+      ],
+    })
+  }
   async function save() {
-    setError(null); setBusy(true)
+    setError(null)
+    if (!await preview()) return
+    setBusy(true)
     const agentOnly = v => (agentForm ? v : null)
     const body = { type: f.type, tierFloorId: agentOnly(f.tierFloorId || null), branchId, uplineId: agentOnly(f.uplineId || null), role: agentOnly(f.role || null), username: f.username, name: f.name, ic: f.ic,
       sex: f.sex === 'female' ? 'F' : 'M', birthday: f.birthday, short: f.short || f.name, phone: f.phone, phone2: f.phone2, email: f.email, bio: f.bio,
@@ -433,7 +478,7 @@ function StaffForm({ id, office = false }) {
     <Page title={s ? `Edit Staff · ${s.code}` : office ? 'Add office staff' : 'Add an agent'} help={s ? PAGE.staffEdit : PAGE.staffNew}
       back={s ? { to: `staff/${s.id}`, label: s.short } : office ? { to: 'staff/office', label: 'Office staff' } : { to: 'staff', label: 'All agents' }}
       sub={s ? 'Manage the details for this staff member.' : `${office ? 'An admin, accountant or marketing person.' : 'A new agent.'} They stay Pending until Active Staff Account is switched on.`}
-      actions={<><button style={btn} onClick={() => go(s ? `staff/${s.id}` : listPath)}>Cancel</button><button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{s ? 'Save Changes' : 'Submit'}</button></>}>
+      actions={<><button style={btn} onClick={() => go(s ? `staff/${s.id}` : listPath)}>Cancel</button><button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{s ? 'Review changes' : 'Preview & add'}</button></>}>
       {error && <Notice tone="red">{error}</Notice>}
       <div style={{ display: 'grid', gap: 16 }}>
         {section('Account Details', 'The staff member’s role and type within the organisation.', <>
@@ -507,7 +552,7 @@ function StaffForm({ id, office = false }) {
         </details>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-        <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{s ? 'Save Changes' : 'Submit'}</button>
+        <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{s ? 'Review changes' : 'Preview & add'}</button>
         <button style={btn} onClick={() => go(s ? `staff/${s.id}` : listPath)}>Cancel</button>
       </div>
       <Modal open={!!award} onClose={() => setAward(null)} title="Add Award"

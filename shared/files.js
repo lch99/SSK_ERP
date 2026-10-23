@@ -28,6 +28,7 @@ export const UPLOADS = {
   avatar: { types: ['jpg', 'png'], maxMB: 2, maxFiles: 1, noun: 'photo' },               // profile picture
   spreadsheet: { types: ['xlsx', 'csv'], maxMB: 5, maxFiles: 1, noun: 'file' },          // Setup → agents import
   video: { types: ['mp4', 'mov'], maxMB: 500, maxFiles: 1, noun: 'video' },               // training videos
+  listingVideo: { types: ['mp4', 'mov'], maxMB: 300, maxFiles: 3, noun: 'video' },        // listing walk-through, facilities, surroundings (3 per listing in all)
 }
 
 export function uploadRule(kind) {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { can, roleMeta } from '../../shared/roles.js'
 import { C, btn, btnPrimary } from '../styles.js'
 import LogoMark from '../brand/Logo.jsx'
+import Footer from '../brand/Footer.jsx'
 import { DEMO, loadSampleSetup } from '../api.js'
 import SetupPage from '../setup/SetupPage.jsx'
 import UsersPage from '../users/UsersPage.jsx'
@@ -150,9 +151,10 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
   // Setup is its own full page: no ERP menu or top bar until you open the ERP.
   if (key === 'setup' && !blocked) {
     return (
-      <div style={{ minHeight: '100vh', background: C.bg }}>
+      <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
         <SetupHeader erp={erp} canOpen={leaves.some(l => l.path === 'dashboard')} />
-        <div style={{ minWidth: 0 }}><Own me={me} /></div>
+        <div style={{ minWidth: 0, flex: '1 0 auto' }}><Own me={me} /></div>
+        <div style={{ width: '100%', maxWidth: 1180, margin: '0 auto', padding: '0 16px 8px', boxSizing: 'border-box' }}><Footer /></div>
         {palette}{shortcuts}
       </div>
     )
@@ -178,13 +180,16 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
         <ChangePasswordModal open={pw} onClose={() => setPw(false)} profile={profile} />
         {!key ? <PageSkeleton wide={wide} />
           // A plain block, so pages centred with margin: auto still fill the width.
-          : Own && !blocked ? <div style={{ minWidth: 0 }}><Own me={me} /></div>
+          : Own && !blocked ? <div style={{ minWidth: 0, flex: '1 0 auto' }}><Own me={me} /></div>
             : (
-              <main style={{ padding: wide ? '22px 28px 40px' : '16px 16px 32px', width: '100%', maxWidth: railOn ? 1480 : 1320, margin: '0 auto', boxSizing: 'border-box' }}>
+              <main style={{ padding: wide ? '22px 28px 40px' : '16px 16px 32px', width: '100%', maxWidth: railOn ? 1480 : 1320, margin: '0 auto', boxSizing: 'border-box', flex: '1 0 auto' }}>
                 <ViewAsBar m={erp.m} />
                 {blocked ? <NoAccess /> : <ErpGate erp={erp} wide={wide}><Page key={access.who.role + access.who.staffId} parts={route} me={me} /></ErpGate>}
               </main>
             )}
+        {key && (
+          <div style={{ width: '100%', maxWidth: railOn ? 1480 : 1320, margin: '0 auto', padding: wide ? '0 28px 8px' : '0 16px 8px', boxSizing: 'border-box' }}><Footer /></div>
+        )}
       </div>
     </div>
   )

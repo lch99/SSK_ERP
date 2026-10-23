@@ -12,6 +12,8 @@ import DealPage from './DealPage.jsx'
 import { NoAccess, useCan, useGate } from '../access.jsx'
 import DealForm from './DealForm.jsx'
 import { BANKS } from './options.js'
+import { Review, missing, needText } from '../review.jsx'
+import { maskAcc, maskIc } from '../format.js'
 
 // E-Forms: Personal Sales (every form), Branch Sales (by branch manager) and
 // Team Sales (a leader and everyone under them), as in the current ERP.
@@ -190,6 +192,7 @@ export function DealActions({ deal, quiet }) {
   const [form, setForm] = useState({})
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [step, setStep] = useState('form')   // request forms: 'form', then 'review' before submitting
   const closeDeal = useCloseDeal(deal)
   const gate = useGate()
   const got = Math.min(m.cleared(deal.id), deal.money.billed)
@@ -220,6 +223,7 @@ export function DealActions({ deal, quiet }) {
       referral: { amount: deal.money.referral || '' },
       ta: { amount: ta || '', payee: deal.buyer.name, ic: deal.buyer.ic },
     }[type] || {})
+    setStep('form')
     setDialog(type)
   }
   const request = (type, show) => {
@@ -227,6 +231,15 @@ export function DealActions({ deal, quiet }) {
     return show && gate({ label: REQUESTS[type].title, icon: 'moneyOut', disabled: !open || !!done, why: done ? `Requested already (${done.voucherNo})` : notOpen, onClick: () => ask(type) }, 'moneyOut')
   }
   const req = REQUESTS[dialog]
+  // A request form's review: who is paid, from where, and what cash is left.
+  const payee = { balance: deal.owner?.name, transfer: form.payee, cobroke: deal.coBroke?.agency, referral: deal.referral?.name, ta: form.payee }[dialog]
+  const reqReview = () => {
+    const needs = { transfer: [['Transfer Deposit Letter', form.letter], ['Transfer to', form.payee], ['IC No.', form.ic], ['Bank Name', form.bank], ['Bank Acc. No.', form.account]],
+      cobroke: [['Invoice From Co-Bro Agency', form.letter]], balance: [['Bank Name', form.bank], ['Bank Acc. No.', form.account]], ta: [['Tenant Name', form.payee], ['Tenant IC', form.ic]] }[dialog] || []
+    const gaps = missing([['Amount', Number(form.amount) > 0 ? form.amount : ''], ...needs])
+    if (gaps.length) return setError(needText(gaps))
+    setError(null); setStep('review')
+  }
   return (
     <>
       <Menu quiet={quiet} label="Actions" items={[
@@ -266,10 +279,20 @@ export function DealActions({ deal, quiet }) {
           </>}
         </div>
       </Modal>
-      <Modal open={!!req} onClose={() => setDialog(null)} title={req ? `${req.title} · ${deal.code}` : ''}
-        footer={<><button style={btn} onClick={() => setDialog(null)}>Cancel</button>
-          <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => run(`${req.done} for ${deal.code} · it waits in Payments out`, () => erp.raiseRequest(deal.id, dialog, form))}>Submit</button></>}>
+      <Modal open={!!req} onClose={() => setDialog(null)} title={req ? `${step === 'review' ? 'Review' : req.title} · ${deal.code}` : ''}
+        footer={step === 'review' ? <><button style={btn} onClick={() => setStep('form')}>Back to edit</button>
+          <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => run(`${req.done} for ${deal.code} · it waits in Payments out`, () => erp.raiseRequest(deal.id, dialog, form))}>Submit request</button></>
+          : <><button style={btn} onClick={() => setDialog(null)}>Cancel</button><button style={btnPrimary} onClick={reqReview}>Review</button></>}>
         {error && <Notice tone="red">{error}</Notice>}
+        {req && step === 'review' ? (
+          <Review intro="Money paid out of the clients account. The request waits in Payments out until accounts pays it."
+            warnings={[Number(form.amount) > free + 0.005 && `This is more than the ${rm(Math.max(0, free))} of cash in not yet paid out, so it will be refused.`]}
+            sections={[{ title: req.title, rows: [['Amount', <b key="a">{rm(Number(form.amount) || 0)}</b>], ['Pay to', payee], form.ic && ['IC No.', maskIc(form.ic)],
+              form.bank && ['Bank', `${form.bank} ${maskAcc(form.account || '')}`], dialog === 'referral' && deal.referral && ['Bank', `${deal.referral.bank} ${maskAcc(deal.referral.account || '')}`],
+              form.letter && ['Attachment', form.letter]] },
+            { title: 'E-Form', rows: [['Code', `${deal.code} · ${deal.property.title}`], ['Cash in not yet paid out', rm(Math.max(0, free))],
+              ['Left after this request', rm(r2(free - (Number(form.amount) || 0)))]] }]} />
+        ) : <>
         <p style={{ fontSize: 13, color: C.muted, marginTop: 0 }}>Cash in transactions not yet paid out: <b style={{ color: C.text }}>{rm(Math.max(0, free))}</b>. The amount cannot be more than this.</p>
         <div style={{ display: 'grid', gap: 10 }}>
           {dialog === 'transfer' && <FormField label="Transfer Deposit Letter" required><FileInput kind="document" onChange={files => setForm(v => ({ ...v, letter: files[0]?.name || '' }))} /></FormField>}
@@ -287,6 +310,7 @@ export function DealActions({ deal, quiet }) {
             <input style={field} type="number" min="0" value={form.amount ?? ''} onChange={set('amount')} />
           </FormField>
         </div>
+        </>}
       </Modal>
     </>
   )

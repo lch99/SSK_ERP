@@ -3,9 +3,12 @@ import { login, createFirstUser } from '../api.js'
 import { PASSWORD_MIN } from '../../shared/roles.js'
 import { C, inp, btnPrimary, label } from '../styles.js'
 import { ErrorList } from '../setup/Section.jsx'
+import Footer from '../brand/Footer.jsx'
 
 const card = { maxWidth: 380, margin: '72px auto', padding: 28, background: C.card, border: `1px solid ${C.border}`, borderRadius: C.radius }
 const field = { display: 'block', marginBottom: 12 }
+// Under the sign-in card: the copyright line, centred.
+const footer = { maxWidth: 380, margin: '-48px auto 24px', padding: '0 16px', borderTop: 'none', justifyContent: 'center', textAlign: 'center' }
 
 function Field({ title, ...props }) {
   return <label style={field}><span style={label}>{title}</span><input style={{ ...inp, width: '100%' }} {...props} /></label>
@@ -28,6 +31,7 @@ export function LoginScreen({ onSignedIn, notice }) {
   const [password, setPassword] = useState('')
   const { busy, errors, submit } = useSubmit(async () => onSignedIn(await login(username, password)))
   return (
+    <>
     <form style={card} onSubmit={submit}>
       <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>SubSaleKing ERP</h1>
       <p style={{ fontSize: 13, color: C.muted, margin: '0 0 18px' }}>Sign in to continue.</p>
@@ -37,6 +41,8 @@ export function LoginScreen({ onSignedIn, notice }) {
       <button style={{ ...btnPrimary, width: '100%' }} disabled={busy} type="submit">{busy ? 'Signing in…' : 'Sign in'}</button>
       <ErrorList errors={errors} />
     </form>
+    <Footer style={footer} />
+    </>
   )
 }
 
@@ -48,6 +54,7 @@ export function FirstUserScreen({ onSignedIn }) {
     onSignedIn(await createFirstUser({ name: f.name, username: f.username.trim().toLowerCase(), password: f.password }))
   })
   return (
+    <>
     <form style={card} onSubmit={submit}>
       <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Welcome to SubSaleKing ERP</h1>
       <p style={{ fontSize: 13, color: C.muted, margin: '0 0 18px', lineHeight: 1.45 }}>
@@ -60,6 +67,8 @@ export function FirstUserScreen({ onSignedIn }) {
       <button style={{ ...btnPrimary, width: '100%' }} disabled={busy} type="submit">{busy ? 'Creating…' : 'Create account'}</button>
       <ErrorList errors={errors} />
     </form>
+    <Footer style={footer} />
+    </>
   )
 }
 

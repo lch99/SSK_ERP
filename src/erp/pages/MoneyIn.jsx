@@ -10,6 +10,7 @@ import { FlowBar } from '../flow.jsx'
 import { rm, date, maskAcc, lastMonths, monthName } from '../format.js'
 import { localToday } from '../../demo/erpSample.js'
 import { useCan } from '../access.jsx'
+import { useReview, missing, needText } from '../review.jsx'
 
 // Transactions: money in from buyers, tenants, owners and developers.
 export default function MoneyIn({ parts }) {
@@ -219,13 +220,34 @@ function AddTransaction({ dealId }) {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const fb = useFeedback()
+  const review = useReview()
   const set = k => e => setF({ ...f, [k]: e.target.value })
   const forms = d.deals.filter(x => x.status === 'submitted' || x.status === 'partial' || x.status === 'closed').sort((a, b) => b.date.localeCompare(a.date))
   const deal = m.deals[Number(f.dealId)]
+  // Before recording: the payment, and where the E-Form will stand with it.
+  async function preview() {
+    const gaps = missing([['Select Submission', f.dealId], ['Amount', Number(f.amount) > 0 ? f.amount : ''], ['Bank In Date', f.bankOn],
+      ...(f.method === 'cheque' ? [['Cheque Number', f.chequeNo]] : []), ['Attachment (transfer slip or cheque copy)', f.file], ['Remarks', f.remark]])
+    if (gaps.length) { setError(needText(gaps)); window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
+    const claim = deal.money.billed, before = m.received(deal.id), after = before + Number(f.amount)
+    return review({
+      title: 'Preview the payment', confirmLabel: 'Record payment',
+      intro: 'It is saved as Draft. Accounts sets it to Clear after checking the bank statement; only cleared money counts when the case is closed.',
+      warnings: [after > claim + 0.005 && `With this payment, ${deal.code} has ${rm(after)} recorded, more than its ${rm(claim)} claim. Check the amount, or that it is the right E-Form.`],
+      sections: [
+        { title: 'Payment', rows: [['Amount', <b key="a">{rm(Number(f.amount))}</b>], ['Purpose', PURPOSES[f.purpose]], ['Date', date(f.date)], ['Bank In Date', date(f.bankOn)],
+          ['Method', f.method === 'cash' ? `Cash · ${CASH_METHODS[f.cashMethod]}` : METHODS[f.method]], f.method === 'cheque' && ['Cheque Number', f.chequeNo],
+          f.method === 'online' && ['Recipient Reference', f.reference], ['Attachment', f.file], ['Remarks', f.remark]] },
+        { title: 'E-Form', rows: [['Code', `${deal.code} · ${deal.property.title}`], ['Sale Staff', m.staffName(deal.agentId)], ['Claim from owner', rm(claim)],
+          ['Recorded before this', rm(before)], ['Recorded with this', `${rm(after)} (${Math.round(after / (claim || 1) * 100)}% of the claim)`], ['Cleared so far', rm(m.cleared(deal.id))]] },
+      ],
+    })
+  }
   async function save() {
-    setBusy(true); setError(null)
+    setError(null)
+    if (!await preview()) return
+    setBusy(true)
     try {
-      if (!f.file) throw new Error('Attachment is required (a transfer slip or cheque copy).')
       await erp.addTransaction(f)
       fb.toast(`${rm(f.amount)} added to ${deal.code} as Draft. Accounts clears it after checking the bank.`)
       go(`deals/${f.dealId}`)
@@ -270,7 +292,7 @@ function AddTransaction({ dealId }) {
             <FormField label="Remarks" required wide><TextArea value={f.remark} onChange={set('remark')} placeholder="Remarks..." /></FormField>
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-            <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Submit'}</button>
+            <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Preview & record'}</button>
             <button style={btn} onClick={() => history.back()}>Cancel</button>
           </div>
         </Card>

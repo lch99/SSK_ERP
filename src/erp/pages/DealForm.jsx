@@ -4,10 +4,11 @@ import { C, btn, btnPrimary } from '../../styles.js'
 import { docNames } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { PARTY, DEAL_STATUS, isAgent, r2 } from '../model.js'
-import { Page, Card, Segmented, Select, Notice, FormField, FileInput, TextArea, KV, Status, go, field, mono, tabular } from '../ui.jsx'
+import { Page, Card, Segmented, Select, Notice, FormField, FileInput, TextArea, Status, go, field, mono, tabular } from '../ui.jsx'
 import { CARD, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
-import { rm, rm0, pct } from '../format.js'
+import { rm, rm0, pct, date, maskIc } from '../format.js'
+import { useReview, changedRows, missing, needText } from '../review.jsx'
 import { BANKS } from './options.js'
 import { useCan } from '../access.jsx'
 
@@ -35,6 +36,7 @@ export default function DealForm({ id }) {
   const can = useCan()
   const { m, setup } = erp
   const fb = useFeedback()
+  const review = useReview()
   const deal = id ? m.deals[id] : null
   const enabled = P.DEAL_TYPES.filter(t => setup.dealTypes[t]?.enabled)
   const query = new URLSearchParams(window.location.hash.split('?')[1] || '')
@@ -80,17 +82,54 @@ export default function DealForm({ id }) {
   const docs = docNames(f.type, !!f.coBroke)
 
   const body = extra => ({ ...f, ...extra })
+
+  // Before submitting (or changing a submitted E-Form): the whole claim to check.
+  const who = sid => (sid ? m.staffName(Number(sid)) : '')
+  const uploaded = docs.filter(n => f.files[n] || deal?.docs?.[n])
+  const toUpload = docs.filter(n => !uploaded.includes(n))
+  const partyRows = (p, others) => [['Name', p.name], ['NRIC No', p.ic ? maskIc(p.ic) : ''], ['Tel', p.phone], ['Fax / E-mail', p.email], ['Address', p.address],
+    others.length ? ['Others', others.map(o => o.name).filter(Boolean).join(', ')] : null]
+  const months = (label, k) => [label, `${f.rental[k]} month${Number(f.rental[k]) === 1 ? '' : 's'} · ${rm((Number(f.price) || 0) * Number(f.rental[k] || 0))}`]
+  // What a reader would call changed, side by side (for Save changes on a submitted E-Form).
+  const flat = x => ({ type: P.DEAL_TYPE_LABELS[x.type], date: x.date, listing: m.listings[Number(x.listingId)]?.code, agent: who(x.agentId), holder: who(x.holderId),
+    price: x.price, feePct: x.feePct, fee: x.fee, buyer: x.buyer.name, buyerIc: x.buyer.ic, buyerPhone: x.buyer.phone, owner: x.owner.name, ownerIc: x.owner.ic, ownerPhone: x.owner.phone,
+    coBroke: x.coBroke?.agency || '', referral: x.referral?.name || '', remark: x.remark })
+  const money2 = v => rm(Number(v) || 0)
+  const FIELDS = [['type', 'Form type'], ['date', 'Date', date], ['listing', 'Listing'], ['agent', 'Agent Name (Sale Staff)'], ['holder', 'Product Handler'],
+    ['price', f.type === 'rental' ? 'Rent' : 'Selling Price', money2], ['feePct', 'Fee rate', v => `${v}%`], ['fee', 'Vendor Professional Fees', money2],
+    ['buyer', `${party.buyer} Name`], ['buyerIc', `${party.buyer} NRIC`, maskIc], ['buyerPhone', `${party.buyer} Tel`], ['owner', `${party.owner} Name`], ['ownerIc', `${party.owner} NRIC`, maskIc],
+    ['ownerPhone', `${party.owner} Tel`], ['coBroke', 'Co-bro Agency'], ['referral', 'Introducer'], ['remark', 'Remarks']]
+  function reviewDeal(title, confirmLabel, withChanges) {
+    const gaps = missing([['Agent Name (Sale Staff)', f.agentId], [f.type === 'rental' ? 'Rent' : 'Selling Price', f.price], ['Vendor Professional Fees', f.fee],
+      [`${party.buyer} Name`, f.buyer.name], [`${party.owner} Name`, f.owner.name]])
+    if (gaps.length) { setErrors(needText(gaps)); window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
+    return review({
+      title, confirmLabel,
+      intro: withChanges ? 'Check what changes. Every change is kept in the E-Form change log.' : 'Check the claim. Once submitted, payments can be recorded against it and the commission is worked out from these fees.',
+      warnings: [toUpload.length > 0 && `${toUpload.length} document${toUpload.length === 1 ? '' : 's'} still to upload before the case can close: ${toUpload.join(', ')}.`],
+      changes: withChanges ? changedRows(flat(fromDeal(deal)), flat(f), FIELDS) : undefined,
+      sections: [
+        { title: 'The case', rows: [['Form type', P.DEAL_TYPE_LABELS[f.type]], ['Date', date(f.date)], ['Listing', listing ? `${listing.code} · ${listing.title}` : ''],
+          ['Property', f.property.address || f.property.title], ['Agent Name (Sale Staff)', who(f.agentId)], ['Product Handler', who(f.holderId)], ['Branch Manager', bm?.short], ['Area Manager', am?.short]] },
+        { title: party.buyer, rows: partyRows(f.buyer, f.otherBuyers) },
+        { title: party.owner, rows: partyRows(f.owner, f.otherOwners) },
+        f.type === 'rental' && { title: 'Deposits', rows: [['Tenancy', `${f.rental.months} months`], months('Rental Deposit', 'deposit'), months('Utility Deposit', 'utility'),
+          months('Advance Rental', 'advance'), ['Tenancy Fees', money2(f.rental.taFee)]] },
+        { title: 'Fees and commission', rows: [[f.type === 'rental' ? 'Rent' : 'Selling Price', money2(f.price)], ['Vendor Professional Fees', `${money2(f.fee)} (${f.feePct}%)`],
+          ['SST', rm(money.sst)], f.coBroke && ['Co-bro Fees', `${rm(money.coBroke)} · ${f.coBroke.agency || 'agency not named'}`],
+          f.referral && ['Introducer Fees', `${rm(money.referral)} · ${f.referral.name || 'not named'}`], ['Total Commission', rm(money.billed - money.coBroke - money.referral)],
+          ['Net Total Commission', <b key="net">{rm(money.net)}</b>]] },
+        { title: 'Documents', rows: [['Uploaded', uploaded.join(', ') || 'None yet'], ['Still to upload', toUpload.join(', ')]] },
+        f.remark && { title: 'Remarks', rows: [['Remarks', f.remark]] },
+      ],
+    })
+  }
   async function save(submit) {
     setErrors(null)
-    if (submit) {
-      const ok = await fb.confirm({ title: deal ? `Submit ${deal.code}?` : 'Submit this E-Form?', confirmLabel: 'Submit',
-        body: <KV min={150} items={[
-          ['Form type', P.DEAL_TYPE_LABELS[f.type]], ['Listing', listing?.code || '—'], [f.type === 'rental' ? 'Rent' : 'Selling Price', rm(Number(f.price) || 0)],
-          ['Vendor Professional Fees', rm(Number(f.fee) || 0)], ['SST', rm(money.sst)], ['Total Commission', rm(money.billed - money.coBroke - money.referral)],
-          ['Net Total Commission', <b>{rm(money.net)}</b>],
-        ]} /> })
-      if (!ok) return
-    }
+    // Submitting, or changing an E-Form that is already submitted, shows the preview first; a draft just saves.
+    const live = deal && deal.status !== 'draft'
+    if (submit && !await reviewDeal(deal ? `Preview before submitting ${deal.code}` : 'Preview before submitting', 'Submit E-Form', false)) return
+    if (!submit && live && !await reviewDeal(`Review changes · ${deal.code}`, 'Save changes', true)) return
     setBusy(true)
     try {
       if (deal) {
@@ -258,8 +297,8 @@ export default function DealForm({ id }) {
         </Card>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap', alignItems: 'center' }}>
-        {(!deal || deal.status === 'draft') && <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => save(true)}>Submit</button>}
-        <button style={deal && deal.status !== 'draft' ? { ...btnPrimary, opacity: busy ? 0.6 : 1 } : btn} disabled={busy} onClick={() => save(false)}>{deal ? 'Save changes' : 'Save as Draft'}</button>
+        {(!deal || deal.status === 'draft') && <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => save(true)}>Preview &amp; submit</button>}
+        <button style={deal && deal.status !== 'draft' ? { ...btnPrimary, opacity: busy ? 0.6 : 1 } : btn} disabled={busy} onClick={() => save(false)}>{deal ? (deal.status !== 'draft' ? 'Review changes' : 'Save changes') : 'Save as Draft'}</button>
         <button style={btn} onClick={() => go(deal ? `deals/${deal.id}` : 'deals')}>Cancel</button>
         <span style={{ flex: 1 }} />
         {deal && !locked && can('deals', 'full') && <button style={{ ...btn, color: C.err }} onClick={remove}>Delete E-Form</button>}

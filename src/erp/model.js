@@ -107,7 +107,6 @@ export const PARTY = {
   rental: { buyer: 'Tenant', owner: 'Landlord' },
   project: { buyer: 'Purchaser', owner: 'Developer' },
 }
-// Account types, named as in the client's new HR form (old names in brackets in the comments: Admin (lv2), Admin (lv1), Sales Agent).
 // Account types, with the current ERP's codes. Agents sell and earn commission
 // (Agents module); the rest are office staff (System → Users).
 export const ACCOUNT_TYPES = { staff: 'Agent', 'sale-staff': 'Sales Agent', 'admin-staff': 'Admin Level 2', 'admin-staff2': 'Admin Level 1', account: 'Accounting', 'sale-marketing': 'Marketing & Sales' }
