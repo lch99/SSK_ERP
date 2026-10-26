@@ -7,15 +7,18 @@ import { rm, date } from './format.js'
 import Icon from './Icon.jsx'
 import { useCan } from './access.jsx'
 
-// A deal's money goes through five pages in a row. These show the chain, so
-// nobody has to know which menu holds the next step:
-//   1 Clear payments → 2 Close cases → 3 Approve payouts → 4 Request pay → 5 Pay out
+// A deal goes through six pages in a row. These show the chain, so nobody has
+// to know which menu holds the next step:
+//   1 Submit E-Forms → 2 Clear payments → 3 Close cases → 4 Approve payouts → 5 Request pay → 6 Pay out
 
 // What waits at each step, and where it is done.
 export function flowSteps(m, d, setup) {
   const waiting = d.payouts.filter(p => !p.archiveId && (p.status === 'new' || p.status === 'queried'))
   const ready = d.payouts.filter(p => p.status === 'approved' && !p.requestId)
+  const drafts = d.deals.filter(x => x.status === 'draft').length
   return [
+    { key: 'submit', label: 'Submit E-Forms', short: 'Submit', unit: ['draft', 'drafts'], to: drafts ? 'deals?status=draft' : 'deals/new', what: 'Agents submit an E-Form for each sale or rental; drafts wait here',
+      n: drafts },
     { key: 'clear', label: 'Clear payments', short: 'Clear', unit: ['payment', 'payments'], to: 'money-in', what: 'Check money in against the bank, then set it Clear',
       n: d.moneyIn.filter(t => t.status === 'pending' || t.status === 'draft').length },
     { key: 'close', label: 'Close cases', short: 'Close', unit: ['deal', 'deals'], to: 'deals/ready', what: 'Deals whose cash has cleared: Request Close Case',
@@ -29,16 +32,18 @@ export function flowSteps(m, d, setup) {
   ]
 }
 
-// The five steps in a row, each with what is waiting. `here` marks this page's step.
+// The six steps in a row, each with what is waiting. `here` marks this page's step.
 export function FlowBar({ here }) {
   const { m, scoped: d, setup } = useErp()
   const [ref, narrow] = useNarrow(600)
+  // Six in a row only when each label fits on one line; otherwise two even rows.
+  const [rowRef, tight] = useNarrow(1240)
   const steps = flowSteps(m, d, setup)
-  // Phones: five small tiles in one row, so the flow never takes over the screen.
+  // Phones: six small tiles in one row, so the flow never takes over the screen.
   if (narrow) {
     return (
       <nav ref={ref} aria-label="Commission flow" style={{ marginBottom: 14 }}>
-        <ol style={{ listStyle: 'none', margin: 0, padding: 4, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: C.shadow }}>
+        <ol style={{ listStyle: 'none', margin: 0, padding: 4, display: 'grid', gridTemplateColumns: `repeat(${steps.length}, 1fr)`, gap: 4, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: C.shadow }}>
           {steps.map((s, i) => {
             const on = s.key === here, busy = s.n > 0
             return (
@@ -61,7 +66,7 @@ export function FlowBar({ here }) {
   }
   return (
     <nav ref={ref} aria-label="Commission flow" style={{ marginBottom: 16 }}>
-      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(min(168px, 100%), 1fr))' }}>
+      <ol ref={rowRef} style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8, gridTemplateColumns: `repeat(${tight ? Math.ceil(steps.length / 2) : steps.length}, minmax(0, 1fr))` }}>
         {steps.map((s, i) => {
           const on = s.key === here
           const busy = s.n > 0

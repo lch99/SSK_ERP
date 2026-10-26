@@ -118,11 +118,11 @@ export default function Dashboard({ me }) {
           { icon: 'search', label: 'Quick search  ⌘K', onClick: () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true })) },
         ]} />
 
-      {/* Where work is waiting, from money in to pay out: one click to each step. */}
+      {/* Where work is waiting, from submitting the E-Form to pay out: one click to each step. */}
       <div {...rise(1)}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', margin: '4px 2px 8px' }}>
           <h2 style={{ fontSize: 15, margin: 0 }}>Commission flow</h2>
-          <span style={{ fontSize: 12.5, color: C.muted }}>Each deal goes through these five steps. Click a step to work on it.</span>
+          <span style={{ fontSize: 12.5, color: C.muted }}>Each deal goes through these six steps. Click a step to work on it.</span>
         </div>
         <FlowBar />
       </div>

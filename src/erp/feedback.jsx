@@ -64,7 +64,7 @@ export function FeedbackProvider({ children }) {
         <div style={{ fontSize: 14, lineHeight: 1.55, color: C.text }}>{ask?.body}</div>
       </Modal>
       <div aria-live="polite" aria-atomic="false"
-        style={{ position: 'fixed', zIndex: 90, right: 16, bottom: 16, left: 16, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, pointerEvents: 'none' }}>
+        style={{ position: 'fixed', zIndex: 90, right: 16, bottom: 16, left: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, pointerEvents: 'none' }}>
         {toasts.map(t => <Toast key={t.id} t={t} onClose={() => dismiss(t.id)} />)}
       </div>
     </Ctx.Provider>

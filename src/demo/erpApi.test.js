@@ -44,4 +44,30 @@ describe('ERP demo actions', () => {
     const after = (await erp.queryPayouts([line.id], 'Missing SPA')).data.payouts.find(p => p.id === line.id)
     expect(after).toMatchObject({ status: 'queried', query: 'Missing SPA', requestId: null })
   })
+
+  it('records a payment with the current form rules', async () => {
+    const { data } = await erp.getErp()
+    const deal = data.deals.find(d => d.status === 'submitted')
+    const pay = { dealId: deal.id, amount: '1500', bankOn: '2026-01-05', method: 'online', reference: 'IBG123456789', purpose: 'commission', remark: 'Balance commission', file: 'slip.pdf' }
+    await expect(erp.addTransaction({ ...pay, reference: ' ' })).rejects.toThrow(/reference number/)
+    await expect(erp.addTransaction({ ...pay, method: 'cash', reference: '' })).rejects.toThrow(/reference number/)
+    await expect(erp.addTransaction({ ...pay, method: 'cheque' })).rejects.toThrow(/cheque number/)
+    await expect(erp.addTransaction({ ...pay, bankOn: '2999-01-01' })).rejects.toThrow(/future/)
+    await expect(erp.addTransaction({ ...pay, file: '' })).rejects.toThrow(/Attach/)
+    const t = (await erp.addTransaction(pay)).data.moneyIn.at(-1)
+    expect(t).toMatchObject({ dealId: deal.id, amount: 1500, status: 'draft', ref: 'IBG123456789', file: 'slip.pdf', payer: deal.owner.name, into: 'operating' })
+    // Switching to cheque needs the cheque number; the reference is kept for the others.
+    await expect(erp.updateTransaction(t.id, { method: 'cheque' })).rejects.toThrow(/cheque number/)
+    const u = (await erp.updateTransaction(t.id, { method: 'cheque', chequeNo: '004512' })).data.moneyIn.find(x => x.id === t.id)
+    expect(u.ref).toBe('Cheque 004512')
+  })
+
+  it('clears several payments at once, all or nothing', async () => {
+    const { data } = await erp.getErp()
+    const open = data.moneyIn.filter(t => t.status === 'draft' || t.status === 'pending').slice(0, 3)
+    await expect(erp.setMoneyInStatus([...open.map(t => t.id), -1], 'cleared')).rejects.toThrow(/no longer exists/)
+    expect((await erp.getErp()).data.moneyIn.filter(t => open.some(o => o.id === t.id)).every(t => t.status !== 'cleared')).toBe(true)
+    const after = (await erp.setMoneyInStatus(open.map(t => t.id), 'cleared')).data.moneyIn
+    expect(after.filter(t => open.some(o => o.id === t.id)).every(t => t.status === 'cleared')).toBe(true)
+  })
 })

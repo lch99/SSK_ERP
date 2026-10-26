@@ -71,7 +71,8 @@ export function view(saved) {
 // Data saved before tier plans: company tiers, branchTiers, and totals rows per
 // branch. Each branch list becomes a plan of its own, and so does a branch that
 // only changed some totals on the company tiers (as a copy, with its totals).
-export function migrate(state) {
+export function migrate(saved) {
+  const state = renameOldSample(saved);
   if (Array.isArray(state.plans)) return state;
   const { tiers = [], branchTiers = {}, totals = [], ...rest } = state;
   let nextId = state.nextId;
@@ -249,15 +250,28 @@ function tidyAgents(state) {
 // Several steps saved together (one wizard page), all or nothing.
 export const applySteps = (state, steps) => steps.reduce((s, [step, body]) => applyStep(s, step, body), state);
 
-// Example data for demos. Names, thresholds and rates are made up.
+const SAMPLE_COMPANY = 'SSK Ventures Sdn Bhd';
+const SAMPLE_EMAIL = 'admin@ssk-ventures.example';
+
+// The sample company used to be "Sample Realty Sdn Bhd". Browsers that loaded
+// it then get the client's real name without reloading the sample.
+function renameOldSample(state) {
+  const OLD = 'Sample Realty Sdn Bhd';
+  if (state.company?.name !== OLD) return state;
+  return { ...state,
+    company: { ...state.company, name: SAMPLE_COMPANY, email: state.company.email === 'admin@sample-realty.example' ? SAMPLE_EMAIL : state.company.email },
+    bankAccounts: (state.bankAccounts || []).map(a => ({ ...a, accountName: String(a.accountName || '').replace(OLD, SAMPLE_COMPANY) })) };
+}
+
+// Example data for demos. Apart from the company name, the details, people, thresholds and rates are made up.
 export function sampleState() {
   let s = emptyState();
-  s = applyStep(s, 'company', { name: 'Sample Realty Sdn Bhd', regNo: '202401000001 (1234567-X)',
+  s = applyStep(s, 'company', { name: SAMPLE_COMPANY, regNo: '202401000001 (1234567-X)',
     licenceNo: 'E (1) 0000', reaName: 'Tan Ah Kow', reaNo: 'E 0000', sstNo: 'W10-1234-56789012',
-    address: '12, Jalan Contoh 1/2, Taman Contoh, 58100 Kuala Lumpur', phone: '03-1234 5678', email: 'admin@sample-realty.example',
+    address: '12, Jalan Contoh 1/2, Taman Contoh, 58100 Kuala Lumpur', phone: '03-1234 5678', email: SAMPLE_EMAIL,
     bankAccounts: [
-      { bank: 'Maybank', accountName: 'Sample Realty Sdn Bhd', accountNo: '5140 0000 0001', purpose: 'operating' },
-      { bank: 'Public Bank', accountName: 'Sample Realty Sdn Bhd - Clients Account', accountNo: '3100 0000 02', purpose: 'client' },
+      { bank: 'Maybank', accountName: SAMPLE_COMPANY, accountNo: '5140 0000 0001', purpose: 'operating' },
+      { bank: 'Public Bank', accountName: `${SAMPLE_COMPANY} - Clients Account`, accountNo: '3100 0000 02', purpose: 'client' },
     ] });
   s = applyStep(s, 'branches', { branches: [
     { name: 'Taman Desa', code: 'TD', address: 'Jalan Desa, Taman Desa, 58100 Kuala Lumpur', phone: '03-0000 1111', manager: 'Lim Mei Ling' },

@@ -131,34 +131,56 @@ export const setRequestStatus = (id, status, remark) => change((data, setup, tod
 })
 
 // ── Transactions (money in) ──
-export const setMoneyInStatus = (id, status, reason) => change((data, setup, today) => {
-  const t = data.moneyIn.find(x => x.id === id)
-  if (!t) return 'That payment no longer exists.'
+// One payment, or several at once (Accounts clearing a bank statement): all or nothing.
+export const setMoneyInStatus = (ids, status, reason) => change((data, setup, today) => {
+  const list = [ids].flat().map(id => data.moneyIn.find(x => x.id === id))
+  if (!list.length || list.some(t => !t)) return 'That payment no longer exists.'
   if (!['draft', 'pending', 'cleared', 'returned', 'invalid'].includes(status)) return 'Unknown status.'
-  if (t.status === 'cleared' && data.closes.some(c => c.dealId === t.dealId)) return 'This payment has already been paid out on a close.'
-  Object.assign(t, { status, reason: status === 'returned' || status === 'invalid' ? str(reason) || null : null,
-    clearsOn: status === 'cleared' || status === 'returned' ? today : t.clearsOn })
+  const used = list.find(t => t.status === 'cleared' && data.closes.some(c => c.dealId === t.dealId))
+  if (used) return `${list.length > 1 ? `${used.code} has` : 'This payment has'} already been paid out on a close.`
+  for (const t of list) {
+    Object.assign(t, { status, reason: status === 'returned' || status === 'invalid' ? str(reason) || null : null,
+      clearsOn: status === 'cleared' || status === 'returned' ? today : t.clearsOn })
+  }
 })
+
+// Who pays for each purpose: the buyer or tenant puts down the deposit, the
+// owner (or the developer) pays the balance commission.
+const payerOf = (deal, purpose) => (purpose === 'commission' ? deal.owner?.name : deal.buyer?.name) || '—'
+
+// The rules of the current Add Transaction form: a reference for cash and
+// online transfers, a cheque number for cheques, the slip attached. Also: no
+// bank-in date in the future.
+function paymentErrors(b, today) {
+  const errors = []
+  if (!b.bankOn) errors.push('Bank-in date is required.')
+  else if (b.bankOn > today) errors.push('The bank-in date cannot be in the future.')
+  if (b.date && b.date > today) errors.push('The date cannot be in the future.')
+  if (!['cash', 'cheque', 'online'].includes(b.method)) errors.push('Pick how it was paid.')
+  else if (b.method === 'cheque' && !str(b.chequeNo)) errors.push('Enter the cheque number.')
+  else if (b.method !== 'cheque' && !str(b.reference)) errors.push('Enter the reference number.')
+  if (!['deposit', 'commission', 'rental', 'other'].includes(b.purpose)) errors.push('Pick the purpose.')
+  if (!str(b.remark)) errors.push('Remarks are required.')
+  return errors
+}
 
 // Add Transaction: the same fields as the current form.
 export const addTransaction = body => change((data, setup, today) => {
-  const deal = data.deals.find(d => d.id === Number(body?.dealId))
-  const amount = r2(Number(body?.amount))
+  const b = body || {}
+  const deal = data.deals.find(d => d.id === Number(b.dealId))
+  const amount = r2(Number(b.amount))
   const errors = []
   if (!deal) errors.push('Select the submission (E-Form).')
   else if (deal.status === 'draft' || deal.status === 'cancelled') errors.push('That E-Form is not submitted.')
   if (!(amount > 0)) errors.push('Amount must be more than 0.')
-  if (!body?.bankOn) errors.push('Bank-in date is required.')
-  if (!['cash', 'cheque', 'online'].includes(body?.method)) errors.push('Pick how it was paid.')
-  if (body?.method === 'cheque' && !str(body.chequeNo)) errors.push('Cheque number is required.')
-  if (!['deposit', 'commission', 'rental', 'other'].includes(body?.purpose)) errors.push('Pick the purpose.')
-  if (!str(body?.remark)) errors.push('Remarks are required.')
+  errors.push(...paymentErrors(b, today))
+  if (!str(b.file)) errors.push('Attach the transfer slip or cheque copy.')
   if (errors.length) return errors.join(' ')
   const last = data.moneyIn.reduce((m, t) => Math.max(m, Number(t.code.slice(5)) || 0), 82400)
-  data.moneyIn.push({ id: newId(data), code: `TRAN#${last + 1}`, dealId: deal.id, date: body.date || today, bankOn: body.bankOn, clearsOn: body.bankOn,
-    amount, method: body.method, purpose: body.purpose, payer: str(body.payer) || deal.buyer.name,
-    ref: body.method === 'cheque' ? `Cheque ${str(body.chequeNo)}` : str(body.reference) || '—', into: body.purpose === 'commission' ? 'operating' : 'client',
-    status: 'draft', reason: null, cashMethod: body.method === 'cash' ? body.cashMethod || 'cashtocompany' : null, remark: str(body.remark) })
+  data.moneyIn.push({ id: newId(data), code: `TRAN#${last + 1}`, dealId: deal.id, date: b.date || today, bankOn: b.bankOn, clearsOn: b.bankOn,
+    amount, method: b.method, purpose: b.purpose, payer: str(b.payer) || payerOf(deal, b.purpose),
+    ref: b.method === 'cheque' ? `Cheque ${str(b.chequeNo)}` : str(b.reference), into: b.purpose === 'commission' ? 'operating' : 'client',
+    status: 'draft', reason: null, cashMethod: b.method === 'cash' ? b.cashMethod || 'cashtocompany' : null, remark: str(b.remark), file: str(b.file) })
 })
 
 // ── Request Form (money out) ──
@@ -620,24 +642,25 @@ export const unarchive = archiveId => change(data => {
 
 // ── Transactions: edit and delete ──
 const usedOnClose = (data, t) => t.status === 'cleared' && data.closes.some(c => c.dealId === t.dealId)
-export const updateTransaction = (id, body) => change(data => {
+export const updateTransaction = (id, body) => change((data, setup, today) => {
   const t = data.moneyIn.find(x => x.id === id)
   if (!t) return 'That payment no longer exists.'
   if (usedOnClose(data, t)) return 'This payment has already been paid out on a close, so it cannot be edited.'
   const b = body || {}
   const deal = data.deals.find(d => d.id === Number(b.dealId ?? t.dealId))
   const amount = r2(Number(b.amount ?? t.amount))
-  const method = b.method ?? t.method
+  // Unchanged fields keep what was saved; a cheque's ref is "Cheque <no.>".
+  const was = t.method === 'cheque' ? { chequeNo: t.ref.replace(/^Cheque /, ''), reference: '' } : { chequeNo: '', reference: t.ref === '—' ? '' : t.ref }
+  const next = { date: t.date, bankOn: t.bankOn, method: t.method, purpose: t.purpose, remark: t.remark, ...was, ...b }
   const errors = []
   if (!deal || deal.status === 'draft' || deal.status === 'cancelled') errors.push('Select a submitted E-Form.')
   if (!(amount > 0)) errors.push('Amount must be more than 0.')
-  if (!['cash', 'cheque', 'online'].includes(method)) errors.push('Pick how it was paid.')
-  if (method === 'cheque' && !str(b.chequeNo ?? (t.ref.startsWith('Cheque ') ? t.ref.slice(7) : ''))) errors.push('Cheque number is required.')
-  if (b.remark !== undefined && !str(b.remark)) errors.push('Remarks are required.')
+  errors.push(...paymentErrors(next, today))
   if (errors.length) return errors.join(' ')
-  Object.assign(t, { dealId: deal.id, amount, method, bankOn: b.bankOn || t.bankOn, date: b.date || t.date, purpose: b.purpose || t.purpose,
-    remark: b.remark !== undefined ? str(b.remark) : t.remark, cashMethod: method === 'cash' ? b.cashMethod || t.cashMethod || 'cashtocompany' : null,
-    ref: method === 'cheque' ? `Cheque ${str(b.chequeNo ?? t.ref.replace(/^Cheque /, ''))}` : b.reference !== undefined ? str(b.reference) || '—' : t.ref })
+  const method = next.method
+  Object.assign(t, { dealId: deal.id, amount, method, bankOn: next.bankOn, date: next.date, purpose: next.purpose, remark: str(next.remark),
+    cashMethod: method === 'cash' ? next.cashMethod || t.cashMethod || 'cashtocompany' : null,
+    ref: method === 'cheque' ? `Cheque ${str(next.chequeNo)}` : str(next.reference), file: str(b.file) || t.file })
 })
 export const deleteTransaction = id => change(data => {
   const t = data.moneyIn.find(x => x.id === id)

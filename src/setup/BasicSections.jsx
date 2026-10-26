@@ -31,7 +31,7 @@ export function CompanySection({ setup, save, step, done }) {
 
       <Group first title="Company details">
         <div style={grid(240)}>
-          <Field title="Company name *"><input style={full} value={d.name} onChange={set('name')} placeholder="e.g. SubSaleKing Sdn Bhd" /></Field>
+          <Field title="Company name *"><input style={full} value={d.name} onChange={set('name')} placeholder="e.g. SSK Ventures Sdn Bhd" /></Field>
           <Field title="SSM registration no. *"><input style={full} value={d.regNo} onChange={set('regNo')} placeholder="e.g. 202301011876 (1505798-D)" /></Field>
           <Field title="SST registration no." help="Leave blank if not SST-registered."><input style={full} value={d.sstNo} onChange={set('sstNo')} /></Field>
           <Field title="Phone"><input style={full} value={d.phone} onChange={set('phone')} /></Field>

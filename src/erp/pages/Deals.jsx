@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary, inp } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
@@ -24,7 +24,8 @@ export default function Deals({ parts }) {
   return <DealList view={parts[1] || 'personal'} />
 }
 
-// "#/deals?staff=12" opens the list on one person's E-Forms (from their profile).
+// "#/deals?staff=12" opens the list on one person's E-Forms (from their profile);
+// "#/deals?status=draft" on the drafts (from the Commission flow).
 const hashParam = k => new URLSearchParams(window.location.hash.split('?')[1] || '').get(k) || ''
 
 const VIEWS = {
@@ -40,7 +41,13 @@ const STATUS_FILTER = [['', 'All'], ['draft', 'Draft'], ['submitted', 'Submitted
 function DealList({ view }) {
   const can = useCan()
   const { m, scoped: d, setup } = useErp()
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState(() => hashParam('status'))
+  // The list stays mounted between its views, so follow a ?status= link from another view too.
+  useEffect(() => {
+    const on = () => { const s = hashParam('status'); if (s) setStatus(s) }
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [])
   const [q, setQ] = useState('')
   const [price, setPrice] = useState('')
   const [type, setType] = useState('')
@@ -119,7 +126,7 @@ function DealList({ view }) {
   return (
     <Page title={v.title} help={PAGE[{ personal: 'deals', branch: 'dealsBranch', team: 'dealsTeam', ready: 'dealsReady' }[view] || 'deals']} sub={view === 'ready' ? `${v.sub}.` : <>{v.sub} · {num(yearDeals.length)} submitted in {m.year} · {rm(sum(yearDeals, x => x.fee))} in fees</>}
       actions={can('deals', 'edit') && <button style={btnPrimary} onClick={() => go('deals/new')}>Submit an E-Form</button>}>
-      {view === 'ready' && <FlowBar here="close" />}
+      {view === 'ready' ? <FlowBar here="close" /> : status === 'draft' && <FlowBar here="submit" />}
       <Card pad={16}>
         <Toolbar fold active={filters} onClear={clear}>
           <SearchBox value={q} onChange={setQ} placeholder="Case number or address" />

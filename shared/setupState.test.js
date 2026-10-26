@@ -87,3 +87,19 @@ describe('setupState', () => {
     expect(P.resolveTotal(v.totals, { branchId: 2, dealType: 'sale', tierId: P.tiersFor(v, 2)[0].id }).pct).toBe(88)
   })
 })
+
+describe('old sample company', () => {
+  it('reads as SSK Ventures Sdn Bhd, bank account names too', () => {
+    const s = sampleState()
+    const old = { ...s, company: { ...s.company, name: 'Sample Realty Sdn Bhd', email: 'admin@sample-realty.example' },
+      bankAccounts: s.bankAccounts.map(a => ({ ...a, accountName: a.accountName.replace('SSK Ventures Sdn Bhd', 'Sample Realty Sdn Bhd') })) }
+    const v = view(old)
+    expect(v.company.name).toBe('SSK Ventures Sdn Bhd')
+    expect(v.company.email).toBe('admin@ssk-ventures.example')
+    expect(v.bankAccounts.map(a => a.accountName)).toEqual(['SSK Ventures Sdn Bhd', 'SSK Ventures Sdn Bhd - Clients Account'])
+  })
+  it('leaves any other company alone', () => {
+    const s = sampleState()
+    expect(view({ ...s, company: { ...s.company, name: 'Another Realty Sdn Bhd' } }).company.name).toBe('Another Realty Sdn Bhd')
+  })
+})

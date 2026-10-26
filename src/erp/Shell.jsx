@@ -52,10 +52,10 @@ const JUMPS = [
   ['o', 'money-out', 'Payments out'], ['s', 'salary', 'Pay requests'], ['a', 'staff', 'Agents & staff'], ['r', 'reports/total', 'Reports'],
 ]
 
-const RAIL_KEY = 'ssk-erp-rail'
-// Wide screens: the module bar (RAIL_W) and the current module's pages (PANEL_W).
-// Together no wider than one plain sidebar; smaller screens start with the bar only.
-const RAIL_W = 60, PANEL_W = 188, FOLD_BELOW = 1280
+// Big screens (a 16-inch laptop, 1728px, and up): the module bar (RAIL_W) and the
+// current module's pages (PANEL_W), together no wider than one plain sidebar.
+// Anything smaller shows the bar only, so the page gets the room.
+const RAIL_W = 60, PANEL_W = 188, SHOW_MENU_FROM = 1700
 
 export default function Shell(props) {
   const parts = useRoute()
@@ -78,13 +78,12 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
   const [finder, setFinder] = useState(false)
   const [help, setHelp] = useState(false)
   const [pw, setPw] = useState(false)
-  // Desktop: the menu can fold down to an icon rail, for more room on wide tables.
-  const [rail, setRailState] = useState(() => {
-    let saved = null
-    try { saved = localStorage.getItem(RAIL_KEY) } catch { /* not kept */ }
-    return saved ? saved === '1' : window.innerWidth < FOLD_BELOW
-  })
-  const setRail = v => { setRailState(v); try { localStorage.setItem(RAIL_KEY, v ? '1' : '0') } catch { /* not kept */ } }
+  // Desktop: the menu folds to the icon bar unless the screen is big. "[" or the
+  // button flips it for this visit; it follows the screen again on reload or resize.
+  const big = useMedia(`(min-width: ${SHOW_MENU_FROM}px)`)
+  const [picked, setRail] = useState(null)
+  useEffect(() => { setRail(null) }, [big])
+  const rail = picked ?? !big
   const railOn = wide && rail
   useCommandKey(useCallback(() => setFinder(true), []))
   // The menu shows only what the viewer's role opens (shared/access.js).

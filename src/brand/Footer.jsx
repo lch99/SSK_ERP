@@ -10,7 +10,7 @@ export default function Footer({ style }) {
   return (
     <footer style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', justifyContent: 'space-between', alignItems: 'center',
       fontSize: 12, lineHeight: 1.5, color: C.faint, padding: '14px 0', borderTop: `1px solid ${C.border}`, ...style }}>
-      <span>© {new Date().getFullYear()} SubSaleKing (SSK). All rights reserved.</span>
+      <span>© {new Date().getFullYear()} SSK Ventures Sdn Bhd. All rights reserved.</span>
       <span>
         <span title={`Version ${VERSION}${DEMO ? ' (demo: data stays in this browser)' : ''} · built ${BUILT}`} style={{ fontVariantNumeric: 'tabular-nums' }}>v{VERSION}{DEMO ? ' Demo' : ''}</span>
         <span aria-hidden style={{ margin: '0 6px' }}>·</span>

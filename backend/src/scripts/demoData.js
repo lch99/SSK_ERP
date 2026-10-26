@@ -10,8 +10,8 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 (async () => {
-  await store.saveCompany({ name: 'Sample Realty Sdn Bhd', regNo: '202401000001 (1234567-X)', sstNo: 'W10-1234-56789012',
-    address: '12, Jalan Contoh 1/2, Taman Contoh, 58100 Kuala Lumpur', phone: '03-1234 5678', email: 'admin@sample-realty.example' });
+  await store.saveCompany({ name: 'SSK Ventures Sdn Bhd', regNo: '202401000001 (1234567-X)', sstNo: 'W10-1234-56789012',
+    address: '12, Jalan Contoh 1/2, Taman Contoh, 58100 Kuala Lumpur', phone: '03-1234 5678', email: 'admin@ssk-ventures.example' });
   await store.saveBranches({ branches: [{ name: 'Taman Desa', code: 'TD' }, { name: 'Cheras', code: 'CH' }, { name: 'Puchong', code: 'PC' }] });
   await store.saveDealTypes({ sale: { enabled: true, defaultRate: 3 }, rental: { enabled: true, defaultRate: 100 }, project: { enabled: true, defaultRate: 2 }, sstPct: 8 });
   const tiers = [

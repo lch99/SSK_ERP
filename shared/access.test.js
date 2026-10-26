@@ -8,8 +8,8 @@ describe('role levels', () => {
   it('a higher level includes the lower ones', () => {
     expect(A.allows(policy, 'account', 'moneyIn', 'view')).toBe(true)
     expect(A.allows(policy, 'account', 'moneyIn', 'full')).toBe(true)
-    expect(A.allows(policy, 'staff', 'moneyIn', 'view')).toBe(true)
-    expect(A.allows(policy, 'staff', 'moneyIn', 'edit')).toBe(false)
+    expect(A.allows(policy, 'staff', 'moneyIn', 'edit')).toBe(true)
+    expect(A.allows(policy, 'staff', 'moneyIn', 'full')).toBe(false)
     expect(A.allows(policy, 'sale-marketing', 'payouts', 'view')).toBe(false)
   })
   it('the Superadmin is always full, whatever was saved', () => {
@@ -55,7 +55,8 @@ describe('pages', () => {
   })
   it('opens pages by role', () => {
     expect(A.opens(policy, 'staff', 'money-in')).toBe(true)
-    expect(A.opens(policy, 'staff', 'money-in/new')).toBe(false)
+    expect(A.opens(policy, 'staff', 'money-in/new')).toBe(true)
+    expect(A.opens(policy, 'sale-staff', 'money-in/new')).toBe(false)
     expect(A.opens(policy, 'staff', 'dashboard')).toBe(true)
     expect(A.opens(policy, 'admin-staff', 'setup')).toBe(false)
     expect(A.opens(policy, 'superadmin', 'access')).toBe(true)
