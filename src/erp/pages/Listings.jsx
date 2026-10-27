@@ -74,7 +74,7 @@ export default function Listings({ parts }) {
     { key: 'updated', label: 'Listing · C.Date / U.Date', help: COLUMN.listingDates, sort: l => (view === 'photos' ? l.photosOn || '' : l.updated), render: l => (
       <span><b style={{ ...mono, color: C.primaryDark }}>{l.code}</b>
         <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(l.created, { short: true })} / {date(l.updated, { short: true })}</span>
-        {mediaCount(l) && <span style={{ display: 'block', fontSize: 11.5, color: C.muted }}>{mediaCount(l)}{view === 'photos' && l.photos > 0 ? ` · ${date(l.photosOn, { short: true })}` : ''}</span>}</span>
+        {mediaCount(l) && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{mediaCount(l)}{view === 'photos' && l.photos > 0 ? ` · ${date(l.photosOn, { short: true })}` : ''}</span>}</span>
     ) },
     { key: 'title', label: 'Title · Area · Category', sort: l => l.title, render: l => (
       <span style={{ fontSize: 13 }}><b>{l.title}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{l.area} · {l.category} · {l.type === 'sale' ? 'Sale' : 'Rent'}</span></span>
@@ -82,7 +82,7 @@ export default function Listings({ parts }) {
     { key: 'unit', label: 'Unit Number / Size', render: l => <span style={{ fontSize: 12.5 }}>{l.address.split(',')[0]}<span style={{ display: 'block', color: C.muted }}>{num(l.builtUp)} sq ft{l.beds ? ` · ${l.beds}R${l.baths}B` : ''}</span></span> },
     { key: 'price', label: 'Ad · Best · M. Value', help: COLUMN.listingPrice, align: 'right', sort: l => (view === 'price' ? l.priceUpdated : l.askPrice), render: l => (
       <span style={{ fontSize: 13 }}>{rm0(l.askPrice)}
-        {l.priceBefore && view === 'price' && <span style={{ display: 'block', fontSize: 11.5, color: C.muted }}>was {rm0(l.priceBefore)} · {date(l.priceUpdated, { short: true })}</span>}
+        {l.priceBefore && view === 'price' && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>was {rm0(l.priceBefore)} · {date(l.priceUpdated, { short: true })}</span>}
         <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm0(l.bestPrice)} · {l.marketValue ? rm0(l.marketValue) : 'no M.V.'}</span></span>
     ) },
     { key: 'creator', label: 'Product Handler · Creator', help: COLUMN.listingHolder, sort: l => m.staffName(l.creatorId), render: l => (
@@ -92,7 +92,7 @@ export default function Listings({ parts }) {
     { key: 'follow', label: 'Settings · Follow-Up', help: COLUMN.listingFollow, sort: l => lastFollow(l)?.date || '', render: l => (
       <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {l.flags.slice(0, 2).map(f => <Pill key={f} tone={f === 'Process Deal' ? 'blue' : 'gray'} dot={false} style={{ fontSize: 11 }}>{f}</Pill>)}
-        {lastFollow(l) && <span style={{ fontSize: 11.5, color: C.muted, width: '100%' }}>{FOLLOW_UP_ACTIONS[lastFollow(l).action]} · {date(lastFollow(l).date, { short: true })}</span>}
+        {lastFollow(l) && <span style={{ fontSize: 12, color: C.muted, width: '100%' }}>{FOLLOW_UP_ACTIONS[lastFollow(l).action]} · {date(lastFollow(l).date, { short: true })}</span>}
       </span>
     ) },
     { key: 'status', label: 'Status', render: l => <Status of={LISTING_STATUS} value={l.status} /> },

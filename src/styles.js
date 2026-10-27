@@ -2,6 +2,10 @@
 // Interaction states (hover, focus, pressed) live in src/global.css.
 // Brand: SubSaleKing (subsaleking.com) — crimson; Montserrat for headings and
 // the brand, Inter for everything you read and type (denser, clearer numbers).
+// Contrast: text colours reach 4.5:1 on white, bg and their own tinted pills
+// (WCAG AA). `faint` reaches only 3:1: icons, chevrons, disabled items and
+// decoration, never words people need to read (use `muted` for those).
+// Smallest text: 12px for sentences, 11px for bold badges and caps headings.
 export const C = {
   font: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   fontHead: "Montserrat, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
@@ -9,13 +13,13 @@ export const C = {
   card: '#ffffff',
   text: '#101828',
   muted: '#667085',
-  faint: '#98a2b3',
+  faint: '#828b9c',
   border: '#e4e7ec',
   borderStrong: '#d0d5dd',
   primary: '#ec003f',
   primaryDark: '#8b0836',
   primaryBg: '#fff1f2',
-  ok: '#17803d',
+  ok: '#15763a',
   okBg: '#e6f4ea',
   warn: '#a15c00',
   warnBg: '#fff4e0',
@@ -25,12 +29,12 @@ export const C = {
   infoBg: '#eaf1fd',
   violet: '#6a3fc1',
   violetBg: '#f1ecfc',
-  grayBg: '#eef0f3',
+  grayBg: '#f2f4f7',
   radius: 12,
   // ERP shell: dark sidebar with the brand crimson for the active page.
   side: '#15171e',
   sideText: '#a9b0bd',
-  sideHead: '#6b7280',
+  sideHead: '#858c99',
   sideActive: 'rgba(236, 0, 63, 0.16)',
   sideHover: 'rgba(255, 255, 255, 0.06)',
   shadow: '0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06)',

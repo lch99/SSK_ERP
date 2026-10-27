@@ -220,7 +220,7 @@ export function Slip({ slip }) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Case Date', 'Document Code', 'Property Address', 'Sale Staff', 'Product Handler', 'Comm. Type', 'Comm %', 'Net Comm.', KIND[r.kind]].map((h, i) => (
-              <th key={h} style={{ ...cell, fontSize: 11, color: C.muted, textAlign: i >= 6 ? 'right' : 'left', fontWeight: 600 }}>{h}</th>
+              <th key={h} style={{ ...cell, fontSize: 12, color: C.muted, textAlign: i >= 6 ? 'right' : 'left', fontWeight: 600 }}>{h}</th>
             ))}</tr>
           </thead>
           <tbody>
@@ -229,7 +229,7 @@ export function Slip({ slip }) {
               return (
                 <tr key={l.id}>
                   <td style={{ ...cell, whiteSpace: 'nowrap' }}>{date(l.date, { short: true })}</td>
-                  <td style={cell}><Link to={`deals/${deal.id}`} style={{ ...mono, fontSize: 11.5 }}>{deal.code}</Link></td>
+                  <td style={cell}><Link to={`deals/${deal.id}`} style={{ ...mono, fontSize: 12 }}>{deal.code}</Link></td>
                   <td style={cell}>{deal.property.title}</td>
                   <td style={cell}>{m.staffName(deal.agentId)}</td>
                   <td style={cell}>{deal.holderId != null ? m.staffName(deal.holderId) : '—'}</td>

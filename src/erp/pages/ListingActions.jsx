@@ -6,7 +6,7 @@ import { isAgent } from '../model.js'
 import { Menu, Modal, FormField, FileInput, TextArea, Select, Notice, go, field, small } from '../ui.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { rm, rm0 } from '../format.js'
-import { Review, changedRows, missing, needText } from '../review.jsx'
+import { Review, changedRows, missing, needText, markGaps } from '../review.jsx'
 import ListingPreview from './ListingPreview.jsx'
 import Icon from '../Icon.jsx'
 import { useGate } from '../access.jsx'
@@ -112,7 +112,7 @@ export default function ListingActions({ l, quiet }) {
           <button style={btn} onClick={close}>Cancel</button>
           <button style={btnPrimary} onClick={() => {
             const gaps = missing([['Ad Price', f.askPrice], ['Owner Name', f.ownerName], ['Owner Contact', f.ownerPhone]])
-            if (gaps.length) setError(needText(gaps)); else { setError(null); setStep('review') }
+            if (gaps.length) { setError(needText(gaps)); markGaps(gaps) } else { setError(null); setStep('review') }
           }}>Review changes</button>
         </>}>
         {error && <Notice tone="red">{error}</Notice>}
@@ -241,13 +241,13 @@ export default function ListingActions({ l, quiet }) {
                     <Icon name={video ? 'video' : 'image'} size={26} />
                     <input type="checkbox" aria-label={`Select ${p.name}`} checked={f.picked.includes(key)} onChange={() => setF(x => ({ ...x, picked: x.picked.includes(key) ? x.picked.filter(y => y !== key) : [...x.picked, key] }))}
                       style={{ position: 'absolute', top: 6, left: 6, accentColor: C.primary }} />
-                    {(p.cover || video) && <span style={{ position: 'absolute', top: 6, right: 6, fontSize: 10.5, fontWeight: 700, background: video ? 'rgba(255,255,255,.9)' : C.primary, color: video ? C.text : '#fff', borderRadius: 4, padding: '1px 5px' }}>{video ? 'Video' : 'Cover'}</span>}
+                    {(p.cover || video) && <span style={{ position: 'absolute', top: 6, right: 6, fontSize: 11.5, fontWeight: 700, background: video ? 'rgba(255,255,255,.9)' : C.primary, color: video ? C.text : '#fff', borderRadius: 4, padding: '1px 5px' }}>{video ? 'Video' : 'Cover'}</span>}
                   </div>
                   <div style={{ padding: '6px 8px', fontSize: 12 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }} title={p.name}>{p.name}</div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                      <button style={{ ...small, fontSize: 11.5, padding: '2px 6px' }} onClick={() => setOne(key, { published: !p.published })}>{p.published ? 'Unpublish' : 'Publish'}</button>
-                      {!video && !p.cover && <button style={{ ...small, fontSize: 11.5, padding: '2px 6px' }} onClick={() => setF(x => ({ ...x, media: x.media.map(y => (y.type === 'photo' ? { ...y, cover: keyOf(y) === key } : y)) }))}>Set cover</button>}
+                      <button style={{ ...small, fontSize: 12, padding: '2px 6px' }} onClick={() => setOne(key, { published: !p.published })}>{p.published ? 'Unpublish' : 'Publish'}</button>
+                      {!video && !p.cover && <button style={{ ...small, fontSize: 12, padding: '2px 6px' }} onClick={() => setF(x => ({ ...x, media: x.media.map(y => (y.type === 'photo' ? { ...y, cover: keyOf(y) === key } : y)) }))}>Set cover</button>}
                     </div>
                   </div>
                 </div>

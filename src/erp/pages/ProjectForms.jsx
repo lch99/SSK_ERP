@@ -8,7 +8,7 @@ import { Page, Card, Drawer, FormField, field, cols, go, small } from '../ui.jsx
 import { Choice } from '../../setup/ui.jsx'
 import { ErrorList } from '../../setup/Section.jsx'
 import { rm0, date } from '../format.js'
-import { useReview, changedRows, missing, needText } from '../review.jsx'
+import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
 
 const pctBox = (value, onChange, props = {}) => (
   <span style={{ whiteSpace: 'nowrap' }}><input style={{ ...inp, width: 90 }} type="number" step="0.01" min="0" value={value ?? ''} onChange={e => onChange(e.target.value)} {...props} /> %</span>
@@ -31,7 +31,7 @@ export function ProjectForm({ project, onSaved }) {
   // Before saving: the project, and what each tier is paid on it under its rule.
   async function save() {
     const gaps = missing([['Project name', p.name], ['Developer', p.developer], ["Developer's commission", p.devCommissionPct]])
-    if (gaps.length) { setErrors([needText(gaps)]); window.scrollTo(0, 0); return }
+    if (gaps.length) { setErrors([needText(gaps)]); if (!markGaps(gaps)) window.scrollTo(0, 0); return }
     setErrors([])
     const mode = q => J.PAYOUT_MODES.find(x => x.value === (q.payout?.mode || 'setup'))?.label
     const flat = q => ({ name: q.name, developer: q.developer, location: q.location, category: q.category, units: q.units, devCommissionPct: q.devCommissionPct,

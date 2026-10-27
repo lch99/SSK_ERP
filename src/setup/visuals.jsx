@@ -114,7 +114,7 @@ function FlowBox({ icon, title, sub, tone = 'gray', note, missing }) {
 function Arrow({ label, down }) {
   return (
     <span aria-hidden style={{ flex: '0 0 auto', display: 'flex', flexDirection: down ? 'row' : 'column', alignItems: 'center', justifyContent: 'center', gap: down ? 8 : 0,
-      padding: down ? '4px 0 4px 26px' : '0 6px', color: C.faint, fontSize: 11, fontWeight: 600, minWidth: down ? 0 : 34 }}>
+      padding: down ? '4px 0 4px 26px' : '0 6px', color: C.muted, fontSize: 11.5, fontWeight: 600, minWidth: down ? 0 : 34 }}>
       {!down && label && <span style={{ whiteSpace: 'nowrap', marginBottom: 1 }}>{label}</span>}
       <Icon name={down ? 'down' : 'chevron'} size={16} />
       {down && label && <span>{label}</span>}
@@ -300,7 +300,7 @@ export function TierLadder({ tiers, enabled }) {
           return (
             <Fragment key={t.id ?? `t${i}`}>
               {i === firstYearly && i > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, fontWeight: 600, color: C.muted, margin: '4px 0 0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: C.muted, margin: '4px 0 0' }}>
                   <span style={{ flex: 1, height: 1, background: C.borderStrong }} />Then each year, on this year's commission<span style={{ flex: 1, height: 1, background: C.borderStrong }} />
                 </div>
               )}
@@ -308,8 +308,8 @@ export function TierLadder({ tiers, enabled }) {
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                   <span style={{ minWidth: 30, padding: '2px 6px', borderRadius: 6, background: '#fff', border: `1px solid ${C.border}`, fontSize: 12, fontWeight: 700, textAlign: 'center' }}>{t.name || `T${i + 1}`}</span>
                   <span style={{ minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600, ...ellipsis }}>{String(t.title || '').trim() || <span style={{ color: C.faint, fontWeight: 500 }}>No name</span>}</span>
-                    <span style={{ display: 'block', fontSize: 11.5, color: C.muted }}>{isNum(t.threshold) ? (Number(t.threshold) ? `from ${rmShort(t.threshold)}` : 'everyone starts here') : 'amount not set'}</span>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600, ...ellipsis }}>{String(t.title || '').trim() || <span style={{ color: C.muted, fontWeight: 500 }}>No name</span>}</span>
+                    <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{isNum(t.threshold) ? (Number(t.threshold) ? `from ${rmShort(t.threshold)}` : 'everyone starts here') : 'amount not set'}</span>
                   </span>
                 </span>
                 {agent == null
@@ -385,9 +385,9 @@ export function PayDays({ a }) {
       <span style={{ fontSize: 12.5, color: C.muted, marginRight: 2 }}>Next pay days</span>
       {days.map((x, i) => (
         <span key={i} style={{ width: 54, borderRadius: 8, overflow: 'hidden', border: `1px solid ${i ? C.border : C.primary}`, textAlign: 'center', background: '#fff', boxShadow: C.shadow }}>
-          <span style={{ display: 'block', fontSize: 10.5, fontWeight: 700, color: '#fff', background: i ? C.muted : C.primary, padding: '1px 0', textTransform: 'uppercase', letterSpacing: '.05em' }}>{MONTHS[x.getMonth()]}</span>
+          <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: '#fff', background: i ? C.muted : C.primary, padding: '1px 0', textTransform: 'uppercase', letterSpacing: '.05em' }}>{MONTHS[x.getMonth()]}</span>
           <span style={{ display: 'block', fontSize: 17, fontWeight: 800, fontFamily: C.fontHead, lineHeight: 1.25, paddingTop: 2 }}>{x.getDate()}</span>
-          <span style={{ display: 'block', fontSize: 10.5, color: C.muted, paddingBottom: 3 }}>{DAYS[x.getDay()]}</span>
+          <span style={{ display: 'block', fontSize: 12, color: C.muted, paddingBottom: 3 }}>{DAYS[x.getDay()]}</span>
         </span>
       ))}
     </div>
@@ -412,7 +412,7 @@ export function NumberAnatomy({ numbering, branches, enabled }) {
         {parts.map(p => (
           <span key={p.key} style={{ textAlign: 'center' }}>
             <span style={{ display: 'block', padding: '6px 10px', borderRadius: 8, background: p.bg, color: p.color, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 22, fontWeight: 700, letterSpacing: '.04em' }}>{p.text}</span>
-            <span style={{ display: 'block', fontSize: 11, color: C.muted, marginTop: 4, maxWidth: 96 }}>{p.label}</span>
+            <span style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 4, maxWidth: 96 }}>{p.label}</span>
           </span>
         ))}
       </div>

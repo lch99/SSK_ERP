@@ -6,7 +6,7 @@ import { isAgent } from '../model.js'
 import { Page, Card, Notice, FormField, FileInput, go, field } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
-import { useReview, missing, needText } from '../review.jsx'
+import { useReview, missing, needText, markGaps } from '../review.jsx'
 import { rm } from '../format.js'
 import ListingPreview from './ListingPreview.jsx'
 import { STATES } from './options.js'
@@ -35,7 +35,7 @@ export default function ListingNew() {
   // Before publishing: how it will look on the website, and the private details.
   async function preview() {
     const gaps = missing([['Area', f.area], ['Title (building / taman)', f.title], ['Advertised Price', f.askPrice], ['Unit Number & Jalan', f.unit], ['Owner Name', f.ownerName], ['Owner Contact', f.ownerPhone]])
-    if (gaps.length) { setError(needText(gaps)); window.scrollTo(0, 0); return false }
+    if (gaps.length) { setError(needText(gaps)); if (!markGaps(gaps)) window.scrollTo(0, 0); return false }
     const race = { cina: 'Chinese', india: 'Indian', melayu: 'Malay', 'malay-reserved': 'Malay Reserved' }[f.race]
     const price = v => (Number(v) > 0 ? rm(Number(v)) : '')
     return review({

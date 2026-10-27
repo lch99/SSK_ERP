@@ -8,7 +8,7 @@ import { Page, Card, Segmented, Select, Notice, FormField, FileInput, TextArea, 
 import { CARD, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm, rm0, pct, date, maskIc } from '../format.js'
-import { useReview, changedRows, missing, needText } from '../review.jsx'
+import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
 import { BANKS } from './options.js'
 import { useCan } from '../access.jsx'
 
@@ -102,7 +102,7 @@ export default function DealForm({ id }) {
   function reviewDeal(title, confirmLabel, withChanges) {
     const gaps = missing([['Agent Name (Sale Staff)', f.agentId], [f.type === 'rental' ? 'Rent' : 'Selling Price', f.price], ['Vendor Professional Fees', f.fee],
       [`${party.buyer} Name`, f.buyer.name], [`${party.owner} Name`, f.owner.name]])
-    if (gaps.length) { setErrors(needText(gaps)); window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
+    if (gaps.length) { setErrors(needText(gaps)); if (!markGaps(gaps)) window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
     return review({
       title, confirmLabel,
       intro: withChanges ? 'Check what changes. Every change is kept in the E-Form change log.' : 'Check the claim. Once submitted, payments can be recorded against it and the commission is worked out from these fees.',
@@ -156,7 +156,7 @@ export default function DealForm({ id }) {
   const partyCard = (key, othersKey, title, required) => (
     <Card title={title} help={CARD.parties}>
       <div style={grid}>
-        <FormField label="Name" required={required}><input style={field} value={f[key].name} onChange={e => setIn(key, 'name', e.target.value)} /></FormField>
+        <FormField label="Name" name={`${party[key]} Name`} required={required}><input style={field} value={f[key].name} onChange={e => setIn(key, 'name', e.target.value)} /></FormField>
         <FormField label="NRIC No"><input style={field} value={f[key].ic} onChange={e => setIn(key, 'ic', e.target.value)} placeholder="000000-00-0000" inputMode="numeric" /></FormField>
         <FormField label="Tel"><input style={field} type="tel" value={f[key].phone} onChange={e => setIn(key, 'phone', e.target.value)} placeholder="012-345 6789" /></FormField>
         <FormField label="Fax / E-mail"><input style={field} value={f[key].email} onChange={e => setIn(key, 'email', e.target.value)} /></FormField>

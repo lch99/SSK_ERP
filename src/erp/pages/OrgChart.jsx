@@ -129,7 +129,7 @@ export function OrgTree({ focus = null, highlight = null }) {
         {rows.slice(0, limit).map(p => person(p, depth))}
         {pinned && (
           <>
-            <div aria-hidden style={{ padding: '0 8px 0 38px', fontSize: 12, color: C.faint, ...tabular }}>⋯ {num(target - limit)} more before {pinned.short}</div>
+            <div aria-hidden style={{ padding: '0 8px 0 38px', fontSize: 12, color: C.muted, ...tabular }}>⋯ {num(target - limit)} more before {pinned.short}</div>
             {person(pinned, depth)}
           </>
         )}

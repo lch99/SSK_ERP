@@ -371,7 +371,8 @@ export function Select({ value, onChange, options, label, small: compact = false
 
   const show = () => { setQ(''); setAt(Math.max(0, options.findIndex(o => String(o.value) === v))); setOpen(true) }
   const hide = (focus = true) => { setOpen(false); if (focus) trigger.current?.focus({ preventScroll: true }) }
-  const pick = o => { if (String(o.value) !== v) onChange(String(o.value)); hide() }
+  // The change event lets a surrounding FormField drop its "Required" mark.
+  const pick = o => { if (String(o.value) !== v) { onChange(String(o.value)); trigger.current?.dispatchEvent(new Event('change', { bubbles: true })) } hide() }
   useEffect(() => { if (open && pos) (searchable ? search.current : list.current)?.focus({ preventScroll: true }) }, [open, !!pos]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (open) list.current?.querySelector(`[data-i="${at}"]`)?.scrollIntoView({ block: 'nearest' }) }, [at, open, !!pos]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -613,7 +614,7 @@ export function DataTable({ columns, rows, rowKey = r => r.id, onRow, narrowAt =
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px 12px', paddingTop: 8, borderTop: `1px dashed ${C.border}` }}>
                       {rest.map(c => (
                         <div key={c.key} style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{c.label}{c.help && <Tip size={13} style={{ marginLeft: 2 }}>{c.help}</Tip>}</div>
+                          <div style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>{c.label}{c.help && <Tip size={13} style={{ marginLeft: 2 }}>{c.help}</Tip>}</div>
                           <div style={{ fontSize: 13, overflowWrap: 'anywhere', ...tabular }}>{c.render(r)}</div>
                         </div>
                       ))}
@@ -862,7 +863,7 @@ export function Menu({ label = 'Actions', items, align = 'right', quiet = false,
           style={{ ...popStyle(pos), minWidth: 248, maxWidth: 'min(330px, calc(100vw - 16px))', overflowY: 'auto' }}>
           {list.map((it, i) => {
             if (it === '-' || it.divider) return <div key={`d${i}`} role="separator" style={{ height: 1, background: C.border, margin: '5px 4px' }} />
-            if (it.section) return <div key={`s${i}`} style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '.07em', padding: '8px 10px 4px' }}>{it.section}</div>
+            if (it.section) return <div key={`s${i}`} style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.07em', padding: '8px 10px 4px' }}>{it.section}</div>
             if (it.note) {
               return (
                 <div key={`n${i}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', margin: '0 0 6px', padding: '8px 10px', borderRadius: 8, background: C.warnBg, color: C.warn, fontSize: 12.5, lineHeight: 1.4, fontWeight: 500 }}>
@@ -880,7 +881,7 @@ export function Menu({ label = 'Actions', items, align = 'right', quiet = false,
                 {withIcons && <span style={{ width: 18, display: 'inline-flex', marginTop: 1, color: it.disabled ? C.faint : it.danger ? C.err : C.muted }}>{it.icon && <Icon name={it.icon} size={16} />}</span>}
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontWeight: 500 }}>{it.label}</span>
-                  {(it.sub || (it.disabled && it.why)) && <span style={{ display: 'block', fontSize: 12, color: C.faint, marginTop: 2, fontWeight: 400 }}>{it.disabled && it.why ? it.why : it.sub}</span>}
+                  {(it.sub || (it.disabled && it.why)) && <span style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 2, fontWeight: 400 }}>{it.disabled && it.why ? it.why : it.sub}</span>}
                 </span>
                 {it.hint && <span style={{ fontSize: 12, color: it.disabled ? C.faint : C.muted, fontWeight: 600, whiteSpace: 'nowrap', marginTop: 1, ...tabular }}>{it.hint}</span>}
               </button>
@@ -908,10 +909,13 @@ export function SelectionBar({ count, summary, onClear, children }) {
   )
 }
 
-// A labelled form field that fills its grid cell.
-export function FormField({ label, required, help, children, wide }) {
+// A labelled form field that fills its grid cell. markGaps() in review.jsx
+// finds it by its label (or `name`, when the form's check calls it something
+// else, e.g. "Purchaser Name" for a field labelled "Name") to mark it when it
+// is required and left empty.
+export function FormField({ label, name, required, help, children, wide }) {
   return (
-    <label style={{ display: 'block', minWidth: 0, gridColumn: wide ? '1 / -1' : undefined }}>
+    <label data-formfield={name || ''} style={{ display: 'block', minWidth: 0, gridColumn: wide ? '1 / -1' : undefined }}>
       <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#344054', marginBottom: 5 }}>{label}{required && <span style={{ color: C.primary }}> *</span>}</span>
       {children}
       {help && <span style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.45 }}>{help}</span>}
@@ -1008,7 +1012,7 @@ export function FileInput({ kind = 'document', onChange, disabled = false, place
               {roomy && !full && <span style={muted}> or drop {multiple ? 'them' : 'it'} here</span>}
             </span>
             <span style={{ flex: 1 }} />
-            {roomy && <span title={hint} style={{ ...ellipsis, fontSize: 12, color: C.faint }}>{hint}</span>}
+            {roomy && <span title={hint} style={{ ...ellipsis, fontSize: 12, color: C.muted }}>{hint}</span>}
           </>}
         </button>
         {one && !disabled && <RemoveFile name={one.name} onClick={() => remove([])} />}

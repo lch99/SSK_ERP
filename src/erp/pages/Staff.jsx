@@ -18,7 +18,7 @@ import { buildOrg } from '../org.js'
 import { useNarrow } from '../../setup/useNarrow.js'
 import { makeXlsx, download, XLSX_TYPE } from '../../setup/sheet.js'
 import { NoAccess, useAccess, useCan, useGate } from '../access.jsx'
-import { useReview, changedRows, missing, needText } from '../review.jsx'
+import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
 // Agents (Agents module): position (tier), upline and status. Office staff
@@ -135,7 +135,7 @@ function StaffList({ office = false }) {
     ) },
     { key: 'status', label: 'Status · Expiry', help: COLUMN.staffExpiry, sort: s => s.expiresOn || '', render: s => (
       <span><Status of={STAFF_STATUS} value={s.status} />
-        {s.expiresOn && s.status !== 'inactive' && <span style={{ display: 'block', fontSize: 11.5, color: s.expiresOn < addDaysIso(m.today, 30) ? C.warn : C.muted, marginTop: 3 }}>until {date(s.expiresOn, { short: true })}</span>}</span>
+        {s.expiresOn && s.status !== 'inactive' && <span style={{ display: 'block', fontSize: 12, color: s.expiresOn < addDaysIso(m.today, 30) ? C.warn : C.muted, marginTop: 3 }}>until {date(s.expiresOn, { short: true })}</span>}</span>
     ) },
     { key: 'seen', label: 'Last Login/Activity', sort: s => s.lastActive || '', render: s => <span style={{ fontSize: 12.5, color: C.muted }}>{s.lastActive ? ago(s.lastActive, m.today) : 'Never'}</span> },
     { key: 'actions', label: '', card: false, render: s => <StaffMenu s={s} /> },
@@ -420,7 +420,7 @@ function StaffForm({ id, office = false }) {
     expiresOn: x.expiresOn, active: x.active ? 'Active' : 'Not active' })
   async function preview() {
     const gaps = missing([['Username', f.username], ['Full Name', f.name], ['Branch', f.branchId], ...(s ? [] : [['Password', f.password]])])
-    if (gaps.length) { setError(needText(gaps)); window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
+    if (gaps.length) { setError(needText(gaps)); if (!markGaps(gaps)) window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
     const who = office || !agentForm ? 'office staff' : 'agent'
     if (s) {
       return review({ title: `Review changes · ${s.code}`, confirmLabel: 'Save changes', intro: `Check what changes for ${s.short}.`,

@@ -10,7 +10,7 @@ import { FlowBar } from '../flow.jsx'
 import { rm, date, maskAcc, lastMonths, monthName } from '../format.js'
 import { localToday } from '../../demo/erpSample.js'
 import { useCan } from '../access.jsx'
-import { useReview, changedRows, missing, needText } from '../review.jsx'
+import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
 
 const r2 = n => Math.round(n * 100) / 100
 
@@ -172,7 +172,7 @@ function TxEdit({ t, erp }) {
     setError(null)
     const gaps = missing([['Amount', Number(f.amount) > 0 ? f.amount : ''], ['Bank-In Date', f.bankOn],
       f.method === 'cheque' ? ['Cheque Number', f.chequeNo] : ['Recipient Reference', f.reference], ['Remark', f.remark]])
-    if (gaps.length) { setError(needText(gaps)); return }
+    if (gaps.length) { setError(needText(gaps)); markGaps(gaps); return }
     const changes = changedRows(before, f, [['dealId', 'E-Form', v => m.deals[v]?.code], ['date', 'Date', date], ['bankOn', 'Bank-In Date', date],
       ['amount', 'Amount', v => rm(Number(v))], ['method', 'Method', v => METHODS[v]], ['cashMethod', 'Cash Option', v => (f.method === 'cash' ? CASH_METHODS[v] : '')],
       ['chequeNo', 'Cheque Number'], ['reference', 'Recipient Reference'], ['purpose', 'Purpose', v => PURPOSES[v]], ['remark', 'Remark'], ['file', 'Attachment']])
@@ -280,7 +280,7 @@ function AddTransaction({ dealId }) {
     const gaps = missing([['Select Submission', f.dealId], ['Amount', Number(f.amount) > 0 ? f.amount : ''], ['Bank In Date', f.bankOn],
       f.method === 'cheque' ? ['Cheque Number', f.chequeNo] : ['Recipient Reference', f.reference], ['Attachment (transfer slip or cheque copy)', f.file], ['Remarks', f.remark]])
     const late = [f.bankOn > today && 'The Bank In Date cannot be in the future.', f.date > today && 'The Date cannot be in the future.'].filter(Boolean)
-    if (gaps.length || late.length) { setError([gaps.length && needText(gaps), ...late].filter(Boolean).join(' ')); window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
+    if (gaps.length || late.length) { setError([gaps.length && needText(gaps), ...late].filter(Boolean).join(' ')); if (!(gaps.length && markGaps(gaps))) window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
     const claim = deal.money.billed, before = m.received(deal.id), after = r2(before + Number(f.amount))
     // A deposit or rent above the claim is normal: the rest is the owner's and goes back with Balance to Vendor.
     const over = r2(after - claim)

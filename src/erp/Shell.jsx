@@ -163,6 +163,8 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
   const sidebar = <Menu mods={mods} active={active} erp={erp} mode={railOn ? 'rail' : 'full'} />
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
+      {/* Keyboard users jump past the menu and top bar (a button, since the hash is the page address). */}
+      <button type="button" className="ssk-skip" onClick={() => document.getElementById('ssk-main')?.focus()}>Skip to content</button>
       {wide && <div style={{ width: sideW, flexShrink: 0, transition: 'width .18s ease' }}><div style={{ position: 'fixed', top: 0, bottom: 0, width: sideW, zIndex: 25, transition: 'width .18s ease' }}>{sidebar}</div></div>}
       {!wide && menuOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 60 }}>
@@ -179,9 +181,9 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
         <ChangePasswordModal open={pw} onClose={() => setPw(false)} profile={profile} />
         {!key ? <PageSkeleton wide={wide} />
           // A plain block, so pages centred with margin: auto still fill the width.
-          : Own && !blocked ? <div style={{ minWidth: 0, flex: '1 0 auto' }}><Own me={me} /></div>
+          : Own && !blocked ? <div id="ssk-main" tabIndex={-1} style={{ minWidth: 0, flex: '1 0 auto' }}><Own me={me} /></div>
             : (
-              <main style={{ padding: wide ? '22px 28px 40px' : '16px 16px 32px', width: '100%', maxWidth: railOn ? 1480 : 1320, margin: '0 auto', boxSizing: 'border-box', flex: '1 0 auto' }}>
+              <main id="ssk-main" tabIndex={-1} style={{ padding: wide ? '22px 28px 40px' : '16px 16px 32px', width: '100%', maxWidth: railOn ? 1480 : 1320, margin: '0 auto', boxSizing: 'border-box', flex: '1 0 auto' }}>
                 <ViewAsBar m={erp.m} />
                 {blocked ? <NoAccess /> : <ErpGate erp={erp} wide={wide}><Page key={access.who.role + access.who.staffId} parts={route} me={me} /></ErpGate>}
               </main>
@@ -266,7 +268,7 @@ function Menu({ mods, active, erp, mode, onPick, onClose }) {
               <span style={{ color: on ? C.primary : 'inherit', display: 'inline-flex' }}><Icon name={mod.icon} size={19} /></span>
               <span style={{ fontSize: 10, fontWeight: 600, lineHeight: 1.1, letterSpacing: -0.2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mod.label}</span>
               {n > 0 && <span aria-hidden style={{ position: 'absolute', top: 2, right: 2, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.primary, color: '#fff',
-                fontSize: 10, fontWeight: 700, lineHeight: '16px', boxSizing: 'border-box' }}>{n}</span>}
+                fontSize: 11, fontWeight: 700, lineHeight: '16px', boxSizing: 'border-box' }}>{n}</span>}
             </button>
           )
         })}
@@ -286,7 +288,7 @@ function Menu({ mods, active, erp, mode, onPick, onClose }) {
             <span style={{ display: 'block', fontSize: 12, color: C.muted, lineHeight: 1.4 }}>{MODULE[flyMod.key]}</span>
           </div>
           {flyMod.items.map((i, n) => {
-            if (i.section) return <div key={`s-${i.section}`} style={{ fontSize: 10.5, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '.07em', padding: '10px 10px 3px' }}>{i.section}</div>
+            if (i.section) return <div key={`s-${i.section}`} style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.07em', padding: '10px 10px 3px' }}>{i.section}</div>
             if (i.note) return <div key={`n-${n}`} style={{ fontSize: 12, color: C.muted, lineHeight: 1.4, padding: '8px 10px 4px' }}>{i.note}</div>
             const on = active === i.path
             return (
@@ -347,14 +349,14 @@ function PagePanel({ mod, mods, active, erp, count, onPick, onClose }) {
         {mod.items.map((i, n) => {
           if (i.add) return null
           if (i.section) return <div key={`s-${i.section}`} style={sideHead}>{i.section}</div>
-          if (i.note) return <p key={`n-${n}`} style={{ margin: '12px 10px 0', fontSize: 11, lineHeight: 1.45, color: C.sideHead }}>{i.note}</p>
+          if (i.note) return <p key={`n-${n}`} style={{ margin: '12px 10px 0', fontSize: 12, lineHeight: 1.45, color: C.sideHead }}>{i.note}</p>
           return <NavRow key={i.path} label={i.label} to={i.path} on={active === i.path} count={count(i)} onPick={onPick} small tip={MENU[i.path]} onTip={tipOn} onTipOff={tipOff} />
         })}
         {mod.key === 'home' && erp.scoped && <Waiting mods={mods} count={count} onPick={onPick} tips={{ onTip: tipOn, onTipOff: tipOff }} />}
       </div>
       {DEMO && erp.m && (
         <div title="Made up from your Setup. Changes stay in this browser." style={{ margin: 8, padding: '7px 8px 7px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)',
-          fontSize: 11.5, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          fontSize: 12, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap' }}><b style={{ color: '#fff', fontWeight: 650 }}>Demo data</b><span style={{ display: 'block' }}>{date(erp.m.today)}</span></span>
           <button onClick={reset} aria-label="Reset sample data"
             style={{ ...small, padding: '3px 9px', fontSize: 12, background: 'transparent', color: '#fff', borderColor: 'rgba(255,255,255,0.2)' }}>Reset</button>
@@ -371,13 +373,13 @@ function Waiting({ mods, count, onPick, tips }) {
       <div style={sideHead}>Waiting for you</div>
       {rows.length ? rows.map(i => (
         <NavRow key={i.path} to={i.path} count={count(i)} onPick={onPick} small tip={MENU[i.path]} {...tips}
-          label={<>{i.label}<span style={{ display: 'block', fontSize: 11, color: C.sideHead, fontWeight: 500, lineHeight: 1.2 }}>{i.module}</span></>} />
+          label={<>{i.label}<span style={{ display: 'block', fontSize: 12, color: C.sideHead, fontWeight: 500, lineHeight: 1.2 }}>{i.module}</span></>} />
       )) : <p style={{ margin: '2px 10px 0', fontSize: 12.5, color: C.sideHead }}>Nothing waiting. All caught up.</p>}
     </>
   )
 }
 
-const sideHead = { fontSize: 10, fontWeight: 700, letterSpacing: 0.9, textTransform: 'uppercase', color: C.sideHead, padding: '12px 10px 4px' }
+const sideHead = { fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.sideHead, padding: '12px 10px 4px' }
 
 // The description beside a hovered menu entry.
 function MenuTip({ tip }) {
@@ -435,7 +437,7 @@ function TopBar({ wide, me, profile, authDisabled, erp, onMenu, onSignOut, onCha
         {/* Keys keep the two buttons separate, so their styles never get merged. */}
         {wide ? (
           <button key="find-wide" onClick={onFind} aria-label="Quick search"
-            style={{ ...btn, justifyContent: 'flex-start', fontWeight: 500, color: C.faint, width: 'min(420px, 40vw)', background: '#f9fafb', boxShadow: 'none', borderColor: C.border, gap: 10 }}>
+            style={{ ...btn, justifyContent: 'flex-start', fontWeight: 500, color: C.muted, width: 'min(420px, 40vw)', background: '#f9fafb', boxShadow: 'none', borderColor: C.border, gap: 10 }}>
             <Icon name="search" size={17} />
             <span style={{ flex: 1, textAlign: 'left' }}>Search pages, E-Forms, staff…</span>
             <span style={{ display: 'inline-flex', gap: 3 }}><kbd style={kbd}>{isMac ? '⌘' : 'Ctrl'}</kbd><kbd style={kbd}>K</kbd></span>
@@ -493,7 +495,7 @@ function UserMenu({ wide, me, profile, authDisabled, onSignOut, onChangePassword
         {wide && (
           <span style={{ lineHeight: 1.2, textAlign: 'left' }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: C.text }}>{name}</span>
-            <span style={{ display: 'block', fontSize: 11.5, color: C.muted }}>{role}</span>
+            <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{role}</span>
           </span>
         )}
         <Icon name="down" size={14} style={{ color: C.muted, transition: 'transform .15s ease', transform: open ? 'rotate(180deg)' : 'none' }} />
@@ -538,7 +540,7 @@ function ShortcutsSheet({ open, onClose }) {
       <span>{text}</span>{keys}
     </div>
   )
-  const head = t => <div style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '.07em', margin: '14px 0 4px' }}>{t}</div>
+  const head = t => <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.07em', margin: '14px 0 4px' }}>{t}</div>
   return (
     <Modal open={open} onClose={onClose} title="Keyboard shortcuts" width={560}>
       <div style={{ display: 'grid', gap: '0 28px', gridTemplateColumns: 'repeat(auto-fit, minmax(min(230px, 100%), 1fr))', marginTop: -14 }}>

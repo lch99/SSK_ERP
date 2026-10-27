@@ -26,9 +26,9 @@ export default function ListingPreview({ l, agent, photos = 0, videos = 0 }) {
         </div>
         <div style={{ padding: '14px 16px', display: 'grid', gap: 6, alignContent: 'start', minWidth: 0 }}>
           <div style={{ fontSize: 22, fontWeight: 750, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>
-            {Number(l.askPrice) > 0 ? `RM ${num(l.askPrice)}` : <span style={{ color: C.faint }}>No price yet</span>}{rental && Number(l.askPrice) > 0 && <span style={{ fontSize: 13, fontWeight: 500, color: C.muted }}> / month</span>}
+            {Number(l.askPrice) > 0 ? `RM ${num(l.askPrice)}` : <span style={{ color: C.muted }}>No price yet</span>}{rental && Number(l.askPrice) > 0 && <span style={{ fontSize: 13, fontWeight: 500, color: C.muted }}> / month</span>}
           </div>
-          <div style={{ fontSize: 15.5, fontWeight: 650, lineHeight: 1.3 }}>{l.title || <span style={{ color: C.faint }}>Building / taman</span>}</div>
+          <div style={{ fontSize: 15.5, fontWeight: 650, lineHeight: 1.3 }}>{l.title || <span style={{ color: C.muted }}>Building / taman</span>}</div>
           <div style={{ fontSize: 13, color: C.muted }}>{[l.area, l.state].filter(Boolean).join(', ') || '—'}</div>
           {facts.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{facts.map(x => <span key={x} style={{ fontSize: 12, fontWeight: 600, background: C.grayBg, borderRadius: 6, padding: '2px 8px' }}>{x}</span>)}</div>

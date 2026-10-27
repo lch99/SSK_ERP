@@ -280,7 +280,7 @@ function Welcome({ steps, done, onStart, onErp, onExample }) {
           <div style={{ fontSize: 13, fontWeight: 600, color: C.muted, marginBottom: 14 }}>The steps</div>
           {groups.map(([title, keys]) => (
             <div key={title} style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>{title}</div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>{title}</div>
               {keys.map(k => steps.find(s => s.key === k)).filter(Boolean).map(s => {
                 const i = ++n
                 return (

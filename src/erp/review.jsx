@@ -39,7 +39,7 @@ export function ReviewHeading({ children, note }) {
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', margin: '0 0 8px', paddingBottom: 6, borderBottom: `1px solid ${C.border}` }}>
       <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: C.muted, fontFamily: C.font }}>{children}</h3>
-      {note && <span style={{ fontSize: 12, color: C.faint }}>{note}</span>}
+      {note && <span style={{ fontSize: 12, color: C.muted }}>{note}</span>}
     </div>
   )
 }
@@ -60,6 +60,35 @@ export function changedRows(before, after, fields) {
 // The labels of required fields left empty: [[label, value]] → ['Area', …].
 export const missing = pairs => pairs.filter(([, v]) => v == null || String(v).trim() === '').map(([label]) => label)
 export const needText = labels => `Fill in ${labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`} first.`
+
+// Marks the FormFields named in missing() so each shows "Required" in red
+// (global.css), and puts the cursor in the first one. Labels match without
+// their "(…)" part, so "Vendor Professional Fees" finds "Vendor Professional
+// Fees (RM)". Looks inside the open dialog when there is one. Returns false
+// when no field was found, so the form can scroll to its message instead.
+//   if (gaps.length) { setError(needText(gaps)); if (!markGaps(gaps)) window.scrollTo(0, 0); return }
+const CONTROLS = 'input:not([type=hidden]):not([type=file]), select, textarea, button'
+const base = s => String(s).replace(/\s*\*\s*$/, '').replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase()
+const unmark = el => { el.removeAttribute('data-missing'); el.querySelectorAll(CONTROLS).forEach(c => c.removeAttribute('aria-invalid')) }
+export function markGaps(labels) {
+  const root = [...document.querySelectorAll('[role=dialog][aria-modal=true]')].at(-1) || document
+  const fields = [...root.querySelectorAll('label[data-formfield]')]
+  fields.forEach(unmark)
+  const want = new Set(labels.map(base))
+  const gaps = fields.filter(el => want.has(base(el.dataset.formfield || el.firstElementChild?.textContent || '')))
+  for (const el of gaps) {
+    el.setAttribute('data-missing', '')
+    el.querySelectorAll(CONTROLS).forEach(c => c.setAttribute('aria-invalid', 'true'))
+    // Typing or picking a value clears the mark (Select and FileInput send change).
+    const clear = () => { unmark(el); el.removeEventListener('input', clear); el.removeEventListener('change', clear) }
+    el.addEventListener('input', clear)
+    el.addEventListener('change', clear)
+  }
+  if (!gaps.length) return false
+  gaps[0].scrollIntoView({ block: 'center' })
+  gaps[0].querySelector(CONTROLS)?.focus({ preventScroll: true })
+  return true
+}
 
 export function useReview() {
   const fb = useFeedback()

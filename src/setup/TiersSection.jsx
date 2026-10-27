@@ -106,7 +106,7 @@ export default function TiersSection({ setup, save, step, done }) {
         <span style={{ display: 'inline-block', whiteSpace: 'nowrap' }}>
           <input style={{ ...inp, width: 76, ...(bad ? { border: `1px solid ${C.err}` } : {}) }} type="number" min="0" max="100" step="0.01" value={v ?? ''}
             aria-label={`Total payout${dt ? ` for ${P.DEAL_TYPE_LABELS[dt]}` : ''}, ${t.name || `tier ${i + 1}`}`} onChange={e => setTotal(i, dt, e.target.value)} /> %
-          <span style={{ display: 'block', fontSize: 11.5, color: bad ? C.err : C.muted, marginTop: 2 }}>
+          <span style={{ display: 'block', fontSize: 12, color: bad ? C.err : C.muted, marginTop: 2 }}>
             {ok ? `uplines ${r2(v - t.agentRate)} · company ${r2(100 - v)}` : bad ? `at least ${t.agentRate}%` : ' '}
           </span>
         </span>

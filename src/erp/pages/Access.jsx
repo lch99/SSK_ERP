@@ -88,7 +88,7 @@ export default function Access({ parts }) {
             </Row>
             {GROUPS.map(g => (
               <div key={g.label}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '.07em', padding: '16px 0 6px', borderTop: `1px solid ${C.border}` }}>{g.label}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.07em', padding: '16px 0 6px', borderTop: `1px solid ${C.border}` }}>{g.label}</div>
                 {g.areas.map(a => {
                   const level = draft[role].levels[a.key]
                   return (

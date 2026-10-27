@@ -192,7 +192,7 @@ export default function Dashboard({ me }) {
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: '18px 0' }}>
-                <div style={{ fontSize: 34 }} aria-hidden>🎉</div>
+                <span aria-hidden style={{ width: 48, height: 48, borderRadius: 24, background: C.okBg, color: C.ok, display: 'inline-grid', placeItems: 'center' }}><Icon name="check" size={24} stroke={2.4} /></span>
                 <p style={{ color: C.ok, margin: '6px 0 0', fontWeight: 600 }}>All clear. Nothing is waiting.</p>
               </div>
             )}
@@ -320,7 +320,7 @@ function Spark({ values, color }) {
   )
 }
 
-const PIPE_COLORS = { draft: '#98a2b3', submitted: '#2a78d6', partial: '#7a4fc9', closed: '#17803d', cancelled: '#d92d20' }
+const PIPE_COLORS = { draft: '#828b9c', submitted: '#2a78d6', partial: '#7a4fc9', closed: '#15763a', cancelled: '#d92d20' }
 
 // Every E-Form by status in one bar, plus how much of the open ones is collected.
 function Pipeline({ pipeline, counts, collected, toCollect, year }) {
@@ -344,7 +344,7 @@ function Pipeline({ pipeline, counts, collected, toCollect, year }) {
               </a>
             ))}
           </div>
-          <div style={{ fontSize: 12, color: C.faint, marginTop: 10 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 10 }}>
             All-time case count: {Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${DEAL_STATUS[k].label} ${num(n)}`).join(' · ')}
           </div>
         </div>

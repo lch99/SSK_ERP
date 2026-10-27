@@ -274,7 +274,7 @@ function StepBar({ units, steps }) {
       {steps.map(s => (
         <div key={s.units} style={{ position: 'absolute', left: `${(s.units / max) * 100}%`, top: 0, transform: 'translateX(-100%)', textAlign: 'right' }}>
           <div style={{ width: 2, height: 8, background: '#fff', marginLeft: 'auto' }} />
-          <div style={{ fontSize: 11, color: units >= s.units ? C.ok : C.muted, whiteSpace: 'nowrap', marginTop: 2 }}>{s.units} → {rm0(s.amount)}</div>
+          <div style={{ fontSize: 12, color: units >= s.units ? C.ok : C.muted, whiteSpace: 'nowrap', marginTop: 2 }}>{s.units} → {rm0(s.amount)}</div>
         </div>
       ))}
     </div>

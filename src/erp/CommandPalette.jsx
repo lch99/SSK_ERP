@@ -107,7 +107,7 @@ export default function CommandPalette({ open, onClose, leaves, erp }) {
             const on = i === at
             return (
               <div key={r.key}>
-                {head && <div style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '.06em', padding: '10px 10px 4px' }}>{head}</div>}
+                {head && <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '.06em', padding: '10px 10px 4px' }}>{head}</div>}
                 <div id={`cmd-${i}`} data-i={i} role="option" aria-selected={on} onMouseEnter={() => setAt(i)} onClick={() => pick(r)}
                   style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 10px', borderRadius: 9, cursor: 'pointer',
                     background: on ? C.primaryBg : 'transparent' }}>

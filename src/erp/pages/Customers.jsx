@@ -8,7 +8,7 @@ import { useFeedback } from '../feedback.jsx'
 import { rm0, date, ago } from '../format.js'
 import { localToday, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
 import { useCan } from '../access.jsx'
-import { useReview, missing, needText } from '../review.jsx'
+import { useReview, missing, needText, markGaps } from '../review.jsx'
 
 // Customer Database: leads, with the current ERP's Action and Status per row.
 export default function Customers({ parts }) {
@@ -185,7 +185,7 @@ function AddName() {
   // Before adding: the customer as saved, and anyone already on file with the same phone.
   async function preview() {
     const gaps = missing([['Name', f.name], ['Phone', f.phone]])
-    if (gaps.length) { setError(needText(gaps)); window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
+    if (gaps.length) { setError(needText(gaps)); if (!markGaps(gaps)) window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
     const digits = String(f.phone).replace(/\D/g, '')
     const same = m.data.customers.filter(c => digits.length >= 7 && String(c.phone || '').replace(/\D/g, '') === digits)
     const budget = [f.budgetMin, f.budgetMax].some(v => Number(v) > 0) ? `${Number(f.budgetMin) > 0 ? rm0(f.budgetMin) : '—'} to ${Number(f.budgetMax) > 0 ? rm0(f.budgetMax) : '—'}` : ''

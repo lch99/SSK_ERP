@@ -126,7 +126,7 @@ export function Ring({ value, label, sub, size = 108, color = '#ff3d6e', track =
       <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', color: textColor }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 800, fontFamily: C.fontHead, lineHeight: 1 }}>{label}</div>
-          <div style={{ fontSize: 11.5, opacity: 0.75, marginTop: 3 }}>{sub}</div>
+          <div style={{ fontSize: 12, opacity: 0.75, marginTop: 3 }}>{sub}</div>
         </div>
       </div>
     </div>
@@ -206,11 +206,11 @@ export function AreaTrend({ months, series, height = 250 }) {
           {ticks.map(t => (
             <g key={t}>
               <line x1={pad.l} x2={pad.l + w} y1={y(t)} y2={y(t)} stroke={C.grid} strokeDasharray={t ? '3 4' : undefined} />
-              <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill={C.faint} fontFamily={C.font}>{rmShort(t)}</text>
+              <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill={C.muted} fontFamily={C.font}>{rmShort(t)}</text>
             </g>
           ))}
           {months.map((m, i) => (i % Math.ceil(months.length / Math.max(1, Math.floor(w / 70))) === 0 || i === months.length - 1) && (
-            <text key={m} x={x(i)} y={height - 8} textAnchor="middle" fontSize="11" fill={C.faint} fontFamily={C.font}>{monthLabel(m)}</text>
+            <text key={m} x={x(i)} y={height - 8} textAnchor="middle" fontSize="11" fill={C.muted} fontFamily={C.font}>{monthLabel(m)}</text>
           ))}
           <g clipPath="url(#area-reveal)">
             {series.map(s => {
@@ -344,7 +344,7 @@ export function Leaderboard({ rows, m, showBranch }) {
           const t = m.tierInfo(s.id)
           return (
             <a key={s.id} href={`#/staff/${s.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: C.text }}>
-              <span style={{ width: 22, textAlign: 'center', fontWeight: 700, color: C.faint, fontSize: 13 }}>{k + 4}</span>
+              <span style={{ width: 22, textAlign: 'center', fontWeight: 700, color: C.muted, fontSize: 13 }}>{k + 4}</span>
               <Avatar name={s.short} size={30} tone="gray" />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13.5 }}>
@@ -352,7 +352,7 @@ export function Leaderboard({ rows, m, showBranch }) {
                   <b style={tabular}>{rm(v)}</b>
                 </span>
                 <span style={{ display: 'block', marginTop: 5 }}><Progress value={v / max} tone="brand" height={5} label={`${s.short} against the leader`} /></span>
-                {t.next && <span style={{ display: 'block', fontSize: 11.5, color: C.muted, marginTop: 3 }}>{rm(t.toNext)} to {t.next.name}</span>}
+                {t.next && <span style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 3 }}>{rm(t.toNext)} to {t.next.name}</span>}
               </span>
             </a>
           )
@@ -375,7 +375,7 @@ export function ActivityFeed({ events, today }) {
             boxShadow: `0 0 0 4px ${C.card}`, zIndex: 1 }}><Icon name={e.icon} size={16} /></span>
           <a href={e.to ? `#/${e.to}` : undefined} style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: C.text }}>
             <div style={{ fontSize: 13.5, lineHeight: 1.45 }}>{e.text}</div>
-            <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>{ago(e.date, today)}{e.meta ? ` · ${e.meta}` : ''}</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{ago(e.date, today)}{e.meta ? ` · ${e.meta}` : ''}</div>
           </a>
           {e.amount != null && <b style={{ fontSize: 13, whiteSpace: 'nowrap', color: e.amountColor || C.text, ...tabular }}>{e.amount}</b>}
         </li>

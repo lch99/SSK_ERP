@@ -12,7 +12,7 @@ import DealPage from './DealPage.jsx'
 import { NoAccess, useCan, useGate } from '../access.jsx'
 import DealForm from './DealForm.jsx'
 import { BANKS } from './options.js'
-import { Review, missing, needText } from '../review.jsx'
+import { Review, missing, needText, markGaps } from '../review.jsx'
 import { maskAcc, maskIc } from '../format.js'
 
 // E-Forms: Personal Sales (every form), Branch Sales (by branch manager) and
@@ -97,7 +97,7 @@ function DealList({ view }) {
         <span style={{ display: 'block', fontSize: 13 }}>
           {m.staffName(x.agentId)}
           <span style={{ display: 'block', fontSize: 12, color: C.muted }}>PH {x.holderId != null ? m.staffName(x.holderId) : '—'}</span>
-          <span style={{ display: 'block', fontSize: 11.5, color: C.muted }}>BM {bm?.short}{am ? ` · AM ${am.short}` : ''}</span>
+          <span style={{ display: 'block', fontSize: 12, color: C.muted }}>BM {bm?.short}{am ? ` · AM ${am.short}` : ''}</span>
         </span>
       )
     } },
@@ -244,7 +244,7 @@ export function DealActions({ deal, quiet }) {
     const needs = { transfer: [['Transfer Deposit Letter', form.letter], ['Transfer to', form.payee], ['IC No.', form.ic], ['Bank Name', form.bank], ['Bank Acc. No.', form.account]],
       cobroke: [['Invoice From Co-Bro Agency', form.letter]], balance: [['Bank Name', form.bank], ['Bank Acc. No.', form.account]], ta: [['Tenant Name', form.payee], ['Tenant IC', form.ic]] }[dialog] || []
     const gaps = missing([['Amount', Number(form.amount) > 0 ? form.amount : ''], ...needs])
-    if (gaps.length) return setError(needText(gaps))
+    if (gaps.length) { markGaps(gaps); return setError(needText(gaps)) }
     setError(null); setStep('review')
   }
   return (
@@ -313,7 +313,7 @@ export function DealActions({ deal, quiet }) {
             <FormField label="Bank Name" required={dialog !== 'ta'}><Select block plain label="Bank" value={form.bank || ''} onChange={v => setForm(f => ({ ...f, bank: v }))} options={[{ value: '', label: 'Select bank' }, ...BANKS.map(b => ({ value: b, label: b }))]} /></FormField>
             <FormField label="Bank Acc. No." required={dialog !== 'ta'}><input style={field} value={form.account || ''} onChange={set('account')} inputMode="numeric" /></FormField>
           </>}
-          <FormField label={{ balance: 'Balance to Vendor (RM)', transfer: 'Amount (RM)', cobroke: 'Co-Bro Fees (RM)', referral: 'Net Introducer Fees (RM)', ta: 'Tenant Fees (RM)' }[dialog] || 'Amount (RM)'} required>
+          <FormField name="Amount" label={{ balance: 'Balance to Vendor (RM)', transfer: 'Amount (RM)', cobroke: 'Co-Bro Fees (RM)', referral: 'Net Introducer Fees (RM)', ta: 'Tenant Fees (RM)' }[dialog] || 'Amount (RM)'} required>
             <input style={field} type="number" min="0" value={form.amount ?? ''} onChange={set('amount')} />
           </FormField>
         </div>

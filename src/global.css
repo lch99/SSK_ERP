@@ -31,6 +31,15 @@ a[href]:hover { text-decoration-thickness: 1.5px; }
   outline: 2px solid #ec003f;
   outline-offset: 2px;
 }
+/* "Skip to content" (Shell.jsx): hidden until reached with Tab. The page
+   area it focuses needs no ring of its own. */
+.ssk-skip {
+  position: fixed; top: 8px; left: 8px; z-index: 200; transform: translateY(-200%);
+  padding: 8px 14px; border-radius: 8px; border: none; background: #101828; color: #fff;
+  font: 600 14px Inter, sans-serif; cursor: pointer;
+}
+.ssk-skip:focus-visible { transform: none; }
+#ssk-main:focus, #ssk-main:focus-visible { outline: none; }
 
 /* ── Buttons: hover, pressed, disabled ── */
 button { -webkit-tap-highlight-color: transparent; transition: filter .15s ease, box-shadow .15s ease, background-color .15s ease, transform .05s ease, opacity .15s ease; }
@@ -48,8 +57,16 @@ select:focus, textarea:focus {
 }
 /* Fields that sit inside their own frame (e.g. quick search) skip the ring. */
 input.ssk-bare:focus { border-color: transparent !important; box-shadow: none !important; }
-input::placeholder, textarea::placeholder { color: #98a2b3; opacity: 1; }
-input:disabled, select:disabled, textarea:disabled { background: #f9fafb !important; color: #98a2b3; cursor: not-allowed; }
+input::placeholder, textarea::placeholder { color: #667085; opacity: 1; }
+input:disabled, select:disabled, textarea:disabled { background: #f9fafb !important; color: #828b9c; cursor: not-allowed; }
+
+/* A required field left empty, marked by markGaps() in erp/review.jsx when a
+   form is sent for preview. Typing or picking a value clears it. */
+label[data-missing] :is(input:not([type=checkbox]):not([type=radio]), select, textarea, button[aria-haspopup=listbox], .ssk-file) {
+  border-color: #b42318 !important;
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12) !important;
+}
+label[data-missing]::after { content: 'Required'; display: block; margin-top: 4px; font-size: 12px; font-weight: 600; color: #b42318; }
 
 select {
   -webkit-appearance: none;
