@@ -30,8 +30,10 @@ export default function HierarchyPreview({ setup, roles, splits, onAddLevel, onU
   const present = roles.map(r => r.code).filter(c => !absent.includes(c))
   const out = P.distribute({ agentRate, totalPct, uplines: present, splits, roles })
   const presentInChain = roles.filter(r => present.includes(r.code))
-  const split = presentInChain.length === 1 ? { [presentInChain[0].code]: 100 }
-    : splits?.[P.comboKey(presentInChain.map(r => r.code))] || {}
+  const split = roles.length === 1 ? { [roles[0].code]: 100 } : splits || {}
+  // What the levels taken off the deal would have had: it stays with the company.
+  const left = totalPct == null ? 0 : r2(totalPct - out.agent - Object.values(out.uplines).reduce((s, v) => s + v, 0))
+  const offDeal = roles.filter(r => !present.includes(r.code)).map(r => r.code)
   const comm = Number(amount) || 0
   const colorOf = code => ROLE_COLORS[roles.findIndex(r => r.code === code) % ROLE_COLORS.length]
   const toggle = code => setAbsent(absent.includes(code) ? absent.filter(c => c !== code) : [...absent, code])
@@ -89,7 +91,7 @@ export default function HierarchyPreview({ setup, roles, splits, onAddLevel, onU
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: 'block', fontSize: 14, fontWeight: 600, color: C.text }}>{r.name || 'Untitled level'}</span>
                     <span style={{ display: 'block', fontSize: 12, color: C.muted }}>
-                      {on ? `${r2(Number(split[r.code]) || 0)}% of the upline pool` : 'Not on this deal'}
+                      {on ? `${r2(Number(split[r.code]) || 0)}% of the upline pool` : `Not on this deal: its ${r2(Number(split[r.code]) || 0)}% stays with the company`}
                     </span>
                   </span>
                   {on && totalPct != null && (
@@ -138,7 +140,8 @@ export default function HierarchyPreview({ setup, roles, splits, onAddLevel, onU
             {!tier ? 'Add tiers (Tiers and payouts) to preview with real agent rates. Using 60% for now.'
               : !present.length ? 'No uplines on this deal: the negotiator keeps the tier rate and the rest stays with the company.'
               : totalPct == null ? `No total payout set yet for ${P.tierLabel(tier)} (${P.DEAL_TYPE_LABELS[dt]}), so the uplines get nothing. Set it in Tiers and payouts.`
-              : `Total payout ${totalPct}% for ${P.DEAL_TYPE_LABELS[dt]}${plans.length > 1 ? ` on the ${P.planLabel(plans[planIdx], planIdx)} plan` : ''}: agent ${out.agent}% + upline pool ${r2(totalPct - out.agent)}%.`}
+              : `Total payout ${totalPct}% for ${P.DEAL_TYPE_LABELS[dt]}${plans.length > 1 ? ` on the ${P.planLabel(plans[planIdx], planIdx)} plan` : ''}: agent ${out.agent}% + upline pool ${r2(totalPct - out.agent)}%.`
+                + (offDeal.length && left > 0 ? ` ${offDeal.join(' and ')} not on this deal, so ${left}% of the pool goes back to the company.` : '')}
           </p>
         </div>
       </div>

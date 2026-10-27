@@ -83,20 +83,9 @@ export function computeTierIndex(lifetime, yearly, tiers, floorIndex = 0) {
 
 // ── Upline roles and how they split the pool ─────────────────────────────────
 // roles: [{ code, name }] ordered most junior → most senior (e.g. AGA, TSM, GSM).
-// A split is set for every combination of two or more uplines; a lone upline
-// always takes the whole pool.
-
-export const comboKey = codes => codes.join("+");
-
-export function roleCombos(roles) {
-  const codes = roles.map(r => r.code);
-  const combos = [];
-  for (let mask = 1; mask < 1 << codes.length; mask++) {
-    const combo = codes.filter((_, i) => mask & (1 << i));
-    if (combo.length >= 2) combos.push(combo);
-  }
-  return combos.sort((a, b) => a.length - b.length || comboKey(a).localeCompare(comboKey(b)));
-}
+// splits: { [code]: pct } — each level's fixed share of the upline pool, adding
+// up to 100. A level missing from a deal doesn't pass its share to the others:
+// it stays with the company (the client's rule, 2026-10-27).
 
 // Juniors take 20% each, the most senior upline takes the rest
 // (2 uplines → 20 / 80, 3 → 20 / 20 / 60). Equal shares if 20% each won't fit.
@@ -108,17 +97,16 @@ export function defaultSplit(codes) {
   return out;
 }
 
-// Keep every split that still fits the role list; default any new combination.
+// Keep the split while it still names exactly these levels; otherwise default
+// it. A lone level always holds the whole pool. Splits saved before 2026-10-27
+// had one per mix of uplines, keyed "AGA+TSM+GSM": the whole chain's is kept.
 export function normalizeSplits(splits, roles) {
-  const out = {};
-  for (const combo of roleCombos(roles)) {
-    const key = comboKey(combo);
-    const have = splits?.[key];
-    out[key] = have && combo.every(c => isNum(have[c]))
-      ? Object.fromEntries(combo.map(c => [c, Number(have[c])]))
-      : defaultSplit(combo);
-  }
-  return out;
+  const codes = roles.map(r => r.code);
+  if (codes.length < 2) return defaultSplit(codes);
+  const old = splits?.[codes.join("+")];
+  const have = old && typeof old === "object" ? old : splits || {};
+  const same = Object.keys(have).length === codes.length && codes.every(c => isNum(have[c]));
+  return same ? Object.fromEntries(codes.map(c => [c, Number(have[c])])) : defaultSplit(codes);
 }
 
 export function validateRoles(roles) {
@@ -137,21 +125,16 @@ export function validateRoles(roles) {
 }
 
 export function validateSplits(splits, roles) {
-  const errors = [];
-  for (const combo of roleCombos(roles)) {
-    const key = comboKey(combo);
-    let sum = 0;
-    for (const c of combo) {
-      const v = splits?.[key]?.[c];
-      if (!isNum(v) || Number(v) < 0 || Number(v) > 100) { errors.push(`${combo.join(" + ")}: each share must be 0–100%.`); sum = NaN; break; }
-      if (!twoDp(Number(v))) { errors.push(`${combo.join(" + ")}: at most 2 decimal places.`); sum = NaN; break; }
-      sum += Number(v);
-    }
-    if (Number.isFinite(sum) && Math.round(sum * 100) !== 10000) {
-      errors.push(`${combo.join(" + ")}: shares add up to ${r2(sum)}%, must be 100%.`);
-    }
+  const codes = (roles || []).map(r => r.code);
+  if (codes.length < 2) return [];
+  let sum = 0;
+  for (const c of codes) {
+    const v = splits?.[c];
+    if (!isNum(v) || Number(v) < 0 || Number(v) > 100) return [`${c}: its share must be 0–100% of the upline pool.`];
+    if (!twoDp(Number(v))) return [`${c}: at most 2 decimal places.`];
+    sum += Number(v);
   }
-  return errors;
+  return Math.round(sum * 100) !== 10000 ? [`The upline shares add up to ${r2(sum)}%, must be 100%.`] : [];
 }
 
 // ── Total payout per tier ────────────────────────────────────────────────────
@@ -269,25 +252,26 @@ function plansOf(s) {
 }
 
 // Percent shares of one deal's commission. `uplines` are the codes the
-// negotiator's chain actually has. Each share is rounded to 2 dp and the most
-// senior upline takes the rounding remainder, so shares always add up to the
-// total exactly.
+// negotiator's chain actually has. Each level gets its own share of the pool,
+// whoever else is on the deal; a missing level's share goes to the company.
+// Shares are rounded to 2 dp and the most senior level takes the remainder, so
+// the whole chain adds up to the total exactly.
 export function distribute({ agentRate, totalPct, uplines = [], splits, roles }) {
   const agent = Number(agentRate);
   const order = roles.map(r => r.code);
-  const present = order.filter(c => uplines.includes(c));
-  if (!present.length || totalPct == null) {
+  if (!order.some(c => uplines.includes(c)) || totalPct == null) {
     return { agent, uplines: {}, company: r2(100 - agent) };
   }
   const pool = r2(Number(totalPct) - agent);
-  const split = present.length === 1 ? { [present[0]]: 100 } : (splits?.[comboKey(present)] || defaultSplit(present));
+  const split = order.every(c => isNum(splits?.[c])) ? splits : normalizeSplits(splits, roles);
   const shares = {};
-  let given = 0;
-  present.forEach((c, i) => {
-    shares[c] = i === present.length - 1 ? r2(pool - given) : r2(pool * Number(split[c] || 0) / 100);
-    given = r2(given + shares[c]);
+  let given = 0, paid = 0;
+  order.forEach((c, i) => {
+    const share = i === order.length - 1 ? r2(pool - given) : r2(pool * Number(split[c]) / 100);
+    given = r2(given + share);
+    if (uplines.includes(c)) { shares[c] = share; paid = r2(paid + share); }
   });
-  return { agent, uplines: shares, company: r2(100 - Number(totalPct)) };
+  return { agent, uplines: shares, company: r2(100 - agent - paid) };
 }
 
 // ── One deal's money ─────────────────────────────────────────────────────────
@@ -320,7 +304,9 @@ export function dealSides(agentId, holderId) {
 }
 
 // Who holds each upline role above a staff member: the nearest person up the
-// chain with that role. staffById: { [id]: { id, uplineId, role } }.
+// chain with that role. staffById: { [id]: { id, uplineId, role, status } }.
+// When that nearest person has left (Inactive), the role is empty on this deal:
+// nobody further up takes it, so its share stays with the company.
 export function uplineHolders(staffById, staffId, roles) {
   const codes = new Set(roles.map(r => r.code));
   const out = {};
@@ -328,10 +314,10 @@ export function uplineHolders(staffById, staffId, roles) {
   let p = staffById[staffById[staffId]?.uplineId];
   while (p && !seen.has(p.id)) {
     seen.add(p.id);
-    if (codes.has(p.role) && !(p.role in out)) out[p.role] = p.id;
+    if (codes.has(p.role) && !(p.role in out)) out[p.role] = p.status === "inactive" ? null : p.id;
     p = staffById[p.uplineId];
   }
-  return out;
+  return Object.fromEntries(Object.entries(out).filter(([, id]) => id != null));
 }
 
 // One side's payout lines in RM: the earner at their agent rate, then each

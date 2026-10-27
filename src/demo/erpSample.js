@@ -6,7 +6,7 @@
 // Every payout goes through shared/payout.js, never through maths of its own.
 import * as P from '../../shared/payout.js'
 
-export const ERP_VERSION = 7
+export const ERP_VERSION = 8
 const SEED = 20261021
 const r2 = n => Math.round(n * 100) / 100
 

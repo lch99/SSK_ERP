@@ -94,11 +94,10 @@ export default function ReviewSection({ setup, step, onGoTo }) {
       {
         key: 'uplines', label: 'Upline chain', open: false,
         meta: setup.roles.length ? [...setup.roles].reverse().map(r => `${r.code} ${r.name}`).join(' → ') + ' → Negotiator' : 'No uplines: negotiators keep their tier rate',
-        children: P.roleCombos(setup.roles).map(combo => ({
-          key: P.comboKey(combo), tone: roleColor(setup.roles, combo[combo.length - 1]),
-          label: combo.join(' + '),
-          meta: combo.map(c => `${c} ${setup.splits[P.comboKey(combo)]?.[c] ?? '?'}%`).join(' · ') + ' of the upline pool',
-        })),
+        children: setup.roles.length ? [{
+          key: 'split', tone: roleColor(setup.roles, setup.roles.at(-1).code), label: 'Split of the upline pool',
+          meta: setup.roles.map(r => `${r.code} ${setup.splits?.[r.code] ?? '?'}%`).join(' · ') + ' · a level missing from a deal leaves its share with the company',
+        }] : [],
       },
       {
         key: 'agents', label: <>Agents {pill(`${agents.length}`, C.bg, C.muted)}</>,

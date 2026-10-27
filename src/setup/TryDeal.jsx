@@ -60,6 +60,11 @@ export default function TryDeal({ setup, tiers: all, title = 'Try a deal' }) {
       {uplines.length > 0 && total == null && (
         <p style={{ color: C.warn, fontSize: 13, margin: '0 0 8px' }}>No valid total payout for {P.tierLabel(tier)} yet, so uplines get nothing in this preview.</p>
       )}
+      {total != null && setup.roles.length > 0 && uplines.length < setup.roles.length && (
+        <p style={{ color: C.muted, fontSize: 13, margin: '0 0 8px' }}>
+          {setup.roles.filter(r => !uplines.includes(r.code)).map(r => r.code).join(' and ')} not on this deal: that share of the upline pool stays with the company.
+        </p>
+      )}
       {!setup.roles.length && (
         <p style={{ color: C.muted, fontSize: 13, margin: '0 0 8px' }}>No upline levels are set up, so the negotiator gets the tier rate and the rest stays with the company.</p>
       )}

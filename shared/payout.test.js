@@ -36,17 +36,25 @@ describe('computeTierIndex', () => {
 })
 
 describe('splits', () => {
-  it('lists every combination of two or more uplines', () => {
-    expect(P.roleCombos(roles).map(P.comboKey)).toEqual(['AGA+GSM', 'AGA+TSM', 'TSM+GSM', 'AGA+TSM+GSM'])
-  })
   it('defaults juniors to 20% each', () => {
     expect(P.defaultSplit(['AGA', 'TSM', 'GSM'])).toEqual({ AGA: 20, TSM: 20, GSM: 60 })
+    expect(P.normalizeSplits({}, roles)).toEqual({ AGA: 20, TSM: 20, GSM: 60 })
   })
-  it('requires every combination to add to 100', () => {
+  it('requires the shares to add to 100', () => {
     const splits = P.normalizeSplits({}, roles)
     expect(P.validateSplits(splits, roles)).toEqual([])
-    splits['AGA+TSM'].TSM = 70
-    expect(P.validateSplits(splits, roles)[0]).toMatch(/add up to 90%/)
+    expect(P.validateSplits({ ...splits, TSM: 10 }, roles)[0]).toMatch(/add up to 90%/)
+  })
+  it('gives a lone level the whole pool', () => {
+    expect(P.normalizeSplits({ AGA: 20 }, roles.slice(0, 1))).toEqual({ AGA: 100 })
+    expect(P.validateSplits({}, roles.slice(0, 1))).toEqual([])
+  })
+  it('keeps the whole chain’s share from splits saved per mix of uplines', () => {
+    const old = { 'AGA+TSM': { AGA: 20, TSM: 80 }, 'AGA+TSM+GSM': { AGA: 10, TSM: 30, GSM: 60 } }
+    expect(P.normalizeSplits(old, roles)).toEqual({ AGA: 10, TSM: 30, GSM: 60 })
+  })
+  it('defaults again when the levels change', () => {
+    expect(P.normalizeSplits({ AGA: 10, TSM: 30, GSM: 60 }, roles.slice(1))).toEqual({ TSM: 20, GSM: 80 })
   })
 })
 
@@ -73,11 +81,18 @@ describe('distribute', () => {
     const out = P.distribute({ agentRate: 60, totalPct: 85, uplines: ['AGA', 'TSM', 'GSM'], splits, roles })
     expect(out).toEqual({ agent: 60, uplines: { AGA: 5, TSM: 5, GSM: 15 }, company: 15 })
   })
-  it('gives a lone upline the whole pool', () => {
-    expect(P.distribute({ agentRate: 60, totalPct: 85, uplines: ['TSM'], splits, roles }).uplines).toEqual({ TSM: 25 })
+  it('gives a missing level’s share to the company, not to the other uplines', () => {
+    expect(P.distribute({ agentRate: 60, totalPct: 85, uplines: ['AGA', 'GSM'], splits, roles }))
+      .toEqual({ agent: 60, uplines: { AGA: 5, GSM: 15 }, company: 20 })
+    expect(P.distribute({ agentRate: 60, totalPct: 85, uplines: ['TSM'], splits, roles }))
+      .toEqual({ agent: 60, uplines: { TSM: 5 }, company: 35 })
+  })
+  it('gives the only level set up the whole pool', () => {
+    const one = roles.slice(0, 1)
+    expect(P.distribute({ agentRate: 60, totalPct: 85, uplines: ['AGA'], splits: P.normalizeSplits({}, one), roles: one }).uplines).toEqual({ AGA: 25 })
   })
   it('puts rounding on the most senior upline', () => {
-    const odd = { ...splits, 'AGA+TSM+GSM': { AGA: 33.33, TSM: 33.33, GSM: 33.34 } }
+    const odd = { AGA: 33.33, TSM: 33.33, GSM: 33.34 }
     const out = P.distribute({ agentRate: 65, totalPct: 86, uplines: ['AGA', 'TSM', 'GSM'], splits: odd, roles })
     const sum = out.agent + out.company + Object.values(out.uplines).reduce((a, b) => a + b, 0)
     expect(Math.round(sum * 100)).toBe(10000)
@@ -200,6 +215,14 @@ describe('deal sides and payout lines', () => {
   it('finds the nearest holder of each upline role', () => {
     expect(P.uplineHolders(staff, 1, roles)).toEqual({ AGA: 2, TSM: 3, GSM: 5 })
     expect(P.uplineHolders(staff, 3, roles)).toEqual({ TSM: 4, GSM: 5 })
+  })
+  it('leaves a role empty when its holder has left, even with another holder further up', () => {
+    const left = { ...staff, 3: { ...staff[3], status: 'inactive' } }
+    expect(P.uplineHolders(left, 1, roles)).toEqual({ AGA: 2, GSM: 5 })
+    const { lines, company } = P.payoutLines({ amount: 1000, earnerId: 1, agentRate: 60, totalPct: 85,
+      holders: P.uplineHolders(left, 1, roles), splits, roles })
+    expect(lines.map(l => [l.role, l.amount])).toEqual([[null, 600], ['AGA', 50], ['GSM', 150]])
+    expect(company).toBe(200)
   })
   it('prices lines so they and the company add up to the amount', () => {
     const { lines, company } = P.payoutLines({ amount: 4629.63, earnerId: 1, agentRate: 60, totalPct: 85,

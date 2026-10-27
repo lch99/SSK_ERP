@@ -186,6 +186,8 @@ function Split({ deal, m, setup }) {
 
       {sides.map(s => {
         const earnerName = m.staffName(s.staffId)
+        // Upline levels nobody (still working here) holds on this side: their share stayed with the company.
+        const missing = s.totalPct != null ? setup.roles.filter(r => !s.lines.some(l => l.role === r.code)).map(r => r.code) : []
         return (
           <div key={s.side} style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', padding: '6px 0', borderBottom: `1px solid ${C.border}` }}>
@@ -208,7 +210,9 @@ function Split({ deal, m, setup }) {
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', color: C.muted, fontSize: 13 }}>
               <span style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, background: COMPANY_COLOR }} aria-hidden />
-              <span style={{ flex: 1 }}>Company keeps</span>
+              <span style={{ flex: 1 }}>Company keeps
+                {missing.length > 0 && <span style={{ display: 'block', fontSize: 12 }}>Includes the {missing.join(', ')} share{missing.length > 1 ? 's' : ''}: nobody at that level on this deal</span>}
+              </span>
               <span style={tabular}>{pct(r2(s.company / (s.base || 1) * 100))}</span>
               <span style={{ minWidth: 92, textAlign: 'right', ...tabular }}>{rm(s.company)}</span>
               {!s.preview && <span style={{ minWidth: 92 }} />}

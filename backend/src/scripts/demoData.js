@@ -22,7 +22,7 @@ if (process.env.NODE_ENV === 'production') {
   const { tiers: saved } = await store.saveTiers({ tiers });
   await store.saveUplines({
     roles: [{ code: 'AGA', name: 'Agent Leader' }, { code: 'TSM', name: 'Team Sales Manager' }, { code: 'GSM', name: 'Group Sales Manager' }],
-    splits: { 'AGA+TSM': { AGA: 20, TSM: 80 }, 'AGA+GSM': { AGA: 20, GSM: 80 }, 'TSM+GSM': { TSM: 40, GSM: 60 }, 'AGA+TSM+GSM': { AGA: 20, TSM: 20, GSM: 60 } },
+    splits: { AGA: 20, TSM: 20, GSM: 60 },
   });
   // Company default: agent rate + 25 points, capped at 95%.
   const totals = Object.fromEntries(saved.map(t => [t.id, Math.min(95, t.agentRate + 25)]));

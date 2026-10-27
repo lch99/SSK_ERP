@@ -160,14 +160,10 @@ async function saveUplines(body) {
     .map(r => ({ code: str(r.code).toUpperCase(), name: str(r.name) }));
   const errors = P.validateRoles(roles);
   if (errors.length) throw new ValidationError(errors);
-  const splits = {};
-  for (const combo of P.roleCombos(roles)) {
-    const key = P.comboKey(combo);
-    splits[key] = Object.fromEntries(combo.map(c => {
-      const v = body?.splits?.[key]?.[c];
-      return [c, v === '' || v == null ? '' : Number(v)];
-    }));
-  }
+  const splits = roles.length < 2 ? P.normalizeSplits({}, roles) : Object.fromEntries(roles.map(r => {
+    const v = body?.splits?.[r.code];
+    return [r.code, v === '' || v == null ? '' : Number(v)];
+  }));
   const splitErrors = P.validateSplits(splits, roles);
   if (splitErrors.length) throw new ValidationError(splitErrors);
   await writeSetting('uplines', { roles, splits });

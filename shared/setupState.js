@@ -172,11 +172,8 @@ const STEPS = {
   uplines(state, body) {
     const roles = (Array.isArray(body?.roles) ? body.roles : []).map(r => ({ code: str(r.code).toUpperCase(), name: str(r.name) }));
     check(P.validateRoles(roles));
-    const splits = {};
-    for (const combo of P.roleCombos(roles)) {
-      const key = P.comboKey(combo);
-      splits[key] = Object.fromEntries(combo.map(c => [c, numOrBlank(body?.splits?.[key]?.[c])]));
-    }
+    const splits = roles.length < 2 ? P.normalizeSplits({}, roles)
+      : Object.fromEntries(roles.map(r => [r.code, numOrBlank(body?.splits?.[r.code])]));
     check(P.validateSplits(splits, roles));
     return { ...state, roles, splits };
   },
@@ -300,7 +297,7 @@ export function sampleState() {
   ] });
   s = applyStep(s, 'uplines', {
     roles: [{ code: 'AGA', name: 'Agent Leader' }, { code: 'TSM', name: 'Team Sales Manager' }, { code: 'GSM', name: 'Group Sales Manager' }],
-    splits: { 'AGA+TSM': { AGA: 20, TSM: 80 }, 'AGA+GSM': { AGA: 20, GSM: 80 }, 'TSM+GSM': { TSM: 40, GSM: 60 }, 'AGA+TSM+GSM': { AGA: 20, TSM: 20, GSM: 60 } },
+    splits: { AGA: 20, TSM: 20, GSM: 60 },
   });
   // No agents imported: the demo ERP makes up its own people for the sample.
   s = applyStep(s, 'agents', { mode: 'replace', rows: [] });
