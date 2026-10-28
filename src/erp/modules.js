@@ -87,7 +87,6 @@ export const MODULES = [
     { section: 'Invoices & receipts', was: 'Invoice & Receipt' },
     { label: 'Tax invoices & receipts', was: 'Tax Invoice & Official Receipts', path: 'invoices/tax' },
     { label: 'Invoices', path: 'invoices' },
-    { note: 'The ledger, bank reconciliation and profit & loss will live here too.' },
   ] },
   // Agent management: the sales force (account types Agent and Sales Agent).
   { key: 'agents', label: 'Agents', icon: 'staff', home: 'staff', items: [
