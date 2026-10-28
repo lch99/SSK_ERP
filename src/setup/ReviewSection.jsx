@@ -100,6 +100,19 @@ export default function ReviewSection({ setup, step, onGoTo }) {
         }] : [],
       },
       {
+        key: 'sides', label: 'Two agents on one deal',
+        meta: `Closing agent ${setup.sideSharePct}% · listing holder ${Math.round((100 - setup.sideSharePct) * 100) / 100}%`,
+      },
+      ...(setup.ruleHistory?.length ? [{
+        key: 'history', label: <>Earlier payout rules {pill(`${setup.ruleHistory.length}`, C.bg, C.muted)}</>, open: false,
+        meta: `The rules above apply to E-Forms dated from ${P.dayLabel(P.rulesSince(setup))}`,
+        children: setup.ruleHistory.map((h, i) => ({
+          key: `rules${h.until}`,
+          label: i === 0 ? `Before ${P.dayLabel(h.until)}` : `From ${P.dayLabel(setup.ruleHistory[i - 1].until)}, before ${P.dayLabel(h.until)}`,
+          meta: `${h.plans.reduce((n, p) => n + p.tiers.length, 0)} tiers · ${h.roles.map(r => r.code).join(' → ') || 'no uplines'} · closing agent ${h.sideSharePct ?? P.SIDE_SHARE}%`,
+        })),
+      }] : []),
+      {
         key: 'agents', label: <>Agents {pill(`${agents.length}`, C.bg, C.muted)}</>,
         meta: agents.length ? `${agents.filter(a => a.position).length} leaders · ${agents.filter(a => !a.position).length} negotiators` : 'None imported yet',
       },

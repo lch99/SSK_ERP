@@ -83,7 +83,7 @@ export function erpBlockers(setup) {
 // Changes to these parts of Setup rebuild the sample records.
 export function setupSignature(s) {
   const json = JSON.stringify([s.branches, s.tiers, s.branchTiers, s.roles, s.splits, s.totals, s.dealTypes, s.numbering, s.approvals, s.agents,
-    s.company?.reaName, s.bankAccounts?.map(a => a.id)])
+    s.company?.reaName, s.bankAccounts?.map(a => a.id), s.sideSharePct, s.ruleHistory])
   let h = 5381
   for (let i = 0; i < json.length; i++) h = (Math.imul(h, 33) + json.charCodeAt(i)) >>> 0
   return `${ERP_VERSION}-${h.toString(36)}`
@@ -176,14 +176,22 @@ export const ACCESS = {
 // each side's earner is paid at the tier their commission has reached so far
 // (creditOf(id) → { lifetime, yearly }), with their uplines and the company's
 // share. Used for the sample history and for closing a deal in the demo.
-export function payoutForClose(setup, staffById, deal, net, creditOf) {
+// The rules are the ones in force on the E-Form's date (P.rulesAt); `on` is the
+// close date, for whether an agent had left by then.
+export function payoutForClose(current, staffById, deal, net, creditOf, on = localToday()) {
+  const setup = P.rulesAt(current, deal.date)
   const roles = setup.roles || []
-  const all = P.dealSides(deal.agentId, deal.holderId)
+  const all = P.dealSides(deal, setup.sideSharePct)
   const sides = [], lines = []
   let given = 0
   all.forEach((side, i) => {
     const base = i === all.length - 1 ? r2(net - given) : r2(net * side.pct / 100)
     given = r2(given + base)
+    // A retracted side's portion goes back to the company; the other side is not topped up.
+    if (P.sideRetracted(side, staffById, on)) {
+      sides.push({ side: side.side, staffId: side.staffId, sharePct: side.pct, base, retracted: true, tierId: null, agentRate: null, totalPct: null, company: base })
+      return
+    }
     const earner = staffById[side.staffId]
     const tiers = P.tiersFor(setup, earner.branchId)
     const floor = Math.max(0, tiers.findIndex(t => t.id === earner.tierFloorId))
@@ -592,7 +600,7 @@ export function makeErpSample(setup, asOf = localToday()) {
     claimedSst[deal.id] = r2((claimedSst[deal.id] || 0) + c.sst)
     const year = c.date.slice(0, 4)
     const { sides, lines } = payoutForClose(setup, staffById, deal, c.net,
-      id => ({ lifetime: lifetime[id], yearly: yearly[`${id}-${year}`] || 0 }))
+      id => ({ lifetime: lifetime[id], yearly: yearly[`${id}-${year}`] || 0 }), c.date)
     c.sides = sides
     for (const sd of sides) {
       lifetime[sd.staffId] = r2(lifetime[sd.staffId] + sd.base)

@@ -442,21 +442,22 @@ export function SetupGlance({ setup, onGoTo }) {
     { key: 'dealTypes', label: 'Deal types', value: enabled.length, sub: enabled.map(x => `${P.DEAL_TYPE_LABELS[x]} ${setup.dealTypes[x].defaultRate}%`).join(' · ') || 'None yet',
       extra: <span style={{ display: 'flex', gap: 6, marginTop: 8, color: C.primary }}>{enabled.map(x => <DealIcon key={x} type={x} size={18} />)}</span> },
     { key: 'tiers', label: 'Tiers', value: tiers.length, sub: rates.length ? `${plans.length} plan${plans.length === 1 ? '' : 's'} · agent ${Math.min(...rates)}–${Math.max(...rates)}%` : 'None yet' },
-    { key: 'uplines', label: 'Upline levels', value: setup.roles.length, sub: setup.roles.map(r => r.code).join(' → ') || 'None: negotiators keep their rate' },
+    { key: 'uplines', step: 'tiers', label: 'Upline levels', value: setup.roles.length, sub: setup.roles.map(r => r.code).join(' → ') || 'None: negotiators keep their rate' },
     { key: 'agents', label: 'Agents', value: agents.length, sub: agents.length ? `${agents.filter(x => x.position).length} leaders · ${agents.filter(x => !x.position).length} negotiators` : 'None imported yet' },
     { key: 'approvals', label: 'Pay day', value: null, big: setup.approvals?.payRun === 'weekly' ? `Every ${P.WEEKDAYS[setup.approvals.payDay - 1]?.slice(0, 3)}` : P.PAY_RUNS.find(x => x.value === setup.approvals?.payRun)?.label || 'Not set',
       sub: P.APPROVERS.find(x => x.value === setup.approvals?.dealApprover)?.label ? `${P.APPROVERS.find(x => x.value === setup.approvals.dealApprover).label} approves` : 'Approvals not set' },
   ]
   const done = Object.fromEntries(setup.checklist.map(i => [i.key, i.done]))
+  for (const t of tiles) t.step ||= t.key
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(190px, 100%), 1fr))', gap: 10, marginBottom: 16 }}>
       {tiles.map(t => (
-        <button key={t.key} onClick={() => onGoTo(t.key)} className="ssk-lift" title={`Open ${t.label}`}
-          style={{ textAlign: 'left', fontFamily: C.font, cursor: 'pointer', background: '#fff', border: `1px solid ${done[t.key] === false ? C.warn : C.border}`, borderRadius: 12, padding: '12px 14px', minWidth: 0, color: C.text }}>
+        <button key={t.key} onClick={() => onGoTo(t.step)} className="ssk-lift" title={`Open ${t.label}`}
+          style={{ textAlign: 'left', fontFamily: C.font, cursor: 'pointer', background: '#fff', border: `1px solid ${done[t.step] === false ? C.warn : C.border}`, borderRadius: 12, padding: '12px 14px', minWidth: 0, color: C.text }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <span style={{ width: 28, height: 28, borderRadius: 8, background: C.primaryBg, color: C.primary, display: 'grid', placeItems: 'center' }}><Icon name={STEP_ICONS[t.key]} size={15} /></span>
             <span style={{ fontSize: 12.5, color: C.muted, fontWeight: 600, flex: 1 }}>{t.label}</span>
-            {done[t.key] === false && <span style={{ fontSize: 11, fontWeight: 700, color: C.warn }}>To do</span>}
+            {done[t.step] === false && <span style={{ fontSize: 11, fontWeight: 700, color: C.warn }}>To do</span>}
           </span>
           <span style={{ display: 'block', fontSize: t.big ? 18 : 24, fontWeight: 800, fontFamily: C.fontHead, lineHeight: 1.2 }}>{t.big ?? t.value}</span>
           <span style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 2, ...ellipsis }}>{t.sub}</span>

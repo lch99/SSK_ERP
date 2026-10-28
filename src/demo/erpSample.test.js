@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import * as P from '../../shared/payout.js'
 import { sampleState, view, applyStep } from '../../shared/setupState.js'
-import { makeErpSample, nextPayDate } from './erpSample.js'
+import { makeErpSample, nextPayDate, payoutForClose } from './erpSample.js'
 import * as A from '../../shared/agents.js'
 
 const AS_OF = '2026-10-21'
@@ -51,6 +51,12 @@ describe('ERP sample records', () => {
       expect(r2(sum(lines, l => l.amount) + sum(c.sides, s => s.company))).toBe(c.net)
       expect(sum(c.sides, s => s.base)).toBe(c.net)
       for (const s of c.sides) {
+        // A side whose agent had left by the close goes back to the company.
+        if (s.retracted) {
+          expect(s.company).toBe(s.base)
+          expect(data.staff.find(x => x.id === s.staffId).leftOn <= c.date).toBe(true)
+          continue
+        }
         const earner = lines.find(l => l.side === s.side && l.role === null)
         expect(earner.staffId).toBe(s.staffId)
         expect(earner.pct).toBe(s.agentRate)
@@ -121,5 +127,31 @@ describe('ERP sample records', () => {
     const received = applyStep(sampleState(), 'approvals', { ...sampleState().approvals, payWhen: 'received' })
     const parts = makeErpSample(view(received), AS_OF)
     expect(parts.deals.some(d => d.status === 'partial')).toBe(true)
+  })
+})
+
+describe('two agents on one deal', () => {
+  const b = setup.branches[0].id
+  const person = (id, status) => ({ id, branchId: b, status, uplineId: null, role: null, tierFloorId: null })
+  const newcomer = () => ({ lifetime: 0, yearly: 0 })
+  const t1 = P.tiersFor(setup, b)[0].agentRate
+  it('a retracted side goes back to the company; the other side is not topped up', () => {
+    const staff = { 1: person(1, 'active'), 2: person(2, 'inactive') }
+    const { sides, lines } = payoutForClose(setup, staff, { agentId: 1, holderId: 2, listingId: 5, type: 'sale', date: AS_OF }, 1000, newcomer)
+    expect(sides.map(s => [s.side, s.base, !!s.retracted])).toEqual([['sales', 500, false], ['listing', 500, true]])
+    expect(sides[1].company).toBe(500)
+    expect(lines.every(l => l.staffId === 1)).toBe(true)
+    expect(sum(lines, l => l.amount)).toBe(r2(500 * t1 / 100))
+  })
+  it('an agent who left after the close is still paid for it', () => {
+    const staff = { 1: person(1, 'active'), 2: { ...person(2, 'inactive'), leftOn: '2026-09-01' } }
+    const deal = { agentId: 1, holderId: 2, listingId: 5, type: 'sale', date: '2026-07-01' }
+    expect(payoutForClose(setup, staff, deal, 1000, newcomer, '2026-08-15').sides.some(s => s.retracted)).toBe(false)
+    expect(payoutForClose(setup, staff, deal, 1000, newcomer, '2026-09-01').sides[1].retracted).toBe(true)
+  })
+  it('a holder taken off the E-Form leaves that portion with the company too', () => {
+    const staff = { 1: person(1, 'active') }
+    const { sides } = payoutForClose(setup, staff, { agentId: 1, holderId: null, listingId: 5, type: 'sale', date: AS_OF }, 1000, newcomer)
+    expect(sides.map(s => [s.side, s.base, !!s.retracted])).toEqual([['sales', 500, false], ['listing', 500, true]])
   })
 })

@@ -7,25 +7,26 @@ import { ROLE_COLORS, AGENT_COLOR, COMPANY_COLOR } from './colors.js'
 const r2 = n => Math.round(n * 100) / 100
 const fmtRM = n => `RM ${Number(n).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
+const isNum = v => v !== '' && v != null && Number.isFinite(Number(v))
+
 // Live picture of the upline chain being set up: who sits above the
-// negotiator, and how one example deal would pay out. Uses the unsaved draft.
-export default function HierarchyPreview({ setup, roles, splits, onAddLevel, onUseExample }) {
+// negotiator, and how one example deal would pay out. Uses the unsaved draft:
+// `tiers` are the tier plan being edited (`planName` when there are several).
+export default function HierarchyPreview({ setup, tiers: all, planName, roles, splits, onAddLevel, onUseExample }) {
   const [absent, setAbsent] = useState([])
-  const plans = setup.plans || []
-  const [planRaw, setPlan] = useState(0)
-  const planIdx = Math.min(planRaw, Math.max(0, plans.length - 1))
-  const tiers = plans[planIdx]?.tiers || []
-  const [tierId, setTierId] = useState(tiers[0]?.id ?? null)
+  const tiers = all.filter(t => isNum(t.agentRate))
+  const [tierIdx, setTierIdx] = useState(0)
   const [amount, setAmount] = useState('10000')
 
   const enabled = P.DEAL_TYPES.filter(dt => setup.dealTypes?.[dt]?.enabled)
   const [dealType, setDealType] = useState(enabled[0] || 'sale')
   const dt = enabled.includes(dealType) ? dealType : enabled[0] || 'sale'
 
-  const tier = tiers.find(t => t.id === tierId) || tiers[0]
-  const agentRate = tier ? tier.agentRate : 60
+  const tier = tiers[Math.min(tierIdx, tiers.length - 1)]
+  const agentRate = tier ? Number(tier.agentRate) : 60
   const raw = tier?.totals?.[dt]
-  const totalPct = raw === '' || raw == null ? null : Number(raw)
+  // A half-typed or too-low total counts as not set yet, as in the tier table.
+  const totalPct = isNum(raw) && !P.validateTotal(raw, agentRate) ? Number(raw) : null
 
   const present = roles.map(r => r.code).filter(c => !absent.includes(c))
   const out = P.distribute({ agentRate, totalPct, uplines: present, splits, roles })
@@ -47,18 +48,11 @@ export default function HierarchyPreview({ setup, roles, splits, onAddLevel, onU
   return (
     <div style={{ marginTop: 20, padding: 16, background: C.bg, borderRadius: 8 }}>
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
-        <h3 style={{ fontSize: 14, margin: 0, flex: '1 1 160px' }}>Hierarchy preview</h3>
-        {plans.length > 1 && (
-          <label><span style={label}>Tier plan</span>
-            <select style={sel} value={planIdx} onChange={e => { setPlan(Number(e.target.value)); setTierId(plans[Number(e.target.value)]?.tiers[0]?.id ?? null) }}>
-              {plans.map((p, i) => <option key={p.id} value={i}>{P.planLabel(p, i)}</option>)}
-            </select>
-          </label>
-        )}
+        <h3 style={{ fontSize: 14, margin: 0, flex: '1 1 160px' }}>Try a deal{planName ? ` · ${planName}` : ''}</h3>
         {tiers.length > 0 && (
           <label><span style={label}>Negotiator's tier</span>
-            <select style={sel} value={tier?.id ?? ''} onChange={e => setTierId(Number(e.target.value))}>
-              {tiers.map(t => <option key={t.id} value={t.id}>{P.tierLabel(t)} · {t.agentRate}%</option>)}
+            <select style={sel} value={tiers.indexOf(tier)} onChange={e => setTierIdx(Number(e.target.value))}>
+              {tiers.map((t, i) => <option key={t.id ?? `new-${i}`} value={i}>{P.tierLabel(t) || `Tier ${i + 1}`} · {t.agentRate}%</option>)}
             </select>
           </label>
         )}
@@ -137,10 +131,10 @@ export default function HierarchyPreview({ setup, roles, splits, onAddLevel, onU
             </tbody>
           </table>
           <p style={{ fontSize: 12, color: C.muted, margin: '10px 0 0', lineHeight: 1.45 }}>
-            {!tier ? 'Add tiers (Tiers and payouts) to preview with real agent rates. Using 60% for now.'
+            {!tier ? 'Add a tier with an agent rate above to preview real numbers. Using 60% for now.'
               : !present.length ? 'No uplines on this deal: the negotiator keeps the tier rate and the rest stays with the company.'
-              : totalPct == null ? `No total payout set yet for ${P.tierLabel(tier)} (${P.DEAL_TYPE_LABELS[dt]}), so the uplines get nothing. Set it in Tiers and payouts.`
-              : `Total payout ${totalPct}% for ${P.DEAL_TYPE_LABELS[dt]}${plans.length > 1 ? ` on the ${P.planLabel(plans[planIdx], planIdx)} plan` : ''}: agent ${out.agent}% + upline pool ${r2(totalPct - out.agent)}%.`
+              : totalPct == null ? `No valid total payout yet for ${P.tierLabel(tier)} (${P.DEAL_TYPE_LABELS[dt]}), so the uplines get nothing. Set it in the tier table above.`
+              : `Total payout ${totalPct}% for ${P.DEAL_TYPE_LABELS[dt]}${planName ? ` on the ${planName} plan` : ''}: agent ${out.agent}% + upline pool ${r2(totalPct - out.agent)}%.`
                 + (offDeal.length && left > 0 ? ` ${offDeal.join(' and ')} not on this deal, so ${left}% of the pool goes back to the company.` : '')}
           </p>
         </div>

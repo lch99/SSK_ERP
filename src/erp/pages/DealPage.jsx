@@ -120,12 +120,14 @@ function Figure({ label, value, sub }) {
 }
 
 // Each side's people and amounts: the real payout lines once the deal has
-// closed, otherwise a preview on everyone's tier today.
+// closed, otherwise a preview on everyone's tier today. Both use the payout
+// rules in force on the E-Form's date.
 function sidesOf(deal, m, setup) {
+  const rules = P.rulesAt(setup, deal.date)
   const closes = m.closesByDeal[deal.id] || []
   if (closes.length) {
     const lines = m.payoutsByDeal[deal.id] || []
-    return P.dealSides(deal.agentId, deal.holderId).map(sd => {
+    return P.dealSides(deal, rules.sideSharePct).map(sd => {
       const parts = closes.flatMap(c => c.sides.filter(s => s.side === sd.side))
       const mine = lines.filter(l => l.side === sd.side)
       const keyed = {}
@@ -137,27 +139,33 @@ function sidesOf(deal, m, setup) {
       }
       const last = parts[parts.length - 1]
       return { ...sd, base: sum(parts, p => p.base), company: sum(parts, p => p.company), tierId: last.tierId, agentRate: last.agentRate,
-        totalPct: last.totalPct, lines: Object.values(keyed), preview: false }
+        totalPct: last.totalPct, retracted: parts.some(p => p.retracted), lines: Object.values(keyed), preview: false }
     })
   }
-  return P.dealSides(deal.agentId, deal.holderId).map((sd, i, all) => {
+  return P.dealSides(deal, rules.sideSharePct).map((sd, i, all) => {
     const base = i === all.length - 1 ? r2(deal.money.net - (all.length > 1 ? r2(deal.money.net * all[0].pct / 100) : 0)) : r2(deal.money.net * sd.pct / 100)
+    if (P.sideRetracted(sd, m.staff)) return { ...sd, base, company: base, retracted: true, tierId: null, agentRate: null, totalPct: null, lines: [], preview: true }
     const earner = m.staff[sd.staffId]
-    const { tier } = m.tierInfo(earner.id)
-    const total = P.resolveTotal(setup.totals, { branchId: earner.branchId, dealType: deal.type, tierId: tier.id })
-    const holders = P.uplineHolders(m.staff, earner.id, setup.roles)
-    const out = P.payoutLines({ amount: base, earnerId: earner.id, agentRate: tier.agentRate, totalPct: total?.pct, holders, splits: setup.splits, roles: setup.roles })
+    const info = m.tierInfo(earner.id)
+    // Earlier rules have their own ladder: place the earner on it by the same commission.
+    const tiers = P.tiersFor(rules, earner.branchId)
+    const tier = rules === setup ? info.tier
+      : tiers[P.computeTierIndex(info.lifetime, info.yearly, tiers, Math.max(0, tiers.findIndex(t => t.id === earner.tierFloorId)))]
+    const total = P.resolveTotal(rules.totals, { branchId: earner.branchId, dealType: deal.type, tierId: tier.id })
+    const holders = P.uplineHolders(m.staff, earner.id, rules.roles)
+    const out = P.payoutLines({ amount: base, earnerId: earner.id, agentRate: tier.agentRate, totalPct: total?.pct, holders, splits: rules.splits, roles: rules.roles })
     return { ...sd, base, company: out.company, tierId: tier.id, agentRate: tier.agentRate, totalPct: total?.pct ?? null, lines: out.lines, preview: true }
   })
 }
 
 function Split({ deal, m, setup }) {
   const money = deal.money
+  const rules = P.rulesAt(setup, deal.date)
   const sides = sidesOf(deal, m, setup)
   const preview = sides.some(s => s.preview)
-  const roleColor = code => ROLE_COLORS[Math.max(0, setup.roles.findIndex(r => r.code === code)) % ROLE_COLORS.length]
+  const roleColor = code => ROLE_COLORS[Math.max(0, rules.roles.findIndex(r => r.code === code)) % ROLE_COLORS.length]
   const tierName = (sid, tierId) => {
-    const t = P.tiersFor(setup, m.staff[sid].branchId).find(x => x.id === tierId)
+    const t = P.tiersFor(rules, m.staff[sid].branchId).find(x => x.id === tierId)
     return t ? P.tierLabel(t) : ''
   }
   // One bar for the whole fee: co-broke, referral, then each person, then the company.
@@ -180,6 +188,11 @@ function Split({ deal, m, setup }) {
         {money.referral > 0 && <Row label={`Referral fee ${setup.dealTypes.referralPct}%`} value={`− ${rm(money.referral)}`} muted />}
         <Row label="Net commission to share" value={rm(money.net)} strong />
       </div>
+      {rules.rulesUntil && (
+        <p style={{ fontSize: 12.5, color: C.muted, margin: '0 0 12px', lineHeight: 1.45 }}>
+          Paid on the payout rules for E-Forms dated before {date(rules.rulesUntil)}: this one is dated {date(deal.date)}, so later changes to tiers and splits don’t apply to it.
+        </p>
+      )}
       <div style={{ display: 'flex', gap: 2, height: 14, borderRadius: 4, overflow: 'hidden', marginBottom: 16 }} role="img" aria-label="Share of the fee">
         {segs.map(s => <div key={s.key} title={`${s.label}: ${rm(s.amount)}`} style={{ flex: `${s.amount} 0 0`, background: s.color, minWidth: 2 }} />)}
       </div>
@@ -187,13 +200,15 @@ function Split({ deal, m, setup }) {
       {sides.map(s => {
         const earnerName = m.staffName(s.staffId)
         // Upline levels nobody (still working here) holds on this side: their share stayed with the company.
-        const missing = s.totalPct != null ? setup.roles.filter(r => !s.lines.some(l => l.role === r.code)).map(r => r.code) : []
+        const missing = s.totalPct != null ? rules.roles.filter(r => !s.lines.some(l => l.role === r.code)).map(r => r.code) : []
         return (
           <div key={s.side} style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', padding: '6px 0', borderBottom: `1px solid ${C.border}` }}>
               <b style={{ fontSize: 13.5 }}>{sides.length > 1 ? (s.side === 'sales' ? 'Marketing side' : 'Product side') : 'Both sides'}</b>
               <span style={{ fontSize: 12.5, color: C.muted, flex: 1 }}>
-                {sides.length > 1 ? `${s.pct}% · ` : ''}{rm(s.base)} · {earnerName} on {tierName(s.staffId, s.tierId)}
+                {sides.length > 1 ? `${s.pct}% · ` : ''}{rm(s.base)} · {s.retracted
+                  ? `${s.staffId == null ? 'no listing holder on this E-Form' : `${earnerName} has left`}: this portion goes back to the company`
+                  : `${earnerName} on ${tierName(s.staffId, s.tierId)}`}
                 {s.totalPct != null && s.lines.length > 1 ? ` · total payout ${s.totalPct}%` : ''}
               </span>
             </div>

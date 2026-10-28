@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import * as P from './payout.js'
-import { emptyState, sampleState, view, applyStep, migrate } from './setupState.js'
+import { emptyState, sampleState, view, applyStep, applySteps, migrate } from './setupState.js'
 
 describe('setupState', () => {
   it('starts with nothing ticked, even steps whose defaults are valid', () => {
@@ -85,6 +85,39 @@ describe('setupState', () => {
     expect(migrate(s)).toBe(s)
     const v = view(v1)
     expect(P.resolveTotal(v.totals, { branchId: 2, dealType: 'sale', tierId: P.tiersFor(v, 2)[0].id }).pct).toBe(88)
+  })
+})
+
+describe('payout rules by date', () => {
+  it('keeps the replaced rules for E-Forms dated before the change', () => {
+    const s = sampleState()
+    const plans = structuredClone(s.plans)
+    plans[0].tiers[0].agentRate = 62
+    const next = applySteps(s, [['rules-from', { from: '2026-11-01' }], ['plans', { plans, sideSharePct: 60 }],
+      ['uplines', { roles: s.roles, splits: { AGA: 30, TSM: 20, GSM: 50 } }]])
+    const v = view(next)
+    expect(v.ruleHistory).toHaveLength(1)
+    expect(P.rulesSince(v)).toBe('2026-11-01')
+    const before = P.rulesAt(v, '2026-10-31'), after = P.rulesAt(v, '2026-11-01')
+    expect(P.tiersFor(before, v.branches[0].id)[0].agentRate).toBe(60)
+    expect(before).toMatchObject({ sideSharePct: 50, splits: { AGA: 20, TSM: 20, GSM: 60 }, rulesUntil: '2026-11-01' })
+    expect(P.tiersFor(after, v.branches[0].id)[0].agentRate).toBe(62)
+    expect(after).toMatchObject({ sideSharePct: 60, splits: { AGA: 30, TSM: 20, GSM: 50 } })
+    expect(P.rulesAt(v, null)).toBe(v)
+  })
+  it('a later change must start after the last one; correcting needs no date', () => {
+    const s = applyStep(sampleState(), 'rules-from', { from: '2026-11-01' })
+    expect(() => applyStep(s, 'rules-from', { from: '2026-11-01' })).toThrow(/after 1 Nov 2026/)
+    expect(() => applyStep(s, 'rules-from', { from: '' })).toThrow(/date the new rules start/)
+    expect(applyStep(s, 'rules-from', { from: '2026-12-01' }).ruleHistory.map(h => h.until)).toEqual(['2026-11-01', '2026-12-01'])
+    // Saving plans alone changes the current rules and leaves the history alone.
+    expect(applyStep(s, 'plans', { plans: s.plans }).ruleHistory).toHaveLength(1)
+  })
+  it('the side share defaults to 50 and is checked', () => {
+    const s = sampleState()
+    expect(view(s).sideSharePct).toBe(50)
+    expect(applyStep(s, 'plans', { plans: s.plans, sideSharePct: 70 }).sideSharePct).toBe(70)
+    expect(() => applyStep(s, 'plans', { plans: s.plans, sideSharePct: 120 })).toThrow(/0 to 100/)
   })
 })
 

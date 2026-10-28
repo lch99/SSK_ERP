@@ -3,7 +3,6 @@ import { getSetup, saveSetup, DEMO, loadSampleSetup, startBlankSetup } from '../
 import { C, btn, btnPrimary, sel } from '../styles.js'
 import { CompanySection, DealTypesSection } from './BasicSections.jsx'
 import TiersSection from './TiersSection.jsx'
-import UplinesSection from './UplinesSection.jsx'
 import AgentsSection from './AgentsSection.jsx'
 import ReviewSection from './ReviewSection.jsx'
 import ApprovalsSection from './ApprovalsSection.jsx'
@@ -18,7 +17,6 @@ const SECTIONS = {
   company: CompanySection,
   dealTypes: DealTypesSection,
   tiers: TiersSection,
-  uplines: UplinesSection,
   agents: AgentsSection,
   approvals: ApprovalsSection,
 }
@@ -37,7 +35,12 @@ function useWide(minWidth = 900) {
 }
 
 // The step lives in the address (#/setup/tiers), so a refresh stays put.
-const stepFromHash = () => window.location.hash.replace(/^#\/?/, '').split('/')[1] || null
+// Uplines used to be a step of their own; old links open the tiers step.
+const OLD_STEPS = { uplines: 'tiers' }
+const stepFromHash = () => {
+  const k = window.location.hash.replace(/^#\/?/, '').split('/')[1] || null
+  return OLD_STEPS[k] || k
+}
 // Demo: the welcome screen shows once per page load (see main.jsx).
 let welcomeSeen = false
 
@@ -229,7 +232,7 @@ function DemoBar({ fb, onLoaded }) {
 function Welcome({ steps, done, onStart, onErp, onExample }) {
   const groups = [
     ['About the company', ['company']],
-    ['How deals are paid', ['dealTypes', 'tiers', 'uplines']],
+    ['How deals are paid', ['dealTypes', 'tiers']],
     ['Your people', ['agents']],
     ['Controls', ['approvals']],
     ['Check', ['review']],

@@ -158,7 +158,51 @@ describe('setupChecklist', () => {
     expect(byKey.company.done).toBe(true)
     expect(byKey.tiers.done).toBe(false)
     expect(byKey.tiers.detail).toMatch(/total payout of T2/)
-    expect(byKey.uplines.done).toBe(true)
+    expect(byKey.uplines).toBeUndefined()
+  })
+  it('puts tiers and uplines on one step (five plus Review), ticked once both are saved', () => {
+    const base = {
+      company: { name: 'SSK', regNo: '123' },
+      branches: [{ id: 1, name: 'HQ', code: 'HQ' }],
+      dealTypes: { sale: { enabled: true, defaultRate: 3 }, sstPct: 8 },
+      plans: [{ id: 5, name: 'Standard', branchIds: [], tiers: [{ id: 1, name: 'T1', basis: 'lifetime', threshold: 0, agentRate: 70, totals: { sale: 90 } }] }],
+      roles: [{ code: 'TL', name: 'Team Leader' }], splits: { TL: 100 },
+      agents: [], approvals: { dealApprover: 'boss', refundApprover: 'boss', payWhen: 'full', payRun: 'weekly', payDay: 5 },
+      numbering: { letters: { sale: 'S' }, caseDigits: 4, voucherDigits: 4, voucherPrefix: 'PV' },
+    }
+    const list = P.setupChecklist(base)
+    expect(list.map(i => i.key)).toEqual(['company', 'dealTypes', 'tiers', 'agents', 'approvals'])
+    const tiersOnly = P.setupChecklist({ ...base, confirmed: { tiers: true } }).find(i => i.key === 'tiers')
+    expect(tiersOnly.done).toBe(false)
+    const both = P.setupChecklist({ ...base, confirmed: { tiers: true, uplines: true } }).find(i => i.key === 'tiers')
+    expect(both).toMatchObject({ done: true, detail: '1 tier · TL' })
+    const badSplit = P.setupChecklist({ ...base, roles: [{ code: 'TL', name: 'A' }, { code: 'UM', name: 'B' }], splits: { TL: 50, UM: 20 } })
+    expect(badSplit.find(i => i.key === 'tiers').done).toBe(false)
+  })
+})
+
+describe('deal sides', () => {
+  const deal = (agentId, holderId, listingId = 9) => ({ agentId, holderId, listingId })
+  it('splits a two-agent deal by the Setup share; one agent doing both, or no listing, takes it all', () => {
+    expect(P.dealSides(deal(1, 2))).toEqual([{ side: 'sales', staffId: 1, pct: 50 }, { side: 'listing', staffId: 2, pct: 50 }])
+    expect(P.dealSides(deal(1, 2), 70).map(s => s.pct)).toEqual([70, 30])
+    expect(P.dealSides(deal(1, 2), 66.67).map(s => s.pct)).toEqual([66.67, 33.33])
+    expect(P.dealSides(deal(1, 1), 70)).toEqual([{ side: 'sales', staffId: 1, pct: 100 }])
+    expect(P.dealSides(deal(1, null, null), 70)).toEqual([{ side: 'sales', staffId: 1, pct: 100 }])
+    expect(P.dealSides(deal(1, 2), 100)).toEqual([{ side: 'sales', staffId: 1, pct: 100 }])
+    expect(P.dealSides(deal(1, 2), 0)).toEqual([{ side: 'listing', staffId: 2, pct: 100 }])
+  })
+  it('a retracted side is not passed to the other agent: it keeps its place, for the company', () => {
+    // The listing holder was taken off the E-Form: still two sides, the listing one empty.
+    expect(P.dealSides(deal(1, null), 60)).toEqual([{ side: 'sales', staffId: 1, pct: 60 }, { side: 'listing', staffId: null, pct: 40 }])
+    expect(P.dealSides(deal('1', ''))[1].staffId).toBeNull()
+    const staff = { 1: { status: 'active' }, 2: { status: 'inactive' } }
+    expect(P.sideRetracted({ staffId: 1 }, staff)).toBe(false)
+    expect(P.sideRetracted({ staffId: 2 }, staff)).toBe(true)
+    expect(P.sideRetracted({ staffId: null }, staff)).toBe(true)
+    expect(P.validateSideShare(50)).toEqual([])
+    expect(P.validateSideShare('')).toHaveLength(1)
+    expect(P.validateSideShare(50.555)[0]).toMatch(/2 decimal/)
   })
 })
 
@@ -208,9 +252,9 @@ describe('deal sides and payout lines', () => {
     5: { id: 5, uplineId: null, role: 'GSM' },
   }
   it('splits between two people, or gives one person everything', () => {
-    expect(P.dealSides(1, 2).map(s => [s.side, s.pct])).toEqual([['sales', 50], ['listing', 50]])
-    expect(P.dealSides(1, 1)).toEqual([{ side: 'sales', staffId: 1, pct: 100 }])
-    expect(P.dealSides(1, null)).toHaveLength(1)
+    expect(P.dealSides({ agentId: 1, holderId: 2, listingId: 9 }).map(s => [s.side, s.pct])).toEqual([['sales', 50], ['listing', 50]])
+    expect(P.dealSides({ agentId: 1, holderId: 1, listingId: 9 })).toEqual([{ side: 'sales', staffId: 1, pct: 100 }])
+    expect(P.dealSides({ agentId: 1, holderId: null, listingId: null })).toHaveLength(1)
   })
   it('finds the nearest holder of each upline role', () => {
     expect(P.uplineHolders(staff, 1, roles)).toEqual({ AGA: 2, TSM: 3, GSM: 5 })

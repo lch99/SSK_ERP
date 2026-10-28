@@ -37,12 +37,9 @@ const check = errors => { if (errors.length) throw new SetupError(errors); };
 const str = v => String(v ?? '').trim();
 const numOrBlank = v => (v === '' || v == null || !Number.isFinite(Number(v)) ? '' : Number(v));
 
-const plainTier = ({ totals, ...t }) => t;
-
 // What the Setup page reads: the state plus the go-live checklist. Tier plans
 // are also given the older way (company tiers, branchTiers and totals rows),
 // which is what the ERP pages and payout.js read: tiersFor(), resolveTotal().
-// Tier ids are unique across plans, so every total is a company-scope row.
 export function view(saved) {
   const state = migrate(saved);
   const plans = state.plans;
@@ -55,13 +52,11 @@ export function view(saved) {
     numbering: state.numbering,
     branches: state.branches.map(b => ({ address: '', phone: '', manager: '', ...b })),
     plans,
-    tiers: (plans[0]?.tiers || []).map(plainTier),
-    branchTiers: Object.fromEntries(state.branches.map(b => [b.id, P.planIndexFor(plans, b.id)]).filter(([, i]) => i > 0)
-      .map(([id, i]) => [id, plans[i].tiers.map(plainTier)])),
-    totals: plans.flatMap(p => p.tiers.flatMap(t => P.DEAL_TYPES.filter(dt => t.totals?.[dt] !== '' && t.totals?.[dt] != null)
-      .map(dt => ({ branchId: P.COMPANY_SCOPE, dealType: dt, tierId: t.id, totalPct: Number(t.totals[dt]) })))),
+    ...P.plansView(plans, state.branches),
     roles: state.roles,
     splits: P.normalizeSplits(state.splits, state.roles),
+    sideSharePct: state.sideSharePct ?? P.SIDE_SHARE,
+    ruleHistory: state.ruleHistory || [],
     agents: state.agents || [],
   };
   // Data saved before steps were tracked has no `confirmed`: treat it as all checked.
@@ -139,10 +134,23 @@ const STEPS = {
     return { ...state, dealTypes };
   },
 
+  // body: { from }. Sent first when payout rules change after going live: the
+  // rules in force now are kept for E-Forms dated before `from`, and the steps
+  // saved with it (plans, uplines) become the rules from that date on.
+  'rules-from'(state, body) {
+    const history = state.ruleHistory || [];
+    const from = str(body?.from);
+    check(P.validateRulesFrom(from, history));
+    const kept = { until: from, plans: state.plans, roles: state.roles, splits: state.splits, sideSharePct: state.sideSharePct ?? P.SIDE_SHARE };
+    return { ...state, ruleHistory: [...history, structuredClone(kept)] };
+  },
+
   // body: { plans: [{ id?, name, branchIds, tiers: [{ id?, name, title, basis,
-  // threshold, agentRate, totals: { [dealType]: pct } }] }] }. Saves every tier
-  // plan at once. The first plan is the standard one; branchIds says which
-  // branches use each of the others. Tiers are put in ladder order.
+  // threshold, agentRate, totals: { [dealType]: pct } }] }], sideSharePct? }.
+  // Saves every tier plan at once. The first plan is the standard one;
+  // branchIds says which branches use each of the others. Tiers are put in
+  // ladder order. sideSharePct: the closing agent's share when another agent
+  // holds the listing (left as it was when not sent).
   plans(state, body) {
     const branchIds = new Set(state.branches.map(b => b.id));
     const plans = (Array.isArray(body?.plans) ? body.plans : []).map((p, i) => ({
@@ -154,7 +162,8 @@ const STEPS = {
         totals: Object.fromEntries(P.DEAL_TYPES.map(dt => [dt, numOrBlank(t.totals?.[dt])]).filter(([, v]) => v !== '')),
       }))),
     }));
-    check(P.validatePlans(plans, state.dealTypes, state.branches));
+    const sideSharePct = body?.sideSharePct === undefined ? state.sideSharePct : numOrBlank(body.sideSharePct);
+    check([...P.validatePlans(plans, state.dealTypes, state.branches), ...(sideSharePct === undefined ? [] : P.validateSideShare(sideSharePct))]);
     // Keep known ids (each used once); new plans and tiers get fresh ones.
     let nextId = state.nextId;
     const used = new Set();
@@ -166,7 +175,7 @@ const STEPS = {
     const knownPlans = new Set(state.plans.map(p => p.id));
     const knownTiers = new Set(state.plans.flatMap(p => p.tiers.map(t => t.id)));
     const list = plans.map(p => ({ ...p, id: keep(p.id, knownPlans), tiers: p.tiers.map(t => ({ ...t, id: keep(t.id, knownTiers) })) }));
-    return { ...state, plans: list, nextId };
+    return { ...state, plans: list, nextId, ...(sideSharePct === undefined ? {} : { sideSharePct }) };
   },
 
   uplines(state, body) {
@@ -218,7 +227,7 @@ const STEPS = {
 };
 
 // Which part of the checklist each step confirms.
-const STEP_KEYS = { 'deal-types': 'dealTypes', plans: 'tiers' };
+const STEP_KEYS = { 'deal-types': 'dealTypes', plans: 'tiers', 'rules-from': 'tiers' };
 
 export function applyStep(saved, step, body) {
   const fn = STEPS[step];

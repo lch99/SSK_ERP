@@ -188,6 +188,20 @@ export const branchesOnPlan = (plans, branches, index) => (branches || []).filte
 
 export const planLabel = (p, i) => String(p?.name ?? "").trim() || (i === 0 ? STANDARD_PLAN : `Plan ${i + 1}`);
 
+// The plans the way the ERP and the payout code read them: the standard
+// plan's tiers, branchTiers for branches on another plan, and totals rows
+// (tier ids are unique across plans, so every total is a company-scope row).
+const plainTier = ({ totals, ...t }) => t;
+export function plansView(plans, branches = []) {
+  return {
+    tiers: (plans[0]?.tiers || []).map(plainTier),
+    branchTiers: Object.fromEntries(branches.map(b => [b.id, planIndexFor(plans, b.id)]).filter(([, i]) => i > 0)
+      .map(([id, i]) => [id, plans[i].tiers.map(plainTier)])),
+    totals: plans.flatMap(p => p.tiers.flatMap(t => DEAL_TYPES.filter(dt => t.totals?.[dt] !== "" && t.totals?.[dt] != null)
+      .map(dt => ({ branchId: COMPANY_SCOPE, dealType: dt, tierId: t.id, totalPct: Number(t.totals[dt]) })))),
+  };
+}
+
 // Ladder order: lifetime tiers first, each part by threshold. Blank thresholds
 // keep their place at the end, so a half-typed row doesn't jump around.
 export function sortTiers(tiers) {
@@ -292,15 +306,62 @@ export function dealMoney({ fee, sstPct = 0, sstMode = "on_top", coBroke = false
 // ── The two sides of a deal ──────────────────────────────────────────────────
 // The negotiator who closed the deal (sales side) and the agent holding the
 // listing (listing side) share its commission, each paid on their own tier and
-// uplines. When one person holds both, or there is no listing holder (e.g. a
-// project deal), the sales side takes it all.
-// TODO: SIDE_SHARE copies the legacy ERP (50/50); move it into Setup once confirmed.
+// uplines. salesPct (setup.sideSharePct) is the sales side's share, set in
+// Setup; the default is the legacy ERP's 50/50. One person holding both gets
+// both portions; a deal with no listing (e.g. a project) has only the sales side.
+// A side whose agent is retracted (taken off the E-Form, or has left) is not
+// passed to the other side: its portion stays with the company, as an upline
+// level nobody holds does (the client's rule, 2026-10-28).
 export const SIDE_SHARE = 50;
 export const SIDE_LABELS = { sales: "Sales side", listing: "Listing side" };
 
-export function dealSides(agentId, holderId) {
-  if (holderId == null || holderId === agentId) return [{ side: "sales", staffId: agentId, pct: 100 }];
-  return [{ side: "sales", staffId: agentId, pct: SIDE_SHARE }, { side: "listing", staffId: holderId, pct: 100 - SIDE_SHARE }];
+export function dealSides({ agentId, holderId, listingId }, salesPct = SIDE_SHARE) {
+  const pct = isNum(salesPct) ? Number(salesPct) : SIDE_SHARE;
+  const holder = holderId === "" || holderId == null ? null : holderId;
+  if (listingId === "" || listingId == null || holder === agentId || pct >= 100) return [{ side: "sales", staffId: agentId, pct: 100 }];
+  if (pct <= 0) return [{ side: "listing", staffId: holder, pct: 100 }];
+  return [{ side: "sales", staffId: agentId, pct }, { side: "listing", staffId: holder, pct: r2(100 - pct) }];
+}
+
+// staffById: { [id]: { status, leftOn } }. Retracted on day `on` (YYYY-MM-DD,
+// the close): nobody on that side, or they had left by then. Without `on`, any
+// Inactive agent counts as gone.
+export function sideRetracted(side, staffById, on) {
+  const s = side.staffId == null ? null : staffById[side.staffId];
+  return !s || (s.status === "inactive" && !(on && s.leftOn && s.leftOn > on));
+}
+
+export function validateSideShare(pct) {
+  if (!isNum(pct) || Number(pct) < 0 || Number(pct) > 100) return ["The closing agent's share must be from 0 to 100%."];
+  if (!twoDp(Number(pct))) return ["The closing agent's share can have at most 2 decimal places."];
+  return [];
+}
+
+// ── Payout rules by date ─────────────────────────────────────────────────────
+// Changing tiers, uplines or the side split never changes what earlier deals
+// pay. Setup keeps the rules each change replaced in `ruleHistory`, oldest
+// first: { until, plans, roles, splits, sideSharePct } for E-Forms dated before
+// `until`. The current rules apply to E-Forms dated from the last `until` on.
+
+// The setup with the payout rules in force on an E-Form's date (YYYY-MM-DD).
+export function rulesAt(s, date) {
+  const past = date ? (s?.ruleHistory || []).find(h => date < h.until) : null;
+  if (!past) return s;
+  return { ...s, plans: past.plans, ...plansView(past.plans, s.branches || []), roles: past.roles,
+    splits: normalizeSplits(past.splits, past.roles), sideSharePct: past.sideSharePct ?? SIDE_SHARE, rulesUntil: past.until };
+}
+
+// The date the current rules started, or null when they have always applied.
+export const rulesSince = s => (s?.ruleHistory || []).at(-1)?.until || null;
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const dayLabel = iso => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : "");
+
+export function validateRulesFrom(from, history = []) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from || "") || Number.isNaN(Date.parse(from))) return ["Pick the date the new rules start."];
+  const last = history.at(-1)?.until;
+  if (last && from <= last) return [`The new rules must start after ${dayLabel(last)}, when the last change started. To change those rules instead, choose "Correct the rules from ${dayLabel(last)}".`];
+  return [];
 }
 
 // Who holds each upline role above a staff member: the nearest person up the
@@ -599,10 +660,11 @@ export function setupChecklist(s) {
       [...validateCompany(s.company), ...validateBranches(s.branches), ...(s.bankAccounts ? validateBankAccounts(s.bankAccounts) : [])],
       `${s.company?.name} · ${branches} branch${branches === 1 ? "" : "es"}`, ["company", "branches"]),
     item("dealTypes", "Deals, tax and sharing", validateDealTypes(s.dealTypes), enabled.map(dt => DEAL_TYPE_LABELS[dt]).join(", ")),
-    item("tiers", "Tiers and payouts", tierErrors,
-      plans.length > 1 ? `${plans.length} tier plans · ${plans.map(planLabel).join(", ")}` : `${plans[0]?.tiers.length} tiers · every branch`),
-    item("uplines", "Uplines and split", [...validateRoles(s.roles || []), ...validateSplits(s.splits, s.roles || [])],
-      (s.roles || []).length ? (s.roles || []).map(r => r.code).join(" → ") : "No uplines — negotiators keep their tier rate only"),
+    item("tiers", "Tiers, uplines and payouts",
+      [...tierErrors, ...validateRoles(s.roles || []), ...validateSplits(s.splits, s.roles || [])],
+      [plans.length > 1 ? `${plans.length} tier plans` : `${plans[0]?.tiers.length} tier${plans[0]?.tiers.length === 1 ? "" : "s"}`,
+        (s.roles || []).length ? (s.roles || []).map(r => r.code).join(" → ") : "no uplines"].join(" · "),
+      ["tiers", "uplines"]),
     ...(Array.isArray(s.agents) ? [item("agents", "Agents", [], (() => {
       const leaders = s.agents.filter(a => a.position).length;
       return s.agents.length ? `${s.agents.length} agent${s.agents.length === 1 ? "" : "s"}${leaders ? ` · ${leaders} leader${leaders === 1 ? "" : "s"}` : ""}` : "None yet, can be added later";
