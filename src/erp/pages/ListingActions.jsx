@@ -5,18 +5,20 @@ import { useErp } from '../ErpContext.jsx'
 import { isAgent } from '../model.js'
 import { Menu, Modal, FormField, FileInput, TextArea, Select, Notice, go, field, small } from '../ui.jsx'
 import { useFeedback } from '../feedback.jsx'
-import { rm, rm0 } from '../format.js'
+import { rm } from '../format.js'
 import { Review, changedRows, missing, needText, markGaps } from '../review.jsx'
 import ListingPreview from './ListingPreview.jsx'
 import Icon from '../Icon.jsx'
 import { useGate } from '../access.jsx'
 import { UPLOADS } from '../../../shared/files.js'
+import { Photo, coverOf, savePreviews } from '../photos.jsx'
 
 // Everything the current ERP lets you do to a listing, from its row or its
 // details: edit, Update Tracking, Listing Settings, Follow-up (with an
 // appointment), Share (users, PM, 3 co-product handlers), Album (photos and
-// videos), Marketing Tools and Delete. `quiet` for table rows.
-export const PORTALS = ['iProperty', 'PropertyGuru', 'Mudah.my']
+// videos) and Delete. `quiet` for table rows. The current ERP's Marketing
+// Tools (portals, marketing remarks, share text) are left out until there is
+// a portal integration (the user's call, 2026-10-28).
 const TRACKING = [['active', 'Active'], ['rented', 'Rent Out'], ['invalid', 'Not Valid'], ['sold_other', 'Sold By Other']]
 const grid = { display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(min(190px, 100%), 1fr))' }
 export const photosOf = l => l.photoSet || Array.from({ length: l.photos || 0 }, (_, i) => ({ id: i + 1, name: `Photo ${i + 1}`, published: true, cover: i === 0 }))
@@ -70,11 +72,20 @@ export default function ListingActions({ l, quiet }) {
     const kept = x.media.filter(p => !(p.fresh && p.type === type))
     const ids = kept.filter(p => p.type === type).map(p => p.id)
     const next = ids.length ? Math.max(...ids) + 1 : 1
-    return { ...x, media: withCover([...kept, ...files.map((file, i) => ({ type, id: next + i, name: file.name, published: true, fresh: true }))]) }
+    // Picked photos keep their File until saving, so the tiles can show them.
+    return { ...x, media: withCover([...kept, ...files.map((file, i) => ({ type, id: next + i, name: file.name, published: true, fresh: true, ...(type === 'photo' && { file }) }))]) }
   })
   const setPicked = change => setF(x => ({ ...x, media: x.media.map(p => (x.picked.includes(keyOf(p)) ? { ...p, ...change } : p)) }))
   const setOne = (key, change) => setF(x => ({ ...x, media: x.media.map(p => (keyOf(p) === key ? { ...p, ...change } : p)) }))
-  const stored = type => media.filter(p => p.type === type).map(p => ({ id: p.id, name: p.name, published: p.published, ...(type === 'photo' && { cover: !!p.cover }) }))
+  const stored = type => media.filter(p => p.type === type).map(p => ({ id: p.id, name: p.name, published: p.published, ...(type === 'photo' && { cover: !!p.cover, ...(p.preview && { preview: p.preview }) }) }))
+  // Newly picked photos are shrunk to small previews (photos.jsx) as the album is saved.
+  const saveAlbum = async () => {
+    const fresh = media.filter(p => p.type === 'photo' && p.file)
+    const keys = await savePreviews(fresh.map(p => p.file))
+    const preview = new Map(fresh.map((p, i) => [p.id, keys[i]]))
+    const photoSet = stored('photo').map(p => (preview.has(p.id) ? { ...p, preview: preview.get(p.id) } : p))
+    return erp.updateListing(l.id, { photoSet, videoSet: stored('video') })
+  }
   const price = v => (v === '' || v == null ? '' : rm(Number(v)))
   const editChanges = dialog === 'edit' ? changedRows(start, f, [['askPrice', 'Ad Price', price], ['bestPrice', 'Best Price', price], ['marketValue', 'Market Value', price],
     ['commission', 'Commission', v => `${v}%`], ['builtUp', 'Built-up (sq ft)'], ['beds', 'Bedrooms'], ['baths', 'Bathrooms'], ['tenure', 'Tenure'], ['furnishing', 'Furnishing'],
@@ -97,7 +108,6 @@ export default function ListingActions({ l, quiet }) {
             coPh: [0, 1, 2].map(i => ({ staffId: l.share?.coPh?.[i]?.staffId ? String(l.share.coPh[i].staffId) : '', until: l.share?.coPh?.[i]?.until || '' })), add: '' }) },
         { label: 'Album', icon: 'image', sub: mediaCount(l) || 'No photos or videos yet', onClick: () => openWith('album', {
           media: [...photosOf(l).map(p => ({ ...p, type: 'photo' })), ...videosOf(l).map(v => ({ ...v, type: 'video' }))], picked: [] }) },
-        { label: 'Marketing Tools', icon: 'eye', onClick: () => openWith('marketing', { portals: [...(l.portals || [])], marketingRemarks: l.marketingRemarks || '', remarksPrivate: l.remarksPrivate !== false }) },
         '-',
         { label: 'Delete listing', icon: 'trash', danger: true, disabled: !!l.dealId, why: 'It has an E-Form. Set it Not Valid instead.', onClick: remove },
       ].map(i => (i?.label ? gate(i, 'listings', i.danger ? 'full' : 'edit') : i))} />
@@ -118,7 +128,7 @@ export default function ListingActions({ l, quiet }) {
         {error && <Notice tone="red">{error}</Notice>}
         {step === 'review' ? (
           <Review changes={editChanges} intro="Check the changes. The listing on the website is updated as soon as you save."
-            preview={<ListingPreview l={{ ...l, ...f }} agent={m.staff[l.holderId]} photos={l.photos} videos={l.videos} />} />
+            preview={<ListingPreview l={{ ...l, ...f }} agent={m.staff[l.holderId]} photos={l.photos} videos={l.videos} cover={coverOf(photosOf(l))?.preview} />} />
         ) : <div style={grid}>
           <FormField label="Ad Price (RM)" required><input style={field} type="number" min="0" value={f.askPrice ?? ''} onChange={set('askPrice')} /></FormField>
           <FormField label="Best Price (RM)"><input style={field} type="number" min="0" value={f.bestPrice ?? ''} onChange={set('bestPrice')} /></FormField>
@@ -209,7 +219,7 @@ export default function ListingActions({ l, quiet }) {
       </Modal>
 
       <Modal open={dialog === 'album'} onClose={close} title={`Album · ${l.code}`} width={680}
-        footer={footer('Save', () => save(() => erp.updateListing(l.id, { photoSet: stored('photo'), videoSet: stored('video') }), `${l.code} album saved`))}>
+        footer={footer('Save', () => save(saveAlbum, `${l.code} album saved`))}>
         {error && <Notice tone="red">{error}</Notice>}
         <div style={{ display: 'grid', gap: 12 }}>
           <FormField label="Upload photos"><FileInput kind="photo" onChange={addFiles('photo')} /></FormField>
@@ -239,6 +249,7 @@ export default function ListingActions({ l, quiet }) {
                   <div style={{ height: 84, background: video ? 'linear-gradient(135deg, #1d1f27, #5a0a2a)' : 'linear-gradient(135deg, #e3edfb, #f7c4d1)', display: 'grid', placeItems: 'center',
                     color: video ? 'rgba(255,255,255,.75)' : 'rgba(29,35,48,.4)', position: 'relative', opacity: p.published ? 1 : 0.45 }}>
                     <Icon name={video ? 'video' : 'image'} size={26} />
+                    {!video && (p.file || p.preview) && <span style={{ position: 'absolute', inset: 0 }}><Photo src={p.file || p.preview} alt={p.name} /></span>}
                     <input type="checkbox" aria-label={`Select ${p.name}`} checked={f.picked.includes(key)} onChange={() => setF(x => ({ ...x, picked: x.picked.includes(key) ? x.picked.filter(y => y !== key) : [...x.picked, key] }))}
                       style={{ position: 'absolute', top: 6, left: 6, accentColor: C.primary }} />
                     {(p.cover || video) && <span style={{ position: 'absolute', top: 6, right: 6, fontSize: 11.5, fontWeight: 700, background: video ? 'rgba(255,255,255,.9)' : C.primary, color: video ? C.text : '#fff', borderRadius: 4, padding: '1px 5px' }}>{video ? 'Video' : 'Cover'}</span>}
@@ -255,33 +266,7 @@ export default function ListingActions({ l, quiet }) {
             })}
           </div>
         )}
-        <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>Published photos and videos show on the SubSaleKing site. Unpublished ones stay private. (Demo: the files themselves are not stored.)</p>
-      </Modal>
-
-      <Modal open={dialog === 'marketing'} onClose={close} title={`Manage Marketing Tools · ${l.code}`} width={560}
-        footer={footer('Save', () => save(() => erp.updateListing(l.id, { portals: f.portals, marketingRemarks: f.marketingRemarks, remarksPrivate: f.remarksPrivate }), `${l.code} marketing saved`))}>
-        {error && <Notice tone="red">{error}</Notice>}
-        <div style={{ display: 'grid', gap: 14 }}>
-          <FormField label="Advertised on">
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', paddingTop: 4 }}>
-              {PORTALS.map(p => (
-                <label key={p} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 14 }}>
-                  <input type="checkbox" checked={f.portals?.includes(p)} onChange={() => setF(x => ({ ...x, portals: x.portals.includes(p) ? x.portals.filter(y => y !== p) : [...x.portals, p] }))} style={{ accentColor: C.primary }} />{p}
-                </label>
-              ))}
-            </div>
-          </FormField>
-          <FormField label="Marketing remarks" help="Notes for the team marketing this listing">
-            <TextArea rows={3} value={f.marketingRemarks || ''} onChange={set('marketingRemarks')} />
-          </FormField>
-          <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 14 }}>
-            <input type="checkbox" checked={!!f.remarksPrivate} onChange={e => setF(x => ({ ...x, remarksPrivate: e.target.checked }))} style={{ accentColor: C.primary }} />
-            Private (only the listing owner sees the remarks). Untick for Less Private (shared users see them too).
-          </label>
-          <FormField label="WhatsApp / SMS share text">
-            <TextArea rows={3} readOnly value={`${l.title}, ${l.area}\n${l.type === 'sale' ? 'For sale' : 'For rent'} ${rm0(l.askPrice)}${l.type === 'rental' ? '/month' : ''} · ${l.beds ? `${l.beds} bed · ` : ''}${l.builtUp} sq ft\nhttps://www.subsaleking.com/listings/${l.code.toLowerCase()}`} />
-          </FormField>
-        </div>
+        <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>Published photos and videos show on the SubSaleKing site. Unpublished ones stay private. (Demo: photos are kept as small previews in this browser; videos are not stored.)</p>
       </Modal>
     </>
   )

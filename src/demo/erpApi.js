@@ -108,7 +108,8 @@ export const verifyLandlord = (dealId, status, remarks) => change((data, setup, 
 // ── Salary / Incentives: requests per person ──
 export const createRequests = (staffIds, kind) => change((data, setup, today) => {
   const pick = new Set(staffIds)
-  const lines = data.payouts.filter(p => pick.has(p.staffId) && p.status === 'approved' && !p.requestId && (kind === 'incentives' ? p.role : !p.role))
+  // Lines an agent stacked wait for that agent to claim them.
+  const lines = data.payouts.filter(p => pick.has(p.staffId) && p.status === 'approved' && !p.requestId && !p.stacked && (kind === 'incentives' ? p.role : !p.role))
   if (!lines.length) return 'Nobody picked has Ready lines to request.'
   const payOn = nextPayDate(setup.approvals, today)
   let id = newId(data)
@@ -118,6 +119,38 @@ export const createRequests = (staffIds, kind) => change((data, setup, today) =>
     data.requests.push(r)
     for (const l of lines) if (l.staffId === sid) Object.assign(l, { requestId: r.id, requestOn: today })
   })
+})
+
+// An agent's own Ready lines, which they either get paid (claimPay) or stack
+// (stackPay): stacked lines stay Ready and unrequested, adding up, until the
+// agent claims them. The server must also check the lines are the viewer's.
+function ownReady(data, staffId, lineIds) {
+  const ids = new Set(lineIds)
+  const lines = data.payouts.filter(p => ids.has(p.id))
+  if (!ids.size || lines.length !== ids.size) return 'Those payout lines no longer exist.'
+  if (lines.some(p => p.staffId !== staffId)) return 'Only your own commission can be claimed or stacked.'
+  if (lines.some(p => p.status !== 'approved' || p.requestId)) return 'Some of these lines are already claimed, or not Ready yet.'
+  return lines
+}
+// Get paid: one salary request for own-deal lines and one incentive request for
+// upline lines (as the current ERP keeps them apart), paid on the next pay day.
+export const claimPay = (staffId, lineIds) => change((data, setup, today) => {
+  const lines = ownReady(data, staffId, lineIds)
+  if (typeof lines === 'string') return lines
+  const payOn = nextPayDate(setup.approvals, today)
+  let id = newId(data)
+  for (const kind of ['salary', 'incentives']) {
+    const mine = lines.filter(p => (kind === 'incentives' ? p.role : !p.role))
+    if (!mine.length) continue
+    const r = { id: id++, code: `SAL-${today.slice(0, 7)}-${String(4801 + data.requests.length).padStart(5, '0')}`, staffId, kind, date: today, payOn, status: 'new', remark: null, paidOn: null }
+    data.requests.push(r)
+    for (const l of mine) Object.assign(l, { requestId: r.id, requestOn: today, stacked: false, stackedOn: null })
+  }
+})
+export const stackPay = (staffId, lineIds) => change((data, setup, today) => {
+  const lines = ownReady(data, staffId, lineIds)
+  if (typeof lines === 'string') return lines
+  for (const l of lines) Object.assign(l, { stacked: true, stackedOn: today })
 })
 
 export const setRequestStatus = (id, status, remark) => change((data, setup, today) => {
@@ -314,12 +347,16 @@ export const addListing = body => change((data, setup, today) => {
   const branch = setup.branches.find(b => b.id === holder.branchId)
   const last = data.listings.reduce((m, l) => Math.max(m, Number(l.code.slice(5)) || 0), 122300)
   const ask = Number(body.askPrice)
+  // Photos picked on the form, each pointing at its small preview (src/erp/photos.jsx).
+  const photoSet = Array.isArray(body.photoSet) && body.photoSet.length
+    ? body.photoSet.map(p => ({ id: Number(p.id), name: str(p.name), published: p.published !== false, cover: !!p.cover, ...(p.preview && { preview: str(p.preview) }) }))
+    : null
   data.listings.push({ id: newId(data), code: `LIST-${last + 1}`, type: body.type, category: body.category || 'Condominium', title: str(body.title), area: str(body.area),
     city: '', state: body.state || 'Selangor', postcode: '', address: str(body.address) || `${str(body.title)}, ${str(body.area)}`,
     beds: Number(body.beds) || 0, baths: Number(body.baths) || 0, builtUp: Number(body.builtUp) || 0, land: null, tenure: body.tenure || 'Freehold',
     furnishing: body.furnishing || 'Partly furnished', askPrice: ask, bestPrice: Number(body.bestPrice) || ask, marketValue: Number(body.marketValue) || null, status: 'active', closedOn: null,
     branchId: branch?.id ?? holder.branchId, holderId: holder.id, creatorId: holder.id, flags: body.flags || [], portals: [], created: today, updated: today,
-    views: 0, viewsApp: 0, enquiries: 0, photos: Number(body.photos) || 0, videos: Number(body.videos) || 0, owner: { name: str(body.ownerName), ic: '', phone: str(body.ownerPhone) }, dealId: null, priceUpdated: today, photosOn: today,
+    views: 0, viewsApp: 0, enquiries: 0, photos: photoSet ? photoSet.length : Number(body.photos) || 0, ...(photoSet && { photoSet }), videos: Number(body.videos) || 0, owner: { name: str(body.ownerName), ic: '', phone: str(body.ownerPhone) }, dealId: null, priceUpdated: today, photosOn: today,
     followUps: [], titleId: data.titles.find(t => same(t.name, body.title) && same(t.area, body.area))?.id ?? null,
     share: { users: [], pmId: null, coPh: [] }, marketingRemarks: '', remarksPrivate: true, description: str(body.desc), remarks: str(body.remarks), draft: !!body.draft })
 })
@@ -336,7 +373,7 @@ export const addStaff = body => change((data, setup, today) => {
   data.staff.push({ id: newId(data), code: `STAFF-${String(last + 1).padStart(5, '0')}`, name: str(body.name), short: str(body.short) || str(body.name),
     sex: body.sex === 'female' ? 'F' : 'M', ic: str(body.ic), phone: str(body.phone), email: str(body.email), branchId, role: body.role || null,
     uplineId: Number(body.uplineId) || null, depth: 9, status: 'pending', joined: today, leftOn: null, renNo: str(body.renNo), bank: body.bank || '',
-    account: str(body.account), openingLifetime: 0, tierFloorId: body.tierFloorId || null, whtExempt: false, username: str(body.username), type: body.type || 'staff',
+    account: str(body.account), accountName: str(body.accountName), openingLifetime: 0, tierFloorId: body.tierFloorId || null, whtExempt: false, username: str(body.username), type: body.type || 'staff',
     birthday: body.birthday || '', language: body.language || '', education: str(body.education), address: str(body.address),
     // The client's new HR form: registration, public profile, documents, access.
     phone2: str(body.phone2), regType: body.regType || 'REN', regNo: str(body.regNo), bio: str(body.bio), socials: body.socials || {}, awards: body.awards || [],
@@ -829,7 +866,7 @@ export const addCustomerFollowUp = (id, body) => change((data, setup, today) => 
 })
 
 // ── Staff: edit, marketing staffs, delete ──
-const STAFF_EDIT = ['name', 'short', 'ic', 'phone', 'phone2', 'email', 'sex', 'birthday', 'address', 'language', 'education', 'bank', 'account', 'type', 'role',
+const STAFF_EDIT = ['name', 'short', 'ic', 'phone', 'phone2', 'email', 'sex', 'birthday', 'address', 'language', 'education', 'bank', 'account', 'accountName', 'type', 'role',
   'regType', 'regNo', 'bio', 'socials', 'awards', 'access', 'docs', 'expiresOn', 'tierFloorId', 'whtExempt', 'branchId', 'extra']
 export const updateStaff = (id, fields) => change(data => {
   const s = data.staff.find(x => x.id === id)

@@ -302,7 +302,7 @@ function Profile({ id }) {
             <KV min={170} items={[
               ['User Name', s.username], ['Account Type', ACCOUNT_TYPES[s.type] || 'Agent'], ['Full Name (IC)', s.name], ['NRIC No', maskIc(s.ic)],
               ['Namecard Name', s.short], ['Phone', s.phone], ['E-Mail', s.email], ['Gender', s.sex === 'F' ? 'Female' : 'Male'], ['Date of Birth', s.birthday ? date(s.birthday) : '—'],
-              ...(agent ? [['Registration (LPPEH)', s.regNo ? `${s.regType || 'REN'} ${s.regNo}` : s.renNo || '—']] : []), ['Bank', `${s.bank} ${maskAcc(s.account)}`],
+              ...(agent ? [['Registration (LPPEH)', s.regNo ? `${s.regType || 'REN'} ${s.regNo}` : s.renNo || '—']] : []), ['Bank', `${s.bank} ${maskAcc(s.account)}${s.accountName ? ` · ${s.accountName}` : ''}`],
               ['Active Status Expiry', s.expiresOn ? date(s.expiresOn) : '—'], ['Last Login/Activity', s.lastActive ? date(s.lastActive) : 'Never'],
               ...(agent ? [['Withholding tax', s.whtExempt ? 'Exempt' : `${setup.dealTypes.whtPct}% on each payslip`]] : []),
             ]} />
@@ -372,7 +372,7 @@ function StaffFormStart(s) {
     type: s.type || 'staff', tierFloorId: s.tierFloorId || '', branchId: String(s.branchId), uplineId: s.uplineId ? String(s.uplineId) : '', role: s.role || '',
     username: s.username, password: '', name: s.name, ic: String(s.ic || '').replace(/\D/g, ''), sex: s.sex === 'F' ? 'female' : 'male', birthday: s.birthday || '',
     short: s.short, phone: s.phone, phone2: s.phone2 || '', email: s.email, bio: s.bio || '', socials: { ...(s.socials || {}) }, regType: s.regType || 'REN', regNo: s.regNo || '',
-    bank: s.bank || '', account: s.account || '', docs: { ...(s.docs || {}) }, awards: [...(s.awards || [])], active: s.status === 'active',
+    bank: s.bank || '', account: s.account || '', accountName: s.accountName || '', docs: { ...(s.docs || {}) }, awards: [...(s.awards || [])], active: s.status === 'active',
     access: { ...(s.access || {}) }, expiresOn: s.expiresOn || '', address: s.address || '', language: s.language || '', education: s.education || '', extra: { ...(s.extra || {}) },
   }
 }
@@ -387,7 +387,7 @@ function StaffForm({ id, office = false }) {
   const s = id ? m.staff[id] : null
   const [f, setF] = useState(() => s ? StaffFormStart(s) : {
     type: office ? 'admin-staff2' : 'staff', tierFloorId: '', branchId: String(setup.branches[0]?.id || ''), uplineId: '', role: '', username: '', password: '', name: '', ic: '', sex: 'male', birthday: '',
-    short: '', phone: '', phone2: '', email: '', bio: '', socials: {}, regType: 'REN', regNo: '', bank: '', account: '', docs: {}, awards: [], active: false,
+    short: '', phone: '', phone2: '', email: '', bio: '', socials: {}, regType: 'REN', regNo: '', bank: '', account: '', accountName: '', docs: {}, awards: [], active: false,
     access: { agent: !office, profilePage: false, profileDoc: false, addListing: !office, landlordVerify: false, vendorRequests: false, tripIncentive: false },
     expiresOn: addDaysIso(m.today, 365), address: '', language: '', education: '', extra: {},
   })
@@ -416,17 +416,18 @@ function StaffForm({ id, office = false }) {
   const tierName = tid => P.tierLabel(tiers.find(t => t.id === tid) || tiers[0] || { name: '—' })
   const view = x => ({ type: ACCOUNT_TYPES[x.type] || x.type, branch: m.branchName(Number(x.branchId)), tier: agentForm ? tierName(x.tierFloorId) : '',
     role: agentForm && x.role ? `${x.role} · ${m.roleName(x.role)}` : '', upline: agentForm && x.uplineId ? m.staffName(Number(x.uplineId)) : '',
-    username: x.username, name: x.name, ic: x.ic, short: x.short, phone: x.phone, email: x.email, bank: x.bank, account: x.account, reg: agentForm && x.regNo ? `${x.regType} ${x.regNo}` : '',
+    username: x.username, name: x.name, ic: x.ic, short: x.short, phone: x.phone, email: x.email, bank: x.bank, account: x.account, accountName: x.accountName, reg: agentForm && x.regNo ? `${x.regType} ${x.regNo}` : '',
     expiresOn: x.expiresOn, active: x.active ? 'Active' : 'Not active' })
   async function preview() {
-    const gaps = missing([['Username', f.username], ['Full Name', f.name], ['Branch', f.branchId], ...(s ? [] : [['Password', f.password]])])
+    const gaps = missing([['Username', f.username], ['Full Name', f.name], ['Branch', f.branchId], ...(s ? [] : [['Password', f.password]]),
+      ...(f.account ? [['Account Holder Name', f.accountName]] : [])])
     if (gaps.length) { setError(needText(gaps)); if (!markGaps(gaps)) window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
     const who = office || !agentForm ? 'office staff' : 'agent'
     if (s) {
       return review({ title: `Review changes · ${s.code}`, confirmLabel: 'Save changes', intro: `Check what changes for ${s.short}.`,
         changes: changedRows(view(StaffFormStart(s)), view(f), [['type', 'Account Type'], ['branch', 'Branch'], ['tier', 'Rank (position)'], ['role', 'Upline level'], ['upline', 'Upline'],
           ['username', 'Username'], ['name', 'Full Name'], ['ic', 'NRIC Number', maskIc], ['short', 'Namecard Name'], ['phone', 'Phone Number'], ['email', 'Email Address'],
-          ['bank', 'Bank'], ['account', 'Bank Account', maskAcc], ['reg', 'Registration'], ['expiresOn', 'Active Status Expiry', date], ['active', 'Account']]) })
+          ['bank', 'Bank'], ['account', 'Bank Account', maskAcc], ['accountName', 'Account Holder Name'], ['reg', 'Registration'], ['expiresOn', 'Active Status Expiry', date], ['active', 'Account']]) })
     }
     const digits = v => String(v || '').replace(/\D/g, '')
     const twin = m.data.staff.find(x => (digits(f.ic).length >= 6 && digits(x.ic) === digits(f.ic)) || (digits(f.phone).length >= 7 && digits(x.phone) === digits(f.phone)))
@@ -444,7 +445,7 @@ function StaffForm({ id, office = false }) {
         agentForm && { title: 'Agent', rows: [['Starts at', tierName(f.tierFloorId)], ['Upline level they hold', f.role ? `${f.role} · ${m.roleName(f.role)}` : 'None (negotiator)'],
           ['Upline', chain || 'No upline'], ['Registration', f.regNo ? `${f.regType} ${f.regNo}` : ''], ['Agent features', on.join(', ') || 'None']] },
         { title: 'Personal and contact', rows: [['Full Name', f.name], ['NRIC Number', maskIc(f.ic)], ['Gender', f.sex === 'female' ? 'Female' : 'Male'], ['Date of Birth', f.birthday ? date(f.birthday) : ''],
-          ['Namecard Name', f.short || f.name], ['Phone Number', f.phone], ['Email Address', f.email], ['Bank', f.bank ? `${f.bank} ${maskAcc(f.account)}` : '']] },
+          ['Namecard Name', f.short || f.name], ['Phone Number', f.phone], ['Email Address', f.email], ['Bank', f.bank ? `${f.bank} ${maskAcc(f.account)}${f.accountName ? ` · ${f.accountName}` : ''}` : '']] },
       ],
     })
   }
@@ -455,7 +456,7 @@ function StaffForm({ id, office = false }) {
     const agentOnly = v => (agentForm ? v : null)
     const body = { type: f.type, tierFloorId: agentOnly(f.tierFloorId || null), branchId, uplineId: agentOnly(f.uplineId || null), role: agentOnly(f.role || null), username: f.username, name: f.name, ic: f.ic,
       sex: f.sex === 'female' ? 'F' : 'M', birthday: f.birthday, short: f.short || f.name, phone: f.phone, phone2: f.phone2, email: f.email, bio: f.bio,
-      socials: Object.fromEntries(Object.entries(f.socials).filter(([, v]) => v)), regType: f.regType, regNo: f.regNo, bank: f.bank, account: f.account, docs: f.docs,
+      socials: Object.fromEntries(Object.entries(f.socials).filter(([, v]) => v)), regType: f.regType, regNo: f.regNo, bank: f.bank, account: f.account, accountName: f.accountName, docs: f.docs,
       awards: f.awards, access: agentForm ? f.access : Object.fromEntries(Object.keys(ACCESS).map(k => [k, false])), expiresOn: f.expiresOn, address: f.address, language: f.language, education: f.education, extra: f.extra }
     try {
       if (s) {
@@ -517,6 +518,7 @@ function StaffForm({ id, office = false }) {
         {section('Bank Information', 'Bank account details for the staff member.', <>
           {pick('bank', 'Bank', [{ value: '', label: 'Select bank' }, ...BANKS.map(b => ({ value: b, label: b }))])}
           {text('account', 'Bank Account Number', { inputMode: 'numeric' })}
+          {text('accountName', 'Account Holder Name', { required: !!f.account, placeholder: f.name || undefined, help: 'Exactly as the bank has it.' })}
           <FormField label="Profile Picture"><FileInput kind="avatar" /></FormField>
         </>)}
         {section('Documents', 'For staff verification and record-keeping.', STAFF_DOCS.map(d => (

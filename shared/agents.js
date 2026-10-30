@@ -197,6 +197,17 @@ export function checkAgents(rows, setup, existing = []) {
 
 export const errorText = e => `Row ${e.line}: ${e.text}`;
 
+// The lifetime commission an imported agent starts the ERP with: what the list
+// says, or else the threshold of the tier they were put on (when that tier
+// counts lifetime commission), so they carry on climbing from that tier.
+// `tiers`: the agent's branch's ladder (P.tiersFor). The demo ERP and the
+// server both start agents from this.
+export function openingLifetime(agent, tiers) {
+  if (agent.lifetime !== "" && agent.lifetime != null) return Number(agent.lifetime);
+  const tier = tiers.find(t => t.id === agent.tierId) || tiers[0];
+  return tier?.basis === "lifetime" ? Number(tier.threshold) : 0;
+}
+
 // ── An example list for the current Setup ────────────────────────────────────
 // One chain per branch (most senior first), a negotiator or two under each
 // leader. Used for the template's Example sheet, and by the demo to try an import.

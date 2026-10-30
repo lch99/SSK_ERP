@@ -1,7 +1,7 @@
 // The signed-in person's own details ("My profile"). The page checks them as
 // they are typed, and the store (the server, later) runs the same check on save.
 
-export const PROFILE_FIELDS = ['name', 'icName', 'email', 'phone', 'address', 'bank', 'bankAccount', 'photo']
+export const PROFILE_FIELDS = ['name', 'icName', 'email', 'phone', 'address', 'bank', 'bankHolder', 'bankAccount', 'photo']
 
 // The photo is kept as a data: URL after the page cuts it to a small square.
 export const PHOTO_MAX = 400 * 1024
@@ -25,6 +25,8 @@ export function checkProfile(p = {}) {
   if (t.address.length > 300) e.address = 'Keep the address under 300 characters.'
   if (t.bankAccount && !/^\d[\d -]{4,22}\d$/.test(t.bankAccount)) e.bankAccount = 'Digits only, 6 to 24 of them.'
   if (t.bankAccount && !t.bank) e.bank = 'Pick the bank for this account.'
+  if (t.bankAccount && !t.bankHolder) e.bankHolder = 'Enter the name on this account.'
+  else if (t.bankHolder.length > 120) e.bankHolder = 'Keep the name under 120 characters.'
   if (t.photo && !/^data:image\/(jpeg|png);base64,/.test(t.photo)) e.photo = 'The photo must be a JPG or PNG.'
   else if (t.photo.length > PHOTO_MAX) e.photo = 'The photo is too large.'
   return e

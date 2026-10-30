@@ -70,4 +70,31 @@ describe('ERP demo actions', () => {
     const after = (await erp.setMoneyInStatus(open.map(t => t.id), 'cleared')).data.moneyIn
     expect(after.filter(t => open.some(o => o.id === t.id)).every(t => t.status === 'cleared')).toBe(true)
   })
+
+  it('lets an agent stack Ready commission, keeps it from office requests, then claims it', async () => {
+    await loadSample()
+    let { data } = await erp.getErp()
+    // Someone with Ready lines nobody has asked to pay yet. The sample counts
+    // back from today, so on some days there are none: approve a waiting close's.
+    const unasked = () => data.payouts.filter(p => p.status === 'approved' && !p.requestId && !p.stacked)
+    if (!unasked().length) ({ data } = await erp.approvePayouts(data.payouts.filter(p => p.status === 'new' || p.status === 'queried').map(p => p.id)))
+    const open = unasked()
+    const who = open[0].staffId
+    const mine = open.filter(p => p.staffId === who)
+    const other = data.payouts.find(p => p.staffId !== who)
+    await expect(erp.stackPay(who, [other.id])).rejects.toThrow(/your own/)
+    ;({ data } = await erp.stackPay(who, mine.map(l => l.id)))
+    expect(data.payouts.filter(p => mine.some(l => l.id === p.id)).every(p => p.stacked && !p.requestId)).toBe(true)
+    // The office's requests leave stacked lines alone.
+    await erp.createRequests([who], 'salary').catch(() => null)
+    ;({ data } = await erp.createRequests([who], 'incentives').catch(() => erp.getErp()))
+    expect(data.payouts.filter(p => mine.some(l => l.id === p.id)).every(p => !p.requestId)).toBe(true)
+    // Claiming makes one request per kind, for the next pay day.
+    const before = data.requests.length
+    ;({ data } = await erp.claimPay(who, mine.map(l => l.id)))
+    const claimed = data.payouts.filter(p => mine.some(l => l.id === p.id))
+    expect(claimed.every(p => p.requestId && !p.stacked)).toBe(true)
+    expect(data.requests.length - before).toBe(new Set(mine.map(l => (l.role ? 'incentives' : 'salary'))).size)
+    await expect(erp.claimPay(who, mine.map(l => l.id))).rejects.toThrow(/already claimed/)
+  })
 })

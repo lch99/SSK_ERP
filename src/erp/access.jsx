@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import * as A from '../../shared/access.js'
 import * as api from '../api.js'
+import { AGENT_TYPES } from './model.js'
 import { C, btn, btnPrimary } from '../styles.js'
 import { Card, Empty, go, small } from './ui.jsx'
 import Icon from './Icon.jsx'
@@ -31,9 +32,13 @@ export function AccessProvider({ me, children }) {
   const value = useMemo(() => {
     const real = { role: A.roleForUser(me), staffId: me?.staffId ?? null, branchId: me?.branchId ?? null }
     const who = viewAs && A.managesAccess(real.role) ? viewAs : real
+    const role = A.roleOf(who.role)
     return {
       policy, real, who, viewing: who !== real,
-      role: A.roleOf(who.role),
+      role,
+      // The viewer's own staff id when they sign in as an agent: they get the
+      // agent dashboard and My commission.
+      agentId: AGENT_TYPES.includes(role?.type) ? who.staffId ?? null : null,
       scope: A.scopeOf(policy, who.role),
       can: (area, level = 'view') => A.allows(policy, who.role, area, level),
       opens: path => A.opens(policy, who.role, path),

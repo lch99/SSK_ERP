@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { C, btn } from '../../styles.js'
 import { LISTING_SETTINGS, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
@@ -7,7 +7,8 @@ import { Page, Card, Tabs, Toolbar, SearchBox, Select, Chips, Segmented, DataTab
 import { CARD, COLUMN, PAGE } from '../help.js'
 import { rm, rm0, date, num, ago, maskIc } from '../format.js'
 import Icon from '../Icon.jsx'
-import ListingActions, { PORTALS, photosOf, videosOf, mediaCount } from './ListingActions.jsx'
+import ListingActions, { photosOf, videosOf, mediaCount } from './ListingActions.jsx'
+import { Photo, coverOf, prunePreviews } from '../photos.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { useCan } from '../access.jsx'
 
@@ -28,6 +29,8 @@ const lastFollow = l => l.followUps[l.followUps.length - 1] || null
 
 export default function Listings({ parts }) {
   const { m, scoped: d, setup } = useErp()
+  // Once a visit, stored photo previews no listing uses any more are dropped.
+  useEffect(() => { if (m) prunePreviews(m.data.listings) }, [m])
   const byRole = parts[0] === 'listing-roles'
   const role = byRole ? (ROLES[parts[1]] ? parts[1] : 'bm') : null
   const openId = Number(byRole ? parts[2] : parts[1]) || null
@@ -76,9 +79,15 @@ export default function Listings({ parts }) {
         <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(l.created, { short: true })} / {date(l.updated, { short: true })}</span>
         {mediaCount(l) && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{mediaCount(l)}{view === 'photos' && l.photos > 0 ? ` · ${date(l.photosOn, { short: true })}` : ''}</span>}</span>
     ) },
-    { key: 'title', label: 'Title · Area · Category', sort: l => l.title, render: l => (
-      <span style={{ fontSize: 13 }}><b>{l.title}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{l.area} · {l.category} · {l.type === 'sale' ? 'Sale' : 'Rent'}</span></span>
-    ) },
+    { key: 'title', label: 'Title · Area · Category', sort: l => l.title, render: l => {
+      const cover = coverOf(photosOf(l))
+      return (
+        <span style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13 }}>
+          {cover && <span style={{ width: 52, height: 39, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: C.grayBg }}><Photo src={cover.preview} /></span>}
+          <span style={{ minWidth: 0 }}><b>{l.title}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{l.area} · {l.category} · {l.type === 'sale' ? 'Sale' : 'Rent'}</span></span>
+        </span>
+      )
+    } },
     { key: 'unit', label: 'Unit Number / Size', render: l => <span style={{ fontSize: 12.5 }}>{l.address.split(',')[0]}<span style={{ display: 'block', color: C.muted }}>{num(l.builtUp)} sq ft{l.beds ? ` · ${l.beds}R${l.baths}B` : ''}</span></span> },
     { key: 'price', label: 'Ad · Best · M. Value', help: COLUMN.listingPrice, align: 'right', sort: l => (view === 'price' ? l.priceUpdated : l.askPrice), render: l => (
       <span style={{ fontSize: 13 }}>{rm0(l.askPrice)}
@@ -105,7 +114,7 @@ export default function Listings({ parts }) {
   const title = byRole ? ROLE_TITLES[role] : `All listings${view === 'all' ? '' : ` · ${VIEWS.find(v => v[0] === view)[1]}`}`
 
   return (
-    <Page title={title} help={byRole ? PAGE.listingRoles : PAGE.listings} sub={byRole ? 'Property Listings Library by who looks after them' : 'Property Listings Library. Published to the SubSaleKing site and portals.'}
+    <Page title={title} help={byRole ? PAGE.listingRoles : PAGE.listings} sub={byRole ? 'Property Listings Library by who looks after them' : 'Property Listings Library. Published to the SubSaleKing site.'}
       actions={<button style={btn} onClick={() => go('listing-new')}>Add a listing</button>}>
       <Card pad={16}>
         {!byRole && <Tabs value={view} onChange={setView} tabs={VIEWS.map(([key, label]) => ({ key, label }))} />}
@@ -159,10 +168,12 @@ function CardGrid({ rows, m, base }) {
 
 function ListingCard({ l, m, base }) {
   const [a, b] = SHADES[listingCategory(l)] || SHADES[1]
+  const cover = coverOf(photosOf(l))
   return (
     <button onClick={() => go(`${base}/${l.id}`)} style={{ all: 'unset', cursor: 'pointer', display: 'block', background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', boxShadow: C.shadow, minWidth: 0 }}>
       <div style={{ height: 118, background: `linear-gradient(135deg, ${a}, ${b})`, position: 'relative', display: 'grid', placeItems: 'center', color: 'rgba(29,35,48,0.35)' }}>
         <Icon name="listings" size={40} stroke={1.4} />
+        {cover && <span style={{ position: 'absolute', inset: 0 }}><Photo src={cover.preview} alt={l.title} /></span>}
         <span style={{ position: 'absolute', top: 8, left: 8 }}><Pill tone={l.type === 'sale' ? 'brand' : 'blue'} dot={false} style={{ background: '#fff' }}>{l.type === 'sale' ? 'For Sale' : 'For Rent'}</Pill></span>
         <span style={{ position: 'absolute', top: 8, right: 8 }}><Status of={LISTING_STATUS} value={l.status} /></span>
         {mediaCount(l) && <span style={{ position: 'absolute', bottom: 8, right: 8, fontSize: 11, fontWeight: 600, color: C.text, background: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '1px 6px' }}>{mediaCount(l)}</span>}
@@ -205,9 +216,22 @@ export function ListingDetails({ l, m }) {
   const share = l.share || { users: [], pmId: null, coPh: [] }
   const photos = photosOf(l)
   const videos = videosOf(l)
+  // Photos with a stored preview, cover first; the strip shows up to 8.
+  const strip = photos.filter(p => p.preview).sort((x, y) => y.cover - x.cover)
   return (
     <>
       <Block title="Listing" right={<Status of={LISTING_STATUS} value={l.status} />}>
+        {strip.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 6, marginBottom: 14 }}>
+            {strip.slice(0, 8).map((p, i) => (
+              <span key={p.id} title={p.published ? p.name : `${p.name} (not published)`}
+                style={{ position: 'relative', aspectRatio: '4 / 3', borderRadius: 6, overflow: 'hidden', background: C.grayBg, opacity: p.published ? 1 : 0.5 }}>
+                <Photo src={p.preview} alt={p.name} />
+                {i === 7 && strip.length > 8 && <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'rgba(16,24,40,.55)', color: '#fff', fontWeight: 700, fontSize: 14 }}>+{strip.length - 7}</span>}
+              </span>
+            ))}
+          </div>
+        )}
         <KV min={160} items={[
           [l.type === 'sale' ? 'Ad Price' : 'Ad Price (rent)', <AdPrice key={`${l.id}-${l.askPrice}`} l={l} />], ['Best Price', rm(l.bestPrice)],
           ['Market Value', l.marketValue ? rm(l.marketValue) : 'Not set'], ['Built-up', `${num(l.builtUp)} sq ft`], l.land && ['Land', `${l.land} ft`],
@@ -259,19 +283,10 @@ export function ListingDetails({ l, m }) {
           </ol>
         )}
       </Block>
-      <Block title="Marketing Tools" help={CARD.marketing}>
+      <Block title="Marketing insight" help={CARD.marketing}>
         <KV min={130} items={[['Views (website)', num(l.views - (l.viewsApp || 0))], ['Views (app)', num(l.viewsApp || 0)], ['Enquiries', num(l.enquiries)],
           ['Photos', `${photos.filter(p => p.published).length} published of ${photos.length}`],
           ['Videos', videos.length ? `${videos.filter(v => v.published).length} published of ${videos.length}` : 'None yet']]} />
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
-          {PORTALS.map(p => <Pill key={p} tone={l.portals.includes(p) ? 'green' : 'gray'}>{p}{l.portals.includes(p) ? '' : ' (off)'}</Pill>)}
-        </div>
-        {l.marketingRemarks && <p style={{ fontSize: 13, margin: '10px 0 0' }}><Icon name={l.remarksPrivate !== false ? 'lock' : 'eye'} size={13} /> {l.marketingRemarks}
-          <span style={{ display: 'block', fontSize: 12, color: l.remarksPrivate !== false ? C.ok : C.warn }}>{l.remarksPrivate !== false ? 'Private' : 'Less Private'}</span></p>}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-          <button style={btn} disabled title="Demo only">View Listing on Website</button>
-          <button style={btn} disabled title="Demo only">WhatsApp share</button>
-        </div>
       </Block>
     </>
   )

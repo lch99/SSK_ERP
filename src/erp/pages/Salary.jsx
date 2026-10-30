@@ -28,10 +28,12 @@ function RequestList({ kind }) {
   const { m, scoped: d, setup } = erp
   const [picked, setPicked] = useState(new Set())
   const [error, setError] = useState(null)
-  const ready = d.payouts.filter(p => p.status === 'approved' && !p.requestId && (kind === 'incentives' ? p.role : !p.role))
+  const ready = d.payouts.filter(p => p.status === 'approved' && !p.requestId && !p.stacked && (kind === 'incentives' ? p.role : !p.role))
+  // Lines agents stacked wait for them to claim, so they are not requested here.
+  const stacked = d.payouts.filter(p => p.status === 'approved' && !p.requestId && p.stacked && (kind === 'incentives' ? p.role : !p.role))
   // The other kind waiting too: say so, with a link, since the flow counts both.
   const other = kind === 'incentives' ? 'salary' : 'incentives'
-  const otherPeople = new Set(d.payouts.filter(p => p.status === 'approved' && !p.requestId && (kind === 'incentives' ? !p.role : p.role)).map(p => p.staffId)).size
+  const otherPeople = new Set(d.payouts.filter(p => p.status === 'approved' && !p.requestId && !p.stacked && (kind === 'incentives' ? !p.role : p.role)).map(p => p.staffId)).size
   const rows = Object.entries(group(ready, 'staffId')).map(([sid, ls]) => ({ staff: m.staff[sid], lines: ls, amount: sum(ls, l => l.amount) }))
     .sort((a, b) => a.staff.short.localeCompare(b.staff.short))
   const payOn = nextPayDate(setup.approvals, m.today)
@@ -64,6 +66,8 @@ function RequestList({ kind }) {
       <div style={{ ...cols(220, 14), marginBottom: 16 }}>
         <Stat icon="payRuns" tone="blue" label={`Ready, not requested`} value={rm(sum(rows, r => r.amount))} sub={`${rows.length} ${rows.length === 1 ? 'person' : 'people'} · ${sum(rows, r => r.lines.length)} line${sum(rows, r => r.lines.length) === 1 ? '' : 's'}`} />
         <Stat icon="clock" tone="gray" label="Next pay day" value={date(payOn)} sub={P.describeApprovals(setup.approvals).split(' · ')[1] || 'From Setup'} />
+        {stacked.length > 0 && <Stat icon="wallet" tone="gray" label="Stacked by agents" value={rm(sum(stacked, p => p.amount))}
+          sub={`${new Set(stacked.map(p => p.staffId)).size} agent${new Set(stacked.map(p => p.staffId)).size === 1 ? '' : 's'} keeping it for later. They claim it themselves.`} />}
       </div>
       <Card pad={16}>
         <DataTable columns={columns} rows={rows} rowKey={r => r.staff.id} narrowAt={720} empty={`Nobody has Ready ${kind} lines waiting`}

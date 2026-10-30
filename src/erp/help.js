@@ -46,6 +46,7 @@ export const MENU = {
   'payouts/archived': 'Weekly archives of approved, requested payout lines.',
   commission: 'The old 2020 page for checking pay by hand.',
   'money-out': 'Money going out: balance to vendor, refunds, co-broke and other fees.',
+  'my-pay': 'Your own commission: get it paid on the next pay day, or stack it for later.',
   'salary/request': 'Put people’s Ready payout lines into a salary request.',
   'salary/incentives': 'Put upline incentive lines into an incentive request.',
   'salary/creator': 'Fees for the agent who created a listing.',
@@ -76,11 +77,12 @@ export const MENU = {
 
 // The (?) beside each page title.
 export const PAGE = {
+  myPay: 'Commission from your closed cases, once Accounts has approved it.\nGet paid sends it to Accounts as a pay request, paid on the next pay day less withholding tax. Stack keeps it here, adding up, until you claim it: the office does not pay stacked commission until you do.',
   access: 'Roles decide what each person can do in the ERP. Everyone gets the role of their Account Type (set on their record in Agents & staff).\nWhose records: an Agent sees their own customers, listings, E-Forms and payouts and those of the people under them; a branch role sees its whole branch; the rest see every branch.\nThe Superadmin always has full access, and is the only one who changes Setup and these roles.',
   dashboard: 'Your agency at a glance: this month’s sales, money waiting at each step, and who is doing well.\nThe Commission flow row shows where work is waiting. Click a step to go there.',
   customers: 'Buyers and tenants the team is working with (leads).\nChange Action and Status right in the table; it saves at once. Click a name to see the follow-ups and add remarks.',
   customerNew: 'Add a buyer or tenant the team will follow up. Pick the staff member who looks after them.\nPreview & add shows the customer before saving, and warns if the phone number is already in the Customer Database.',
-  listings: 'Every property we list. Active listings show on the SubSaleKing website and portals.\nThe tabs are quick views (added today, price changed, sold…). Click a listing for its owner, follow-ups and marketing tools.',
+  listings: 'Every property we list. Active listings show on the SubSaleKing website.\nThe tabs are quick views (added today, price changed, sold…). Click a listing for its photos, owner, follow-ups and marketing insight.',
   listingRoles: 'The same listings, grouped by who looks after them. Pick a person to see theirs.',
   listingNew: 'Fill in the property, the price and the owner’s details. The owner’s details stay private.\nPreview & publish shows how the listing will look on the SubSaleKing website before it goes live. Save as Draft keeps it off the website.',
   vendor: 'Owners who asked us to list their property through the SubSaleKing website.\nCall them, set Ongoing Follow-Up, then Actions → Create Listing once they agree.',
@@ -128,11 +130,18 @@ export const PAGE = {
 
 // The (?) beside section headings.
 export const CARD = {
+  readyToClaim: 'Approved commission nobody has asked to pay yet. Tick what you want, then Get paid or Stack. If you do neither, the office may still put it into a pay request for you.',
+  stacked: 'Commission you chose to keep for later. It stays here until you claim it; the office does not pay it out before then.',
+  beingChecked: 'Payout lines from closed cases that the approver has not set Ready yet. Pending Queries means they asked a question.',
+  myRequests: 'Your pay requests and where each one is. Click one to see the payslip.',
+  waitingForYou: 'Things only you can move on. Click one to go and deal with it.',
+  myDeals: 'Your open E-Forms (yours or on your listings), with how much of the commission has come in.',
+  canDo: 'Every page your role opens, by module, as in the menu. Your role is set in System → Roles & access.',
   officeRole: 'Office staff get their permissions from their account type, the same for everyone of that type. Change them in System → Roles & access (Superadmin only).',
   accessRole: 'Pick a role, then set how far it reaches and what it may do in each area. No access hides the area from the menu; View lets them look; Edit lets them add and change; Full also lets them approve, pay out and delete.\nNothing changes until you press Save changes. "View the ERP as" shows the ERP exactly as a person with this role would see it, until you go back or reload.',
   accessOverview: 'Every role side by side. Changes you have not saved yet show here too.',
   myDetails: 'Your display name and photo show in the top bar and on your records. The IC name and bank account are used for payslips and pay vouchers, so keep them exact. Nothing changes until you press Save changes.',
-  password: 'Type your current password once, then the new one twice. In the demo, sign-in is off, so the password is only kept in this browser.',
+  password: 'Type your current password once, then the new one twice (or once, with Show password ticked). In the demo, sign-in is off, so the password is only kept in this browser.',
   myTeam: 'Your branch and the people under you, with each person’s tier.',
   progress: 'Where this deal is in the five steps, and the next thing to do.',
   payoutPreview: 'Who gets paid what on this deal. Before closing it is a preview on everyone’s tier today; after closing it shows the real payout lines.\nThe commission is split into a Marketing side (the agent) and a Product side (the listing holder). Each side pays its earner and their uplines; the company keeps the rest.\nEach upline level has its own share of the pool. When nobody holds a level on the deal, or that person has left, the other uplines do not get more: that share stays with the company.',
@@ -167,7 +176,7 @@ export const CARD = {
   listingActions: 'Everything you can do to a listing: edit it, update its tracking (sold by other, rent out…), settings, follow-up, share with co-product handlers, photos, videos and marketing.',
   share: 'Who else works on this listing: shared users, the project manager, and up to 3 co-product handlers, each until a date. A co-product handler can be picked as the product handler on an E-Form.',
   album: 'The listing’s photos and videos (a walk-through of the house, the facilities, the neighbourhood). Published ones show on the website; unpublished ones stay private. The cover photo shows first.',
-  marketing: 'Where the listing is advertised, how often it was viewed on the website and in the app, and the marketing remarks.',
+  marketing: 'How often the listing was viewed on the SubSaleKing website and in the app, how many enquiries it brought in, and how many of its photos and videos are published.',
   followUps: 'Every contact with the owner. A follow-up with an appointment shows under Viewings.',
   titleRequests: 'Buildings agents asked to add. Approve the right ones; reject misspellings and duplicates.',
   areaRequests: 'Areas agents asked to add. Approve or reject them.',

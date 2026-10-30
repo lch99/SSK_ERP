@@ -141,6 +141,7 @@ function Details({ me, saved }) {
               options={[{ value: '', label: 'Pick a bank' }, ...BANKS.map(b => ({ value: b, label: b }))]} />
           </FormField>
           {input('bankAccount', 'Bank account no.', { inputMode: 'numeric', autoComplete: 'off', help: 'Commission and salary are paid here.' })}
+          {input('bankHolder', 'Account holder name', { required: !!d.bankAccount.trim(), autoComplete: 'off', placeholder: d.icName || undefined, help: 'Exactly as the bank has it, or the payment bounces.' })}
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 18 }}>
@@ -169,7 +170,8 @@ export function PasswordForm({ profile, onDone, onCancel, autoFocus }) {
   useEffect(() => { if (autoFocus) first.current?.focus() }, [autoFocus])
   const set = k => e => { setF(x => ({ ...x, [k]: e.target.value })); setError('') }
   const long = f.password.length >= PASSWORD_MIN
-  const same = !!f.password && f.password === f.confirm
+  // A password you can see needs no second copy to catch typos.
+  const same = show || (!!f.password && f.password === f.confirm)
   const ready = (!needCurrent || !!f.current) && long && same
 
   const submit = async e => {
@@ -204,14 +206,14 @@ export function PasswordForm({ profile, onDone, onCancel, autoFocus }) {
       <div style={{ display: 'grid', gap: 12 }}>
         {needCurrent && box('current', 'Current password', 'current-password', first)}
         {box('password', 'New password', 'new-password', needCurrent ? null : first)}
-        {box('confirm', 'New password again', 'new-password')}
+        {!show && box('confirm', 'New password again', 'new-password')}
       </div>
       <div style={{ display: 'flex', gap: '6px 16px', flexWrap: 'wrap', fontSize: 12.5, margin: '10px 0 0' }}>
         {check(long, `At least ${PASSWORD_MIN} characters`)}
-        {check(same, 'Both new passwords match')}
+        {!show && check(same, 'Both new passwords match')}
       </div>
       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, color: C.muted, marginTop: 10, cursor: 'pointer' }}>
-        <input type="checkbox" checked={show} onChange={e => setShow(e.target.checked)} /> Show passwords
+        <input type="checkbox" checked={show} onChange={e => { setShow(e.target.checked); setF(x => ({ ...x, confirm: '' })) }} /> {needCurrent ? 'Show passwords' : 'Show password'}
       </label>
       {error && <div style={{ marginTop: 12 }}><Notice tone="red">{error}</Notice></div>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}>

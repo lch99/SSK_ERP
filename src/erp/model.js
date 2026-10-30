@@ -174,6 +174,21 @@ export function buildModel(data, setup) {
   const requests = byId(data.requests)
   const payoutsByRequest = group(data.payouts.filter(p => p.requestId), 'requestId')
   const archives = byId(data.archives)
+  // One person's payout lines by where they stand: being checked (New or
+  // Pending Queries), ready to claim, stacked by them, claimed (in a request
+  // not yet paid) and paid. Amounts are before withholding tax.
+  function wallet(id) {
+    const lines = data.payouts.filter(p => p.staffId === id)
+    const open = p => p.status === 'approved' && !p.requestId
+    return {
+      checking: lines.filter(p => p.status === 'new' || p.status === 'queried'),
+      ready: lines.filter(p => open(p) && !p.stacked),
+      stacked: lines.filter(p => open(p) && p.stacked),
+      claimed: lines.filter(p => p.requestId && p.status !== 'paid'),
+      paid: lines.filter(p => p.status === 'paid'),
+    }
+  }
+
   // A salary request with its lines and totals (what the salary slip prints).
   function slip(requestId) {
     const r = requests[requestId]
@@ -199,6 +214,7 @@ export function buildModel(data, setup) {
     cleared, received, tierInfo, earned, chain, roleName, branchName, staffName,
     requests, archives, titles, payoutsByRequest, slip, commType, salaryStatus, branchManagerOf, areaManagerOf,
     dealsOf: id => data.deals.filter(d => d.agentId === id || d.holderId === id),
+    wallet,
     credit: id => credit[id] || { lifetime: 0, year: 0, deals: new Set() },
     bankAccount: id => setup.bankAccounts.find(a => a.id === id) || null,
     clientAccount: purpose => setup.bankAccounts.find(a => a.purpose === purpose) || setup.bankAccounts[0] || null,

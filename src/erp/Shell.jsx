@@ -27,6 +27,7 @@ import Payouts from './pages/Payouts.jsx'
 import MoneyOut from './pages/MoneyOut.jsx'
 import Staff from './pages/Staff.jsx'
 import Salary from './pages/Salary.jsx'
+import MyPay from './pages/MyPay.jsx'
 import { Commission, Invoices, Videos, SystemSettings } from './pages/Misc.jsx'
 import OrgChart from './pages/OrgChart.jsx'
 import Projects from './pages/Projects.jsx'
@@ -41,7 +42,7 @@ const PAGES = {
   dashboard: Dashboard, customers: Customers, listings: Listings, 'listing-new': ListingNew, 'listing-roles': Listings,
   'vendor-requests': VendorRequests, appointments: Appointments, enquiries: Enquiries, titles: Titles, areas: Areas,
   deals: Deals, projects: Projects, commission: Commission, reports: Reports, 'money-in': MoneyIn, payouts: Payouts, 'money-out': MoneyOut,
-  staff: Staff, invoices: Invoices, salary: Salary, videos: Videos, settings: Profile, system: SystemSettings, 'org-chart': OrgChart, 'old-records': OldRecords, access: Access,
+  staff: Staff, invoices: Invoices, salary: Salary, 'my-pay': MyPay, videos: Videos, settings: Profile, system: SystemSettings, 'org-chart': OrgChart, 'old-records': OldRecords, access: Access,
 }
 const OWN = { setup: SetupPage, users: UsersPage }
 
@@ -88,7 +89,7 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
   useCommandKey(useCallback(() => setFinder(true), []))
   // The menu shows only what the viewer's role opens (shared/access.js).
   const access = useAccess()
-  const allowed = i => (!i.perm || can(me, i.perm)) && !(authDisabled && i.needsSignIn) && access.opens(i.path)
+  const allowed = i => (!i.perm || can(me, i.perm)) && !(authDisabled && i.needsSignIn) && access.opens(i.path) && (!i.agent || access.agentId != null)
   // The menu is split into modules (src/erp/modules.js); the pages are found by quick search wherever they sit.
   const mods = visibleModules(allowed)
   const leaves = modulePages(mods)

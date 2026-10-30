@@ -10,6 +10,7 @@ import { useReview, missing, needText, markGaps } from '../review.jsx'
 import { rm } from '../format.js'
 import ListingPreview from './ListingPreview.jsx'
 import { STATES } from './options.js'
+import { savePreviews } from '../photos.jsx'
 
 // Add Property List: the current form's fields, in the same order.
 export default function ListingNew() {
@@ -25,9 +26,11 @@ export default function ListingNew() {
     category: vr?.category && CATEGORIES[vr.category] ? vr.category : 'Condominium', tenure: 'Freehold', race: 'cina', furnishing: 'Partly furnished',
     flags: [], holderId: String((vr?.handledBy && holders.find(s => s.id === vr.handledBy)?.id) || holders[0]?.id || ''),
     ...(vr ? { area: vr.area, askPrice: String(vr.price), ownerName: vr.name, ownerPhone: vr.phone } : {}) }))
-  const [photos, setPhotos] = useState(0)
+  const [photoFiles, setPhotoFiles] = useState([])
+  const photos = photoFiles.length
   const [videos, setVideos] = useState(0)
   const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
   const set = k => e => setF({ ...f, [k]: e.target.value })
   const toggle = flag => setF({ ...f, flags: f.flags.includes(flag) ? f.flags.filter(x => x !== flag) : [...f.flags, flag] })
   const areas = [...new Set(m.data.areas.map(a => a.name))].sort()
@@ -42,7 +45,7 @@ export default function ListingNew() {
       title: 'Preview before publishing', confirmLabel: 'Publish listing',
       intro: 'This is how the listing will look on the SubSaleKing website once it is published. Check it, then publish, or go back to edit.',
       warnings: [!photos && 'No photos yet. Listings with photos get far more enquiries; you can add them now or later in Album.', !f.desc && 'No description yet.'],
-      preview: <ListingPreview photos={photos} videos={videos} agent={m.staff[Number(f.holderId)]} l={{ ...f, description: f.desc }} />,
+      preview: <ListingPreview photos={photos} videos={videos} cover={photoFiles[0]} agent={m.staff[Number(f.holderId)]} l={{ ...f, description: f.desc }} />,
       sections: [{ title: 'Private', note: 'Never shown on the website', rows: [
         ['Owner', `${f.ownerName} · ${f.ownerPhone}`], ['Unit Number & Jalan', f.unit], ['Product Handler', m.staffName(Number(f.holderId))],
         ['Best Price', price(f.bestPrice)], ['Market Price', price(f.marketValue)], ['Vendor/Landlord Race', race],
@@ -53,13 +56,17 @@ export default function ListingNew() {
   async function save(draft) {
     setError(null)
     if (!draft && !await preview()) return
+    setBusy(true)
     try {
-      const st = await erp.addListing({ ...f, draft, photos, videos, askPrice: f.askPrice, ownerName: f.ownerName, ownerPhone: f.ownerPhone, address: [f.unit, f.title, f.area].filter(Boolean).join(', ') })
+      // Each photo is kept as a small preview; the first is the cover.
+      const keys = await savePreviews(photoFiles)
+      const photoSet = photoFiles.map((file, i) => ({ id: i + 1, name: file.name, published: true, cover: i === 0, preview: keys[i] }))
+      const st = await erp.addListing({ ...f, draft, photoSet, videos, askPrice: f.askPrice, ownerName: f.ownerName, ownerPhone: f.ownerPhone, address: [f.unit, f.title, f.area].filter(Boolean).join(', ') })
       const made = st.data.listings.reduce((a, b) => (b.id > a.id ? b : a))
       if (vr) await erp.setVendorRequest(vr.id, 2, made.id)
       fb.toast(`${made.code} ${draft ? 'saved as draft' : 'published'}${vr ? ` · ticket ${vr.ticket} set to Listing Created` : ''}`)
       go(`listings/${made.id}`)
-    } catch (e) { setError(e.message); window.scrollTo(0, 0) }
+    } catch (e) { setError(e.message); window.scrollTo(0, 0) } finally { setBusy(false) }
   }
   const grid = { display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))' }
   const radio = (k, opts) => (
@@ -134,15 +141,15 @@ export default function ListingNew() {
         </Card>
         <Card title="Photos and videos">
           <div style={{ display: 'grid', gap: 12 }}>
-            <FormField label="Photos" help="Pick a cover photo later in Album."><FileInput kind="photo" onChange={files => setPhotos(files.length)} /></FormField>
+            <FormField label="Photos" help="The first one is the cover; pick another later in Album."><FileInput kind="photo" onChange={setPhotoFiles} /></FormField>
             <FormField label="Videos" help="Optional: a walk-through of the house, the facilities or the neighbourhood."><FileInput kind="listingVideo" onChange={files => setVideos(files.length)} /></FormField>
           </div>
-          <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>(Demo: the files themselves are not stored.)</p>
+          <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>(Demo: photos are kept as small previews in this browser; videos are not stored.)</p>
         </Card>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-        <button style={btnPrimary} onClick={() => save(false)}>Preview &amp; publish</button>
-        <button style={btn} onClick={() => save(true)}>Save as Draft</button>
+        <button style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => save(false)}>Preview &amp; publish</button>
+        <button style={{ ...btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => save(true)}>Save as Draft</button>
         <button style={btn} onClick={() => go('listings')}>Cancel</button>
       </div>
     </Page>

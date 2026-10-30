@@ -5,9 +5,9 @@ import { readyToClose } from './model.js'
 // decides which pages sit together in the menu, so each team works in its own
 // space. Page addresses (#/<page>/…) don't change with the module.
 //
-// Items: { label, path, was?, badge?, add? } is a page (`was` is its name in the
+// Items: { label, path, was?, badge?, add?, agent? } is a page (`was` is its name in the
 // current ERP, which quick search still finds; `add` shows it as the module's
-// "new" button). { section, was? } is a heading (its `was` counts for the pages
+// "new" button; `agent` shows it only to an agent, about their own records). { section, was? } is a heading (its `was` counts for the pages
 // under it). { note } is a line of grey text. Each path is in one module only.
 
 const todo = {
@@ -53,6 +53,7 @@ export const MODULES = [
   // submit; once its money clears it is closed, the payouts are approved and paid.
   { key: 'commission', label: 'Commission', icon: 'wallet', home: 'deals', items: [
     { label: 'Submit an E-Form', was: 'Submit New Case / Add Sales Record / Add Rental Record / Add a deal', path: 'deals/new', add: true },
+    { label: 'My commission', was: 'My salary / Claim commission', path: 'my-pay', agent: true },
     { section: 'E-Forms', was: 'E-Forms / Deals' },
     { label: 'All E-Forms', was: 'Personal Sales / All deals', path: 'deals' },
     { label: 'Ready to close', path: 'deals/ready', badge: todo.toClose },

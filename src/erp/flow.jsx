@@ -5,7 +5,7 @@ import { readyToClose, sum } from './model.js'
 import { go, tabular } from './ui.jsx'
 import { rm, date } from './format.js'
 import Icon from './Icon.jsx'
-import { useCan } from './access.jsx'
+import { useAccess, useCan } from './access.jsx'
 
 // A deal goes through six pages in a row. These show the chain, so nobody has
 // to know which menu holds the next step:
@@ -14,7 +14,8 @@ import { useCan } from './access.jsx'
 // What waits at each step, and where it is done.
 export function flowSteps(m, d, setup) {
   const waiting = d.payouts.filter(p => !p.archiveId && (p.status === 'new' || p.status === 'queried'))
-  const ready = d.payouts.filter(p => p.status === 'approved' && !p.requestId)
+  // Lines an agent stacked wait for the agent, not the office.
+  const ready = d.payouts.filter(p => p.status === 'approved' && !p.requestId && !p.stacked)
   const drafts = d.deals.filter(x => x.status === 'draft').length
   return [
     { key: 'submit', label: 'Submit E-Forms', short: 'Submit', unit: ['draft', 'drafts'], to: drafts ? 'deals?status=draft' : 'deals/new', what: 'Agents submit an E-Form for each sale or rental; drafts wait here',
@@ -99,6 +100,7 @@ export function FlowBar({ here }) {
 export function DealProgress({ deal, onClose, busy }) {
   const { m, setup } = useErp()
   const can = useCan()
+  const agentId = useAccess()?.agentId ?? null
   const [ref, narrow] = useNarrow(720)
   const billed = deal.money.billed
   const got = Math.min(m.cleared(deal.id), billed)
@@ -108,6 +110,8 @@ export function DealProgress({ deal, onClose, busy }) {
   const approved = lines.filter(l => l.status === 'approved' || l.status === 'paid')
   const requested = lines.filter(l => l.requestId)
   const paid = lines.filter(l => l.status === 'paid')
+  // An agent's own Ready lines on this case, which they claim or stack themselves.
+  const mine = lines.filter(l => l.staffId === agentId && l.status === 'approved' && !l.requestId)
   const pending = (m.moneyInByDeal[deal.id] || []).find(t => t.status === 'pending' || t.status === 'draft')
   const draft = deal.status === 'draft'
 
@@ -126,6 +130,7 @@ export function DealProgress({ deal, onClose, busy }) {
     : got < billed && pending ? { text: <>{pending.code} ({rm(pending.amount)}) is waiting to be checked against the bank.</>, label: 'Clear the payment', need: ['moneyIn', 'full'], onClick: () => go(`money-in/${pending.id}`) }
     : got < billed ? { text: <>{rm(billed - got)} still to come in from the {deal.type === 'rental' ? 'landlord' : 'owner'}.</>, label: 'Record a payment', need: ['moneyIn', 'edit'], onClick: () => go(`money-in/new/${deal.id}`) }
     : approved.length < lines.length ? { text: `${lines.length - approved.length} payout lines are waiting for approval.`, label: 'Approve payouts', need: ['payouts', 'full'], onClick: () => go('payouts') }
+    : mine.length ? { text: <>Your {rm(sum(mine, l => l.amount))} from this case is {mine.every(l => l.stacked) ? 'stacked. Claim it when you want it paid' : 'ready: get it paid or stack it'}.</>, label: 'My commission', primary: true, need: ['salary', 'edit'], onClick: () => go('my-pay') }
     : requested.length < lines.length ? { text: `${lines.length - requested.length} Ready lines are not in a salary or incentive request yet.`, label: 'Request pay', need: ['salary', 'edit'], onClick: () => go('salary/request') }
     : paid.length < lines.length ? { text: `${lines.length - paid.length} lines are requested and wait for the pay day.`, label: 'Open pay requests', need: ['salary', 'view'], onClick: () => go('salary') }
     : { text: 'Everyone on this case is paid.', done: true }

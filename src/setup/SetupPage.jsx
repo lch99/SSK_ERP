@@ -201,7 +201,8 @@ function MobileStepper({ steps, index, remaining, total, onGoTo }) {
         {steps.map((s, i) => <span key={s.key} style={{ flex: 1, height: 5, borderRadius: 3, background: i === index ? C.primary : s.done ? C.ok : C.border }} />)}
       </div>
       <select style={{ ...sel, width: '100%' }} value={steps[index].key} onChange={e => onGoTo(e.target.value)} aria-label="Go to step">
-        {steps.map((s, i) => <option key={s.key} value={s.key}>{s.done ? '✓' : `${i + 1}.`} {s.title}</option>)}
+        {/* No ✓ of our own: the phone's picker already ticks the current step. */}
+        {steps.map((s, i) => <option key={s.key} value={s.key}>{i + 1}. {s.title}{s.done ? ' · done' : ''}</option>)}
       </select>
     </div>
   )

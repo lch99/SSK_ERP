@@ -3,11 +3,14 @@ import { Avatar } from '../ui.jsx'
 import Icon from '../Icon.jsx'
 import { num } from '../format.js'
 import { ReviewHeading } from '../review.jsx'
+import { Photo } from '../photos.jsx'
 
 // How a listing will look on the SubSaleKing website, drawn from the form's
 // values before it is saved. l: { type, title, area, state, category, tenure,
-// furnishing, builtUp, beds, baths, parks, askPrice, description }.
-export default function ListingPreview({ l, agent, photos = 0, videos = 0 }) {
+// furnishing, builtUp, beds, baths, parks, askPrice, description }. cover: the
+// cover photo (a File just picked, or a stored preview key), if there is one.
+export default function ListingPreview({ l, agent, photos = 0, videos = 0, cover = null }) {
+  const chip = { position: 'absolute', display: 'inline-flex', gap: 5, alignItems: 'center', background: 'rgba(0,0,0,.55)', color: '#fff', fontSize: 11.5, fontWeight: 600, padding: '3px 8px', borderRadius: 6 }
   const rental = l.type === 'rental'
   const facts = [
     l.beds && `${l.beds} bed${Number(l.beds) === 1 ? '' : 's'}`, l.baths && `${l.baths} bath${Number(l.baths) === 1 ? '' : 's'}`,
@@ -20,9 +23,10 @@ export default function ListingPreview({ l, agent, photos = 0, videos = 0 }) {
         <div style={{ position: 'relative', minHeight: 170, background: 'linear-gradient(135deg, #1d1f27 0%, #5a0a2a 100%)', color: 'rgba(255,255,255,.75)',
           display: 'grid', placeItems: 'center', textAlign: 'center', fontSize: 12.5 }}>
           <span style={{ display: 'grid', gap: 6, justifyItems: 'center' }}><Icon name="image" size={26} />{photos ? `${photos} photo${photos === 1 ? '' : 's'}` : 'No photos yet'}</span>
+          {cover && <span style={{ position: 'absolute', inset: 0 }}><Photo src={cover} alt="Cover photo" /></span>}
           <span style={{ position: 'absolute', top: 10, left: 10, background: C.primary, color: '#fff', fontSize: 11.5, fontWeight: 700, padding: '3px 9px', borderRadius: 6 }}>{rental ? 'For Rent' : 'For Sale'}</span>
-          {videos > 0 && <span style={{ position: 'absolute', bottom: 10, right: 10, display: 'inline-flex', gap: 5, alignItems: 'center', background: 'rgba(0,0,0,.55)', color: '#fff', fontSize: 11.5, fontWeight: 600, padding: '3px 8px', borderRadius: 6 }}>
-            <Icon name="video" size={13} />{videos} video{videos === 1 ? '' : 's'}</span>}
+          {cover && photos > 0 && <span style={{ ...chip, bottom: 10, left: 10 }}><Icon name="image" size={13} />{photos}</span>}
+          {videos > 0 && <span style={{ ...chip, bottom: 10, right: 10 }}><Icon name="video" size={13} />{videos} video{videos === 1 ? '' : 's'}</span>}
         </div>
         <div style={{ padding: '14px 16px', display: 'grid', gap: 6, alignContent: 'start', minWidth: 0 }}>
           <div style={{ fontSize: 22, fontWeight: 750, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>

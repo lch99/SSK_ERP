@@ -5,8 +5,9 @@
 // Setup gives the same records; dates count back from the day it is built.
 // Every payout goes through shared/payout.js, never through maths of its own.
 import * as P from '../../shared/payout.js'
+import * as A from '../../shared/agents.js'
 
-export const ERP_VERSION = 8
+export const ERP_VERSION = 9
 const SEED = 20261021
 const r2 = n => Math.round(n * 100) / 100
 
@@ -310,8 +311,7 @@ export function makeErpSample(setup, asOf = localToday()) {
   for (const a of imported) {
     const tiers = P.tiersFor(setup, a.branchId)
     const floor = Math.max(0, tiers.findIndex(t => t.id === a.tierId))
-    const opening = a.lifetime !== '' && a.lifetime != null ? Number(a.lifetime)
-      : tiers[floor]?.basis === 'lifetime' ? Number(tiers[floor].threshold) : 0
+    const opening = A.openingLifetime(a, tiers)
     const ic = String(a.ic || '').replace(/\D/g, '')
     const yy = Number(ic.slice(0, 2)), mm = Number(ic.slice(2, 4)), dd = Number(ic.slice(4, 6))
     const born = ic.length >= 6 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 28
@@ -636,6 +636,12 @@ export function makeErpSample(setup, asOf = localToday()) {
     for (const p of payouts) if (p.closeId === waitingClose) Object.assign(p, { status: 'queried', query })
   }
   payouts.forEach((p, i) => { p.code = `CASE-${110401 + i}` })
+  // Some agents stack their commission rather than claim it straight away: what
+  // was approved one to six weeks ago waits, Ready and not requested, until they claim it.
+  for (const p of payouts) {
+    const age = p.status === 'approved' && p.staffId % 3 === 1 ? daysBetween(p.approvedOn, asOf) : -1
+    if (age >= 7 && age <= 45) Object.assign(p, { requestOn: null, stacked: true, stackedOn: p.approvedOn })
+  }
 
   // ── Salary and incentive requests: one per person, kind and pay day ──
   const requests = []

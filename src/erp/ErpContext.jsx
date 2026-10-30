@@ -48,7 +48,7 @@ export function ErpProvider({ reloadKey, children }) {
       },
       reload: load,
       reset: act(api.resetErp),
-      ...Object.fromEntries(['approvePayouts', 'queryPayouts', 'archiveCases', 'verifyLandlord', 'createRequests', 'setRequestStatus', 'closeDeal',
+      ...Object.fromEntries(['approvePayouts', 'queryPayouts', 'archiveCases', 'verifyLandlord', 'createRequests', 'claimPay', 'stackPay', 'setRequestStatus', 'closeDeal',
         'setMoneyInStatus', 'addTransaction', 'setMoneyOutStatus', 'addCustomer', 'updateCustomer', 'addListing', 'addStaff', 'setStaffStatus',
         'setVendorRequest', 'updateEnquiry', 'raiseRequest',
         'addDeal', 'updateDeal', 'deleteDeal', 'setDealDoc', 'requestInvoice', 'rerunClose', 'deleteClose', 'unarchive',

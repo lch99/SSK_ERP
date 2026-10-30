@@ -12,9 +12,19 @@ import { FlowBar } from '../flow.jsx'
 import * as J from '../../../shared/projects.js'
 import { rm, date, monthLabel, monthName, lastMonths, daysFrom, num } from '../format.js'
 import Icon from '../Icon.jsx'
+import { useAccess, samplePerson } from '../access.jsx'
+import AgentDashboard from './AgentDashboard.jsx'
 
+// Home: an agent gets their own dashboard; everyone else the company's.
 export default function Dashboard({ me }) {
+  const { m } = useErp()
+  const access = useAccess()
+  return access?.agentId != null && m.staff[access.agentId] ? <AgentDashboard id={access.agentId} /> : <CompanyDashboard me={me} />
+}
+
+function CompanyDashboard({ me }) {
   const { m, scoped: d, branchId, setup } = useErp()
+  const access = useAccess()
   const [byType, setByType] = useState(false)
   const today = m.today
   const [prevYm, ym] = lastMonths(today, 2)
@@ -116,6 +126,8 @@ export default function Dashboard({ me }) {
           { icon: 'plus', label: 'Record a payment', onClick: () => go('money-in/new') },
           { icon: 'payouts', label: 'Approve payouts', badge: new Set(toApprove.map(p => p.closeId)).size, onClick: () => go('payouts') },
           { icon: 'search', label: 'Quick search  ⌘K', onClick: () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true })) },
+          // The Superadmin can see what an agent gets when they sign in.
+          ...(access?.manages && !access.viewing ? [{ icon: 'eye', label: 'See an agent’s view', onClick: () => access.viewAs({ role: 'staff', staffId: samplePerson(m.data.staff, 'staff', access.policy) }) }] : []),
         ]} />
 
       {/* Where work is waiting, from submitting the E-Form to pay out: one click to each step. */}
