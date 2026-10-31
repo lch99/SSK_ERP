@@ -70,9 +70,9 @@ function NameList({ openId }) {
         <Stat icon="close" tone="gray" label="By Other" value={d.customers.filter(c => c.track === 2).length} sub="Bought or rented elsewhere" onClick={() => setTrack(track === '2' ? '' : '2')} on={track === '2'} />
       </div>
       <Card pad={16}>
-        <Toolbar fold active={filters} onClear={clear}>
+        <Toolbar fold onClear={clear}>
           <SearchBox value={q} onChange={setQ} placeholder="Keywords: name, phone, area" />
-          <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'Select staff profile to view' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
+          <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'All staff' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
           <Select label="Type" value={type} onChange={setType} options={[['', 'Select Type'], ['Rent', 'Rent'], ['Sale', 'Sale']].map(([value, label]) => ({ value, label }))} />
           <Select label="Action" value={action} onChange={setAction} options={[{ value: '', label: 'Action' }, ...Object.entries(CUSTOMER_ACTION).map(([value, label]) => ({ value, label }))]} />
           <Select label="Status" value={track} onChange={setTrack} options={[{ value: '', label: 'Status' }, ...Object.entries(CUSTOMER_TRACK).map(([value, t]) => ({ value, label: t.label }))]} />

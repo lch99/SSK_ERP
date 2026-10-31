@@ -115,7 +115,7 @@ function CaseList({ archived }) {
         {error && <Notice tone="red">{error}</Notice>}
         {view === 'cases' && !archived ? <ApprovalList lines={waiting} erp={erp} /> : (
           <>
-            <Toolbar fold active={filters} onClear={clear}>
+            <Toolbar fold onClear={clear}>
               {archived && <Select label="Archive" value={arc} onChange={setArc} options={[...m.data.archives].reverse().map(a => ({ value: String(a.id), label: `${a.code} (${a.count} Cases)` }))} />}
               <SearchBox value={q} onChange={setQ} placeholder="Case ID, form or staff" />
               <Select label="Branch manager" value={bm} onChange={setBm} options={[{ value: '', label: 'All branch managers' }, ...tops.map(s => ({ value: String(s.id), label: `B.M (${s.short})` }))]} />

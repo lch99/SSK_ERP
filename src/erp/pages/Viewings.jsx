@@ -66,7 +66,7 @@ export default function Viewings({ parts }) {
       </div>
       <Card pad={16}>
         <Tabs value={current.key} onChange={k => { setTab(k); setLimit(12) }} tabs={TABS.map(t => ({ key: t.key, label: t.label, count: all.filter(t.pick).length }))} />
-        <Toolbar fold active={who ? 1 : 0} onClear={() => { setWho(''); setQ('') }}>
+        <Toolbar fold onClear={() => { setWho(''); setQ('') }}>
           <SearchBox value={q} onChange={setQ} placeholder="Viewing no., customer, listing or agent" />
           {!mine && <Select label="Agent" value={who} onChange={setWho} options={[{ value: '', label: 'Everyone' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` }))]} />}
           <span style={{ flex: 1 }} />

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import * as L from '../../../shared/listings.js'
-import { C, btn, btnPrimary, inp } from '../../styles.js'
+import { C, btn, btnPrimary } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { VENDOR_STATUS, TITLE_STATUS, AREA_STATUS, LISTING_CATEGORY } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Pill, Who, Link, Menu, Stat, Modal, FormField, TextArea, Notice, SelectionBar, cols, go, mono, small, field } from '../ui.jsx'
@@ -18,10 +18,11 @@ export function VendorRequests() {
   const gate = useGate()
   const { m, scoped: d } = erp
   const [status, setStatus] = useState('')
-  const [ticket, setTicket] = useState('')
-  const [phone, setPhone] = useState('')
-  const rows = d.vendorRequests.filter(v => (status === '' || v.status === Number(status)) && (!ticket || v.ticket.includes(ticket.toUpperCase())) &&
-    (!phone || v.phone.replace(/\D/g, '').includes(phone.replace(/\D/g, ''))))
+  const [q, setQ] = useState('')
+  // One search for the ticket id or the owner's phone number.
+  const words = q.trim().toUpperCase(), digits = q.replace(/\D/g, '')
+  const rows = d.vendorRequests.filter(v => (status === '' || v.status === Number(status)) &&
+    (!words || v.ticket.includes(words) || (digits.length >= 3 && v.phone.replace(/\D/g, '').includes(digits)) || v.name.toUpperCase().includes(words)))
   const fb = useFeedback()
   const set = (v, s) => fb.run(() => erp.setVendorRequest(v.id, s), `${v.ticket} set to ${VENDOR_STATUS[s].label}`)
   const columns = [
@@ -50,9 +51,8 @@ export function VendorRequests() {
       </div>
       <Card pad={16}>
         <Toolbar>
-          <input style={{ ...inp, width: 160 }} value={ticket} onChange={e => setTicket(e.target.value)} placeholder="Ticket Id" aria-label="Ticket Id" />
-          <input style={{ ...inp, width: 160 }} value={phone} onChange={e => setPhone(e.target.value)} placeholder="Phone" aria-label="Phone" />
-          <Select label="Status" value={status} onChange={setStatus} options={[{ value: '', label: 'All' }, ...Object.entries(VENDOR_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
+          <SearchBox value={q} onChange={setQ} placeholder="Ticket Id, owner or phone" />
+          <Select label="Status" value={status} onChange={setStatus} options={[{ value: '', label: 'All statuses' }, ...Object.entries(VENDOR_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
         </Toolbar>
         <DataTable columns={columns} rows={rows} rowKey={v => v.id} defaultSort={{ key: 'date', dir: 'desc' }} narrowAt={900} empty="No vendor requests" />
       </Card>
@@ -174,7 +174,7 @@ export function Titles() {
       <Card pad={16}>
         <Tabs value={tab} onChange={v => { setTab(v); setPicked(new Set()) }} tabs={[{ key: 'list', label: 'Titles', count: d.titles.filter(t => t.status === 0 || t.status === 3).length },
           { key: 'requests', label: 'Title Requests', count: d.titles.filter(t => t.status === 1).length }]} />
-        <Toolbar fold active={[cate, area].filter(Boolean).length} onClear={() => { setQ(''); setCate(''); setArea('') }}>
+        <Toolbar fold onClear={() => { setQ(''); setCate(''); setArea('') }}>
           <SearchBox value={q} onChange={setQ} placeholder="Title or area" />
           <Select label="Area" value={area} onChange={setArea} options={[{ value: '', label: 'All areas' }, ...areaNames.map(a => ({ value: a, label: a }))]} />
           <Select label="Category" value={cate} onChange={setCate} options={[{ value: '', label: 'All categories' }, ...Object.entries(LISTING_CATEGORY).map(([value, label]) => ({ value, label }))]} />

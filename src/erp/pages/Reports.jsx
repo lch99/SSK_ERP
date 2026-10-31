@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
-import { C, btn, btnPrimary, inp, sel } from '../../styles.js'
+import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { payoutForClose } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { DEAL_STATUS, LANDLORD_STATUS, isAgent, sum, r2 } from '../model.js'
-import { Page, Card, DataTable, Who, Pill, Link, Status, Modal, Notice, FormField, TextArea, Toolbar, Select, cols, Stat, mono, tabular, field } from '../ui.jsx'
+import { Page, Card, SearchBox, DateFilter, DataTable, Who, Pill, Link, Status, Modal, Notice, FormField, TextArea, Toolbar, Select, cols, Stat, mono, tabular, field } from '../ui.jsx'
 import { RankBars } from '../charts.jsx'
 import { rm, pct, date, monthName, lastMonths, amt } from '../format.js'
 import { RoleTag } from './Staff.jsx'
@@ -42,12 +42,7 @@ export default function Reports({ parts }) {
 function useRange(m) {
   const [from, setFrom] = useState(`${m.year}-01-01`)
   const [to, setTo] = useState(m.today)
-  const ui = (
-    <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: C.muted, flexWrap: 'wrap' }}>
-      From <input type="date" style={inp} value={from} onChange={e => setFrom(e.target.value)} aria-label="From date" />
-      to <input type="date" style={inp} value={to} min={from} onChange={e => setTo(e.target.value)} aria-label="To date" />
-    </label>
-  )
+  const ui = <DateFilter plain label="Period" from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b) }} />
   return { from, to, ui, inRange: d => d >= from && d <= to }
 }
 
@@ -109,7 +104,7 @@ function Buildings() {
   const shown = rows.filter(x => !q || `${x.t.name} ${x.t.area}`.toLowerCase().includes(q.toLowerCase()))
   return (
     <Card pad={16}>
-      <Toolbar>{r.ui}<input style={{ ...inp, width: 200 }} value={q} onChange={e => setQ(e.target.value)} placeholder="Building or area" aria-label="Search" /><span style={{ flex: 1 }} />
+      <Toolbar>{r.ui}<SearchBox value={q} onChange={setQ} placeholder="Building or area" /><span style={{ flex: 1 }} />
         <Download onClick={() => downloadCsv('sales-by-building.csv', ['Building', 'Area', 'Sales closed', 'Sale value', 'Rentals closed', 'Monthly rent', 'Agency fees', 'Project Manager', 'Project Handler'],
           shown.map(x => [x.t.name, x.t.area, x.sales, x.saleValue, x.rentals, x.rentValue, x.fees, x.t.managerId ? m.staffName(x.t.managerId) : '', x.t.handlerId ? m.staffName(x.t.handlerId) : '']))} /></Toolbar>
       <DataTable rows={shown} rowKey={x => x.t.id} narrowAt={860} empty="Nothing closed in full in these dates" columns={[
@@ -204,7 +199,7 @@ function Tracker() {
   const rows = m.data.audit.filter(a => ids.has(a.dealId) && (!q || `${m.deals[a.dealId]?.code} ${a.by}`.toLowerCase().includes(q.toLowerCase())))
   return (
     <Card pad={16}>
-      <Toolbar><input style={{ ...inp, width: 220 }} value={q} onChange={e => setQ(e.target.value)} placeholder="Case No. or user" aria-label="Search" /></Toolbar>
+      <Toolbar><SearchBox value={q} onChange={setQ} placeholder="Case No. or user" /></Toolbar>
       <DataTable rows={rows} rowKey={a => `${a.at}-${a.dealId}-${a.field}`} pageSize={25} narrowAt={760} columns={[
         { key: 'at', label: 'Updated at', nowrap: true, render: a => <span style={{ ...tabular, fontSize: 13 }}>{date(a.at.slice(0, 10))} {a.at.slice(11)}</span> },
         { key: 'by', label: 'Updated by', render: a => <span style={mono}>{a.by}</span> },
@@ -234,8 +229,8 @@ function Summary() {
   return (
     <Card pad={16}>
       <Toolbar>{r.ui}
-        <Select label="Type" value={type} onChange={setType} options={[['', 'All'], ['sale', 'Sales'], ['rental', 'Rental']].map(([value, label]) => ({ value, label }))} />
-        <Select label="Status" value={status} onChange={setStatus} options={[{ value: '', label: 'All' }, ...Object.entries(DEAL_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
+        <Select label="Type" value={type} onChange={setType} options={[['', 'Sales and rentals'], ['sale', 'Sales'], ['rental', 'Rental']].map(([value, label]) => ({ value, label }))} />
+        <Select label="Status" value={status} onChange={setStatus} options={[{ value: '', label: 'All statuses' }, ...Object.entries(DEAL_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
         <span style={{ flex: 1 }} />
         <Download onClick={() => downloadCsv('eforms-summary.csv', ['Name', 'Position', 'Submission Total', 'Sales/Rent Total', 'Closing Total', 'Total Cases', 'Archived Cases', 'Sales', 'Rental', 'Total Net Commission', 'Total Payout'],
           rows.map(x => [x.s.name, P.tierLabel(x.tier), x.submission, x.price, x.closing, x.cases, x.archived, x.sales, x.rental, x.comm, x.payout]))} />

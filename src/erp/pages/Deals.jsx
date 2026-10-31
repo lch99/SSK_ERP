@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
-import { C, btn, btnPrimary, inp } from '../../styles.js'
+import { C, btn, btnPrimary } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { DEAL_STATUS, PARTY, readyToClose, isAgent, sum, r2 } from '../model.js'
 import { FlowBar } from '../flow.jsx'
-import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Progress, Menu, Modal, FormField, FileInput, TextArea, Notice, go, mono, tabular, field } from '../ui.jsx'
+import { Page, Card, Tabs, Toolbar, SearchBox, Select, DateFilter, RangeFilter, DataTable, Status, Progress, Menu, Modal, FormField, FileInput, TextArea, Notice, go, mono, tabular, field } from '../ui.jsx'
 import { COLUMN, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
-import { rm, date, num, amt } from '../format.js'
+import { rm, rmShort, date, num, amt } from '../format.js'
 import DealPage from './DealPage.jsx'
 import { NoAccess, useCan, useGate } from '../access.jsx'
 import DealForm from './DealForm.jsx'
@@ -35,7 +35,6 @@ const VIEWS = {
   ready: { title: 'Ready to close', sub: 'E-Forms whose cash has cleared. Request Close Case on each, so its payouts can be approved' },
 }
 // A filter field that is set gets the same crimson tint as a set dropdown.
-const activeField = { borderColor: '#f7a3b8', background: C.primaryBg, color: C.primaryDark }
 const STATUS_FILTER = [['', 'All'], ['draft', 'Draft'], ['submitted', 'Submitted'], ['cancelled', 'Abort/Cancel'], ['closed', 'Closed Full'], ['partial', 'Closed Partial']]
 
 function DealList({ view }) {
@@ -49,7 +48,8 @@ function DealList({ view }) {
     return () => window.removeEventListener('hashchange', on)
   }, [])
   const [q, setQ] = useState('')
-  const [price, setPrice] = useState('')
+  const [minPrice, setMinPrice] = useState('')
+  const [maxPrice, setMaxPrice] = useState('')
   const [type, setType] = useState('')
   const [who, setWho] = useState(() => hashParam('staff'))
   const [lead, setLead] = useState('')
@@ -75,13 +75,13 @@ function DealList({ view }) {
     const words = q.trim().toLowerCase()
     return d.deals.filter(x => (!type || x.type === type) && (!who || x.agentId === Number(who) || x.holderId === Number(who)) &&
       (!team || view === 'personal' || view === 'ready' || team.has(x.agentId) || team.has(x.holderId)) &&
-      (!from || x.date >= from) && (!to || x.date <= to) && (!price || String(x.price).includes(price.replace(/\D/g, ''))) &&
+      (!from || x.date >= from) && (!to || x.date <= to) && (!minPrice || x.price >= Number(minPrice)) && (!maxPrice || x.price <= Number(maxPrice)) &&
       (!words || [x.code, x.property.address, x.property.title].join(' ').toLowerCase().includes(words)))
-  }, [d.deals, q, type, who, team, view, from, to, price])
+  }, [d.deals, q, type, who, team, view, from, to, minPrice, maxPrice])
   const rows = (status ? base.filter(x => x.status === status) : base).filter(x => view !== 'ready' || readyToClose(x, m, setup) > 0)
   const people = d.staff.filter(s => isAgent(s) && s.status !== 'pending').sort((a, b) => a.short.localeCompare(b.short))
-  const filters = [from, to, price, who, type, status].filter(Boolean).length
-  const clear = () => { setQ(''); setFrom(''); setTo(''); setPrice(''); setWho(''); setType(''); setStatus('') }
+  const filters = [from, to, minPrice, maxPrice, who, type, status].filter(Boolean).length
+  const clear = () => { setQ(''); setFrom(''); setTo(''); setMinPrice(''); setMaxPrice(''); setWho(''); setType(''); setStatus('') }
 
   const columns = [
     { key: 'code', label: 'Code', sort: x => `${x.date}${x.code}`, render: x => (
@@ -128,20 +128,16 @@ function DealList({ view }) {
       actions={can('deals', 'edit') && <button style={btnPrimary} onClick={() => go('deals/new')}>Submit an E-Form</button>}>
       {view === 'ready' ? <FlowBar here="close" /> : status === 'draft' && <FlowBar here="submit" />}
       <Card pad={16}>
-        <Toolbar fold active={filters} onClear={clear}>
+        <Toolbar fold onClear={clear}>
           <SearchBox value={q} onChange={setQ} placeholder="Case number or address" />
           {byLeader && <Select label={view === 'branch' ? 'Branch manager' : 'Leader'} value={String(leadId || '')} onChange={setLead}
             options={(view === 'branch' ? tops : leaders).map(s => ({ value: String(s.id), label: `${view === 'branch' ? 'B.M ' : ''}${s.short} (${s.code})` }))} />}
-          <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'Select staff profile to view' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
+          <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'Everyone' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
           {enabled.length > 1 && <Select label="Form type" value={type} onChange={setType}
             options={[{ value: '', label: 'All types' }, ...enabled.map(t => ({ value: t, label: t === 'sale' ? 'Sales' : P.DEAL_TYPE_LABELS[t] }))]} />}
           <Select label="Form status" value={status} onChange={setStatus} options={STATUS_FILTER.map(([value, label]) => ({ value, label: value ? `${label} (${base.filter(x => x.status === value).length})` : `All statuses (${base.length})` }))} />
-          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13, color: C.muted, flexWrap: 'wrap' }}>
-            <input type="date" style={{ ...inp, width: 150, ...(from ? activeField : null) }} value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} aria-label="From date" title="From date" />
-            <span aria-hidden>to</span>
-            <input type="date" style={{ ...inp, width: 150, ...(to ? activeField : null) }} value={to} min={from || undefined} onChange={e => setTo(e.target.value)} aria-label="To date" title="To date" />
-          </span>
-          <input style={{ ...inp, width: 150, ...(price ? activeField : null) }} value={price} onChange={e => setPrice(e.target.value)} placeholder="Sell/Rent price" aria-label="Sell or rent price" inputMode="numeric" />
+          <DateFilter label="Form date" from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b) }} />
+          <RangeFilter label="Sell/Rent price" unit="RM" from={minPrice} to={maxPrice} format={rmShort} onChange={(lo, hi) => { setMinPrice(lo); setMaxPrice(hi) }} />
         </Toolbar>
         <DataTable columns={columns} rows={rows} onRow={x => go(`deals/${x.id}`)} defaultSort={{ key: 'code', dir: 'desc' }} pageSize={20} narrowAt={980}
           empty={view === 'ready' && !filters && !q ? 'No deal is ready to close' : 'No E-Forms match'} onClear={filters || q ? clear : undefined} />

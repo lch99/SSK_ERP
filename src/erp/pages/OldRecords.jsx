@@ -55,7 +55,7 @@ function OldEForms({ rows, m }) {
         <Stat label="Old E-Forms" value={rows.length} sub={`${years.at(-1) || ''}–${years[0] || ''}`} />
         <Stat label="Closed (full and partial)" value={rm(sum(rows, r => r.closing))} tone="green" />
       </div>
-      <Toolbar fold active={filters} onClear={clear}>
+      <Toolbar fold onClear={clear}>
         <SearchBox value={q} onChange={setQ} placeholder="Case number, address or staff" />
         <Select label="Year" value={year} onChange={setYear} options={[{ value: '', label: 'All years' }, ...years.map(y => ({ value: y, label: y }))]} />
         <Select label="Type" value={type} onChange={setType} options={[['', 'Sales and rental'], ['sale', 'Sales'], ['rental', 'Rental']].map(([value, label]) => ({ value, label }))} />

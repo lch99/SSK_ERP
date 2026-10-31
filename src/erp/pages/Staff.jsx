@@ -170,7 +170,7 @@ function StaffList({ office = false }) {
         {!office && <Tabs value={view} onChange={setView} tabs={[{ key: 'list', label: 'List' }, { key: 'tree', label: 'Org chart' }]} />}
         {!office && view === 'tree' ? <OrgTree /> : (
           <>
-            <Toolbar fold active={set} onClear={clear}>
+            <Toolbar fold onClear={clear}>
               <SearchBox value={q} onChange={setQ} placeholder="Name, code, phone or email" />
               {office && <Select label="Account type" value={kind} onChange={setKind} options={kindOptions} />}
               {!office && setup.roles.length > 0 && <Select label="Level" value={level} onChange={setLevel} options={levelOptions} />}

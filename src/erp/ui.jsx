@@ -1,9 +1,10 @@
-import { Children, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Children, cloneElement, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { C, btn, inp } from '../styles.js'
 import { createAvatar } from '@dicebear/core'
 import * as notionists from '@dicebear/notionists'
 import Icon from './Icon.jsx'
+import { date } from './format.js'
 import { UPLOADS, acceptFor, checkFile, fileHead, fileSize, uploadHint } from '../../shared/files.js'
 
 // Building blocks shared by the ERP pages.
@@ -264,64 +265,217 @@ export function Stat({ label, value, sub, tone = 'gray', onClick, icon, on }) {
   )
 }
 
+// Tabs on one row. Tabs that don't fit go under "More" at the end (which
+// shows the current tab's name when it is one of them), so a page with many
+// views never wraps or runs off the edge.
+const tabStyle = on => ({ border: 'none', background: 'none', fontFamily: C.font, fontSize: 14, padding: '8px 10px', cursor: 'pointer', marginBottom: -1, whiteSpace: 'nowrap',
+  color: on ? C.primary : C.text, fontWeight: on ? 700 : 500, borderBottom: `2px solid ${on ? C.primary : 'transparent'}`,
+  display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: '6px 6px 0 0', flexShrink: 0 })
+const TabCount = ({ n, on }) => (n == null ? null : (
+  <span style={{ fontSize: 11.5, fontWeight: 700, padding: '0 7px', borderRadius: 10, lineHeight: '18px', ...tabular,
+    background: on ? C.primaryBg : C.grayBg, color: on ? C.primary : C.muted }}>{n}</span>
+))
 export function Tabs({ tabs, value, onChange }) {
+  const [setRow, width, row] = useBoxWidth()
+  const measure = useRef(null), moreBtn = useRef(null), wrap = useRef(null)
+  const [widths, setWidths] = useState([])
+  const [open, setOpen] = useState(false)
+  const sig = tabs.map(t => `${t.key}:${t.label}:${t.count}`).join('|')
+  // The tabs' widths, then the "More (n)" button's and the chevron's (added to a tab's name when the current tab is under More).
+  useLayoutEffect(() => { if (measure.current) setWidths([...measure.current.children].map(el => el.offsetWidth)) }, [sig])
+  useEffect(() => {
+    if (!open) return
+    const close = e => { if (!wrap.current?.contains(e.target)) setOpen(false) }
+    const esc = e => { if (e.key === 'Escape') { setOpen(false); moreBtn.current?.focus() } }
+    document.addEventListener('mousedown', close)
+    window.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', close); window.removeEventListener('keydown', esc) }
+  }, [open])
+  const room = width || row?.clientWidth || 0
+  const gap = 4
+  let fit = tabs.length
+  const tabW = widths.slice(0, tabs.length), [moreW = 0, chevronW = 0] = widths.slice(tabs.length)
+  if (room && widths.length === tabs.length + 2 && tabW.reduce((t, w) => t + w + gap, -gap) > room) {
+    const active = tabs.findIndex(t => t.key === value)
+    // Room for the More button at its widest: "More (n)", or the current tab's name with its chevron.
+    let used = Math.max(moreW, (tabW[active] || 0) + chevronW) + 2
+    fit = 0
+    for (const w of tabW) { if (used + w + gap > room) break; used += w + gap; fit++ }
+  }
+  const shown = tabs.slice(0, fit), extra = tabs.slice(fit)
+  const inExtra = extra.find(t => t.key === value)
+  const pick = key => { setOpen(false); onChange(key) }
   const onKey = e => {
     const i = tabs.findIndex(t => t.key === value)
     const to = e.key === 'ArrowRight' ? tabs[(i + 1) % tabs.length] : e.key === 'ArrowLeft' ? tabs[(i - 1 + tabs.length) % tabs.length] : null
     if (to) { e.preventDefault(); onChange(to.key); e.currentTarget.querySelector(`[data-tab="${to.key}"]`)?.focus() }
   }
   return (
-    <div role="tablist" onKeyDown={onKey} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 14 }}>
-      {tabs.map(t => {
-        const on = t.key === value
-        return (
-          <button key={t.key} role="tab" data-tab={t.key} aria-selected={on} tabIndex={on ? 0 : -1} onClick={() => onChange(t.key)} className="ssk-tab"
-            style={{ border: 'none', background: 'none', fontFamily: C.font, fontSize: 14, padding: '8px 10px', cursor: 'pointer', marginBottom: -1,
-              color: on ? C.primary : C.text, fontWeight: on ? 700 : 500, borderBottom: `2px solid ${on ? C.primary : 'transparent'}`,
-              display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: '6px 6px 0 0' }}>
-            {t.label}
-            {t.count != null && (
-              <span style={{ fontSize: 11.5, fontWeight: 700, padding: '0 7px', borderRadius: 10, lineHeight: '18px', ...tabular,
-                background: on ? C.primaryBg : C.grayBg, color: on ? C.primary : C.muted }}>{t.count}</span>
-            )}
+    <div ref={wrap} style={{ position: 'relative', marginBottom: 14 }}>
+      <div ref={measure} aria-hidden style={{ position: 'absolute', visibility: 'hidden', pointerEvents: 'none', display: 'flex', gap, height: 0, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+        {tabs.map(t => <span key={t.key} style={tabStyle(true)}>{t.label}<TabCount n={t.count} on /></span>)}
+        <span style={tabStyle(false)}>More ({tabs.length})<Icon name="down" size={14} /></span>
+        <span style={tabStyle(false)}><Icon name="down" size={14} /></span>
+      </div>
+      <div ref={setRow} role="tablist" onKeyDown={onKey} style={{ display: 'flex', gap, borderBottom: `1px solid ${C.border}`, minWidth: 0 }}>
+        {shown.map(t => {
+          const on = t.key === value
+          return (
+            <button key={t.key} role="tab" data-tab={t.key} aria-selected={on} tabIndex={on ? 0 : -1} onClick={() => onChange(t.key)} className="ssk-tab" style={tabStyle(on)}>
+              {t.label}<TabCount n={t.count} on={on} />
+            </button>
+          )
+        })}
+        {extra.length > 0 && (
+          <button ref={moreBtn} type="button" className="ssk-tab" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}
+            style={{ ...tabStyle(!!inExtra), ...(inExtra ? null : { color: C.muted }) }}>
+            {inExtra ? <>{inExtra.label}<TabCount n={inExtra.count} on /></> : `More (${extra.length})`}
+            <Icon name="down" size={14} />
           </button>
-        )
-      })}
+        )}
+      </div>
+      {open && (
+        <div role="menu" className="ssk-fade" style={{ position: 'absolute', zIndex: 30, top: 'calc(100% + 4px)', left: Math.max(0, Math.min((moreBtn.current?.offsetLeft || 0), room - 240)),
+          minWidth: 220, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: C.shadowLg, padding: 4 }}>
+          {extra.map(t => (
+            <button key={t.key} role="menuitemradio" aria-checked={t.key === value} className="ssk-menu-item" onClick={() => pick(t.key)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', border: 'none', background: t.key === value ? C.primaryBg : 'none',
+                borderRadius: 8, cursor: 'pointer', fontFamily: C.font, fontSize: 13.5, fontWeight: t.key === value ? 650 : 500, color: t.key === value ? C.primaryDark : C.text, textAlign: 'left' }}>
+              <span style={{ flex: 1 }}>{t.label}</span><TabCount n={t.count} on={t.key === value} />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-// Filters above a table. With `fold`, a narrow box keeps the first control
-// (usually the search) and folds the rest behind a "Filters" button. `active` is
-// how many filters are set; `onClear` resets them all.
-export function Toolbar({ children, fold = false, active = 0, onClear }) {
+// Filters above a table, laid out the same way on every page:
+//   [search] [Filters (n)] [other controls]                  [actions]
+//   [Label: value ×] [Label: value ×]  Clear all
+// The filters are the Select, RangeFilter and DateFilter children. One or two
+// stay in the row; with three or more (or on a phone, with `fold`) they go
+// behind "Filters", which opens them below, each under its label, and the ones
+// in use show as chips. Pickers with no "all" choice stay in the row. A <span style={{ flex: 1 }} /> child splits the row:
+// what follows it (layout switch, downloads) sits on the right. `onClear`
+// resets everything, the search too; without it "Clear all" resets each filter.
+const isSpacer = el => el?.type === 'span' && el.props?.style?.flex === 1 && !el.props.children
+const chipText = s => splitCount(s)[0]
+function filterChips(el, i) {
+  const p = el.props
+  if (el.type === Select) {
+    if (p.options?.[0]?.value !== '' || String(p.value ?? '') === '') return []
+    const o = p.options.find(x => String(x.value) === String(p.value))
+    return [{ key: `${i}`, text: `${p.label}: ${chipText(o?.label ?? p.value)}`, clear: () => p.onChange('') }]
+  }
+  if (el.type === RangeFilter || el.type === DateFilter) {
+    if (p.plain || (!p.from && !p.to)) return []
+    const f = el.type === DateFilter ? (d => date(d)) : (p.format || (n => Number(n).toLocaleString('en-MY')))
+    const text = p.from && p.to ? `${f(p.from)} – ${f(p.to)}` : p.from ? `from ${f(p.from)}` : `up to ${f(p.to)}`
+    return [{ key: `${i}`, text: `${p.label}: ${text}`, clear: () => p.onChange('', '') }]
+  }
+  return []
+}
+const FILTERS = new Set()
+export function Toolbar({ children, fold = false, onClear }) {
   const [ref, width] = useBoxWidth()
   const [open, setOpen] = useState(false)
   const items = Children.toArray(children).filter(Boolean)
-  const clear = onClear && active > 0 && (
-    <button key="clear" onClick={onClear} style={{ ...small, background: 'transparent', boxShadow: 'none', borderColor: 'transparent', color: C.primaryDark }}>
-      <Icon name="close" size={13} /> Clear filters
-    </button>
-  )
-  const folded = fold && width > 0 && width < 640 && items.length > 1
-  if (!folded) return <div ref={ref} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>{items}{clear}</div>
+  const cut = items.findIndex(isSpacer)
+  const left = cut < 0 ? items : items.slice(0, cut)
+  const right = cut < 0 ? [] : items.slice(cut + 1).filter(x => !isSpacer(x))
+  const search = left.filter(x => x.type === SearchBox)
+  // Optional filters can go back to "all": a Select whose first option is '',
+  // a range or date filter that isn't `plain`. The rest pick what the page
+  // shows (an archive, a leader, a report's period), so they stay in the row.
+  const optional = el => (el.type === Select ? el.props.options?.[0]?.value === '' : !el.props.plain)
+  const filters = left.filter(x => FILTERS.has(x.type) && optional(x))
+  const pickers = left.filter(x => FILTERS.has(x.type) && !optional(x))
+  const others = left.filter(x => x.type !== SearchBox && !FILTERS.has(x.type))
+  const chips = filters.flatMap(filterChips)
+  const narrow = width > 0 && width < 640
+  const folded = filters.length >= 3 || (fold && narrow && filters.length > 0)
+  const clearAll = () => (onClear ? onClear() : chips.forEach(c => c.clear()))
+  const quiet = { ...small, background: 'transparent', boxShadow: 'none', borderColor: 'transparent', color: C.primaryDark }
   return (
     <div ref={ref} style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>{items[0]}</div>
-        <button onClick={() => setOpen(!open)} aria-expanded={open}
-          style={{ ...btn, flexShrink: 0, ...(active ? { borderColor: C.primary, background: C.primaryBg, color: C.primaryDark } : null) }}>
-          <Icon name="filter" size={15} /> Filters
-          {active > 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '0 6px', lineHeight: '17px', borderRadius: 9, background: C.primary, color: '#fff' }}>{active}</span>}
-        </button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {search}
+        {pickers}
+        {folded && (
+          <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
+            style={{ ...btn, flexShrink: 0, ...(chips.length ? { borderColor: '#f7a3b8', background: C.primaryBg, color: C.primaryDark } : null) }}>
+            <Icon name="filter" size={15} /> Filters
+            {chips.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '0 6px', lineHeight: '17px', borderRadius: 9, background: C.primary, color: '#fff' }}>{chips.length}</span>}
+            <Icon name="down" size={14} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+          </button>
+        )}
+        {!folded && filters}
+        {others}
+        {!folded && chips.length > 1 && <button type="button" onClick={clearAll} style={quiet}><Icon name="close" size={13} /> Clear all</button>}
+        {right.length > 0 && <span style={{ flex: 1 }} />}
+        {right}
       </div>
-      {open && (
-        <div className="ssk-fade" style={{ display: 'grid', gap: 8, marginTop: 8, padding: 10, borderRadius: 10, background: '#f9fafb', border: `1px solid ${C.border}` }}>
-          {items.slice(1).map((x, i) => <div key={i} style={{ display: 'grid', minWidth: 0 }}>{x}</div>)}
-          {clear && <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{clear}</div>}
+      {folded && open && (
+        <div className="ssk-fade" style={{ marginTop: 10, padding: 14, borderRadius: 12, background: '#f9fafb', border: `1px solid ${C.border}` }}>
+          <div style={{ display: 'grid', gap: '12px 14px', gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))' }}>
+            {filters.map((f, i) => (
+              <div key={f.key ?? i} style={{ display: 'grid', gap: 5, minWidth: 0, alignContent: 'start' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>{f.props.label}</span>
+                {cloneElement(f, { block: true, prefix: false })}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', marginTop: 12 }}>
+            {chips.length > 0 && <button type="button" onClick={clearAll} style={quiet}>Clear all</button>}
+            <button type="button" style={btn} onClick={() => setOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+      {folded && !open && chips.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+          {chips.map(c => (
+            <span key={c.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, color: C.primaryDark, background: C.primaryBg,
+              border: '1px solid #f7c4d1', borderRadius: 999, padding: '3px 4px 3px 10px', maxWidth: '100%' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.text}</span>
+              <button type="button" onClick={c.clear} aria-label={`Remove ${c.text}`}
+                style={{ border: 'none', background: 'none', color: C.primaryDark, cursor: 'pointer', display: 'grid', placeItems: 'center', width: 20, height: 20, borderRadius: 10, padding: 0 }}>
+                <Icon name="close" size={12} stroke={2.4} />
+              </button>
+            </span>
+          ))}
+          <button type="button" onClick={clearAll} style={{ ...quiet, padding: '3px 8px' }}>Clear all</button>
         </div>
       )}
     </div>
+  )
+}
+
+// A min–max number filter (e.g. a price range) for a Toolbar: `from` and `to`
+// are text ('' = no limit); onChange(from, to). Digits only, so no spinners.
+const activeBox = { borderColor: '#f7a3b8', background: C.primaryBg, color: C.primaryDark }
+export function RangeFilter({ label, from, to, onChange, unit = '', block = false, plain = false }) {
+  const digits = v => v.replace(/[^\d]/g, '')
+  const box = v => ({ ...inp, width: block ? '100%' : 104, minWidth: 0, boxSizing: 'border-box', ...(v && !plain ? activeBox : null) })
+  return (
+    <span role="group" aria-label={label} style={{ display: block ? 'grid' : 'inline-flex', gridTemplateColumns: block ? 'minmax(0, 1fr) auto minmax(0, 1fr)' : undefined, gap: 6, alignItems: 'center' }}>
+      <input inputMode="numeric" style={box(from)} value={from} placeholder={`Min${unit ? ` ${unit}` : ''}`} aria-label={`${label}, lowest`} onChange={e => onChange(digits(e.target.value), to)} />
+      <span aria-hidden style={{ color: C.muted }}>–</span>
+      <input inputMode="numeric" style={box(to)} value={to} placeholder={`Max${unit ? ` ${unit}` : ''}`} aria-label={`${label}, highest`} onChange={e => onChange(from, digits(e.target.value))} />
+    </span>
+  )
+}
+
+// A from–to date filter for a Toolbar ('YYYY-MM-DD', '' = open); onChange(from, to).
+// `plain`: always set (a report's period), so never coloured or shown as a chip.
+export function DateFilter({ label, from, to, onChange, block = false, plain = false }) {
+  const box = v => ({ ...inp, width: block ? '100%' : 150, minWidth: 0, boxSizing: 'border-box', ...(v && !plain ? activeBox : null) })
+  return (
+    <span role="group" aria-label={label} style={{ display: block ? 'grid' : 'inline-flex', gridTemplateColumns: block ? 'minmax(0, 1fr) auto minmax(0, 1fr)' : undefined, gap: 6, alignItems: 'center' }}>
+      <input type="date" style={box(from)} value={from} max={to || undefined} aria-label={`${label}, from`} onChange={e => onChange(e.target.value, to)} />
+      <span aria-hidden style={{ color: C.muted, fontSize: 13 }}>to</span>
+      <input type="date" style={box(to)} value={to} min={from || undefined} aria-label={`${label}, to`} onChange={e => onChange(from, e.target.value)} />
+    </span>
   )
 }
 
@@ -1062,3 +1216,6 @@ export function TextArea({ rows = 2, onSubmit, onKeyDown, onInput, style, ...pro
       style={{ ...field, display: 'block', resize: 'vertical', maxHeight: 240, overflowY: 'auto', ...style }} />
   )
 }
+
+// What Toolbar treats as a filter (defined here, after all three exist).
+FILTERS.add(Select).add(RangeFilter).add(DateFilter)

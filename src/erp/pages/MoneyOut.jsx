@@ -52,10 +52,10 @@ export default function MoneyOut({ parts }) {
       </div>
       <Card pad={16}>
         <Tabs value={tab} onChange={setTab} tabs={TABS.map(k => ({ key: k, label: k === 'all' ? 'All' : MONEY_OUT_STATUS[k].label, count: k === 'all' ? match.length : match.filter(x => x.status === k).length }))} />
-        <Toolbar fold active={set} onClear={clear}>
+        <Toolbar fold onClear={clear}>
           <SearchBox value={q} onChange={setQ} placeholder="Voucher, payee or form" />
           <Select label="Type" value={type} onChange={setType} options={[{ value: '', label: 'All six types' }, ...Object.entries(MONEY_OUT_TYPES).map(([value, label]) => ({ value, label: `${label} (${d.moneyOut.filter(x => x.type === value).length})` }))]} />
-          <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'Select staff profile to view' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
+          <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'All staff' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
           <span style={{ flex: 1 }} />
           <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={() => downloadCsv(`request-forms-${m.today}.csv`,
             ['No.', 'Type', 'Date', 'Form', 'Staff', 'Pay to', 'IC', 'Bank', 'Bank Account Number', 'Amount', 'Cheque No.', 'Status', 'Payment Date', 'Receipt', 'Reasons'],

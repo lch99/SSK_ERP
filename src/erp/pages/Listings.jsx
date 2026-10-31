@@ -3,9 +3,9 @@ import { C, btn } from '../../styles.js'
 import { LISTING_SETTINGS, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { LISTING_STATUS, LISTING_CATEGORY, DEAL_STATUS, listingCategory } from '../model.js'
-import { Page, Card, Tabs, Toolbar, SearchBox, Select, Chips, Segmented, DataTable, Status, Pill, Who, Link, Drawer, KV, Block, Empty, go, mono, small, useRecordNav } from '../ui.jsx'
+import { Page, Card, Tabs, Toolbar, SearchBox, Select, RangeFilter, Chips, Segmented, DataTable, Status, Pill, Who, Link, Drawer, KV, Block, Empty, go, mono, small, useRecordNav } from '../ui.jsx'
 import { CARD, COLUMN, PAGE } from '../help.js'
-import { rm, rm0, date, num, ago, maskIc } from '../format.js'
+import { rm, rm0, rmShort, date, num, ago, maskIc } from '../format.js'
 import Icon from '../Icon.jsx'
 import ListingActions, { photosOf, videosOf, mediaCount } from './ListingActions.jsx'
 import { Photo, coverOf, prunePreviews } from '../photos.jsx'
@@ -29,7 +29,6 @@ const ROLE_TITLES = {
 }
 const SHADES = { 2: ['#fde2e8', '#f7c4d1'], 1: ['#e3edfb', '#c9dbf5'], 3: ['#efe8fb', '#ddd0f6'] }
 const lastFollow = l => l.followUps[l.followUps.length - 1] || null
-const priceBox = { padding: '6px 8px', border: `1px solid ${C.border}`, borderRadius: 8, width: 92, fontFamily: C.font, fontSize: 13 }
 
 export default function Listings({ parts }) {
   const { m, scoped: d, setup } = useErp()
@@ -149,28 +148,22 @@ export default function Listings({ parts }) {
           </div>
         )}
         {view === 'market' && <p style={{ fontSize: 13, color: C.muted, margin: '0 0 12px' }}>Every listing on the market in the agency. Book a viewing for your customer; the product handler confirms it with the owner. Owners' details stay with the people tied to each listing.</p>}
-        <div style={{ marginBottom: 12 }}>
-          <Chips label="Category" value={cate} onChange={setCate} options={[{ key: '', label: 'All', count: scoped.length }, ...cats.map(c => ({ key: c.k, label: c.label, count: c.n }))]} />
-        </div>
-        <Toolbar fold active={filters - (cate ? 1 : 0)} onClear={clear}>
+        <Toolbar fold onClear={clear}>
           <SearchBox value={q} onChange={setQ} placeholder="Listing ID, title, area or holder" />
+          <Select label="Listing type" value={type} onChange={setType} options={[['', 'Sale and rent'], ['sale', 'Sales Listing'], ['rental', 'Rental Listing']].map(([value, label]) => ({ value, label }))} />
+          <Select label="Category" value={cate} onChange={setCate} options={[{ value: '', label: `All categories (${scoped.length})` }, ...cats.map(c => ({ value: c.k, label: `${c.label} (${c.n})` }))]} />
+          <RangeFilter label="Ad Price" unit="RM" from={minPrice} to={maxPrice} format={rmShort} onChange={(lo, hi) => { setMinPrice(lo); setMaxPrice(hi) }} />
+          <Select label="Bedrooms" value={beds} onChange={setBeds} options={[{ value: '', label: 'Any' }, ...[1, 2, 3, 4, 5].map(n => ({ value: String(n), label: `${n}+` }))]} />
+          <Select label="Price vs market" value={rating} onChange={setRating} options={[{ value: '', label: 'Any' }, ...Object.entries(L.RATING).map(([value, r]) => ({ value, label: r.label }))]} />
+          <Select label="Status" value={track} onChange={setTrack} options={[{ value: '', label: 'Any status' }, ...Object.entries(LISTING_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
           {(owners.length > 0 || !byRole) && (
-            <Select label={byRole ? ROLES[role] : 'Staff'} value={who} onChange={setWho}
-              options={[{ value: '', label: byRole ? `All ${ROLES[role].toLowerCase()}s` : 'Select staff profile to view' }, ...(byRole ? owners : d.staff.filter(s => s.status !== 'pending').sort((a, b) => a.short.localeCompare(b.short)))
+            <Select label={byRole ? ROLES[role] : 'Product handler'} value={who} onChange={setWho}
+              options={[{ value: '', label: byRole ? `All ${ROLES[role].toLowerCase()}s` : 'Everyone' }, ...(byRole ? owners : d.staff.filter(s => s.status !== 'pending').sort((a, b) => a.short.localeCompare(b.short)))
                 .map(s => ({ value: String(s.id), label: `${role === 'bm' ? 'B.M ' : ''}${s.short} (${s.code})` }))]} />
           )}
-          <Select label="Listing type" value={type} onChange={setType} options={[['', 'All Listings'], ['sale', 'Sales Listing'], ['rental', 'Rental Listing']].map(([value, label]) => ({ value, label }))} />
-          <Select label="Price vs market" value={rating} onChange={setRating} options={[{ value: '', label: 'Any price vs market' }, ...Object.entries(L.RATING).map(([value, r]) => ({ value, label: r.label }))]} />
-          <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-            <input type="number" min="0" style={{ ...priceBox }} value={minPrice} onChange={e => setMinPrice(e.target.value)} placeholder="Min RM" aria-label="Lowest Ad Price" />
-            <span style={{ color: C.muted }}>–</span>
-            <input type="number" min="0" style={{ ...priceBox }} value={maxPrice} onChange={e => setMaxPrice(e.target.value)} placeholder="Max RM" aria-label="Highest Ad Price" />
-          </span>
-          <Select label="Bedrooms" value={beds} onChange={setBeds} options={[{ value: '', label: 'Any bedrooms' }, ...[1, 2, 3, 4, 5].map(n => ({ value: String(n), label: `${n}+ bedrooms` }))]} />
-          <Select label="Market value" value={mv} onChange={setMv} options={[['', 'All market value'], ['complete', 'Complete Market Value'], ['incomplete', 'Incomplete Market Value']].map(([value, label]) => ({ value, label }))} />
-          <Select label="Settings" value={flag} onChange={setFlag} options={[{ value: '', label: '[Settings]' }, ...LISTING_SETTINGS.map(f => ({ value: f, label: f }))]} />
-          <Select label="Follow-up" value={follow} onChange={setFollow} options={[{ value: '', label: '[Follow-Up]' }, ...Object.entries(FOLLOW_UP_ACTIONS).map(([value, label]) => ({ value, label }))]} />
-          <Select label="Status" value={track} onChange={setTrack} options={[{ value: '', label: '[Status]' }, ...Object.entries(LISTING_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
+          <Select label="Settings" value={flag} onChange={setFlag} options={[{ value: '', label: 'Any setting' }, ...LISTING_SETTINGS.map(f => ({ value: f, label: f }))]} />
+          <Select label="Last follow-up" value={follow} onChange={setFollow} options={[{ value: '', label: 'Any' }, ...Object.entries(FOLLOW_UP_ACTIONS).map(([value, label]) => ({ value, label }))]} />
+          <Select label="Market value" value={mv} onChange={setMv} options={[['', 'With or without'], ['complete', 'Complete Market Value'], ['incomplete', 'Incomplete Market Value']].map(([value, label]) => ({ value, label }))} />
           <span style={{ flex: 1 }} />
           <Segmented label="Layout" value={layout} onChange={setLayout} options={[{ key: 'table', label: 'Table', icon: 'menu' }, { key: 'cards', label: 'Cards', icon: 'listings' }]} />
         </Toolbar>
