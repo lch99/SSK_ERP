@@ -55,6 +55,8 @@ export function ErpProvider({ reloadKey, children }) {
         'updateTransaction', 'deleteTransaction', 'updateMoneyOut', 'deleteMoneyOut', 'deleteSalaryRequest',
         'updateListing', 'addListingFollowUp', 'deleteListing', 'saveTitle', 'setTitleStatus', 'deleteTitle', 'saveArea', 'setAreaStatus', 'deleteArea',
         'addCustomerFollowUp', 'updateStaff', 'setMarketingStaffs', 'deleteStaff', 'saveVideo', 'deleteVideo', 'addPropertyType', 'deletePropertyType',
+        'bookViewing', 'confirmViewing', 'rescheduleViewing', 'cancelViewing', 'reviewViewing', 'addViewingRemark',
+        'toggleFavourite', 'readNotices', 'sendNotice', 'revealOwner', 'recheckHandlers', 'recheckBuildingLeads', 'markOutdated', 'returnListings',
       ].map(k => [k, act(api[k], k)])),
     }
   }, [m, scoped, state, error, branch, load, refusal])

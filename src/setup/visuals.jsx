@@ -43,8 +43,8 @@ export function Key({ color, children }) {
 
 // A bar split into parts: [{ key, pct, color, text, ink, hatch, title }]; `pct`
 // is any size (shares of their sum). A part shows its text only when it takes
-// at least an eighth of the bar.
-export function Bar({ parts, height = 24, label }) {
+// at least `textAt` of the bar (an eighth unless the bar is known to be wide).
+export function Bar({ parts, height = 24, label, textAt = 0.125 }) {
   const total = parts.reduce((t, p) => t + Math.max(0, p.pct), 0) || 1
   return (
     <div role="img" aria-label={label} style={{ display: 'flex', gap: 2, height, borderRadius: 6, overflow: 'hidden', minWidth: 0 }}>
@@ -52,7 +52,7 @@ export function Bar({ parts, height = 24, label }) {
         <span key={p.key} title={p.title} style={{ flex: `${p.pct} 1 0`, minWidth: 3, background: p.color, color: p.ink || '#fff',
           backgroundImage: p.hatch ? `repeating-linear-gradient(135deg, transparent 0 5px, ${C.border} 5px 7px)` : undefined,
           fontSize: 11.5, fontWeight: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', ...ellipsis, transition: 'flex-grow .35s ease' }}>
-          {p.pct / total >= 0.125 ? p.text : ''}
+          {p.pct / total >= textAt ? p.text : ''}
         </span>
       ))}
     </div>
@@ -250,75 +250,6 @@ export function DealWalkthrough({ d }) {
           <span style={{ width: 26, height: 26, borderRadius: 7, background: C.warnBg, color: C.warn, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon name="file" size={14} /></span>
           <span>Withholding tax: of every <b style={{ color: C.text }}>RM 1,000</b> paid to an agent, <b style={{ color: C.text }}>{rm(10 * wht)}</b> goes to LHDN.</span>
         </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Tiers: the whole ladder as bars, so the jumps between tiers are visible ──
-
-export function TierLadder({ tiers, enabled }) {
-  const [dtRaw, setDt] = useState(enabled[0] || 'sale')
-  const dt = enabled.includes(dtRaw) ? dtRaw : enabled[0] || 'sale'
-  const [ref, narrow] = useNarrow(560)
-  const rows = P.sortTiers(tiers)
-  if (!rows.length) return null
-  const differs = enabled.length > 1 && rows.some(t => new Set(enabled.map(x => String(t.totals?.[x] ?? ''))).size > 1)
-  const firstYearly = rows.findIndex(t => t.basis === 'yearly')
-  return (
-    <div ref={ref} style={{ ...panel, marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px 14px', flexWrap: 'wrap', marginBottom: 4 }}>
-        <h3 style={{ fontSize: 14, margin: 0, flex: '1 1 auto' }}>Your ladder at a glance</h3>
-        <Key color={AGENT_COLOR}>Negotiator</Key><Key color={POOL_COLOR}>Upline pool</Key><Key color={COMPANY_COLOR}>Company</Key>
-      </div>
-      <p style={{ fontSize: 12.5, color: C.muted, margin: '0 0 10px', lineHeight: 1.45 }}>
-        Each deal's commission at every tier, when the negotiator has uplines. With no uplines, the pool stays with the company.
-      </p>
-      {differs && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-          {enabled.map(x => (
-            <button key={x} onClick={() => setDt(x)} aria-pressed={x === dt}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 14, cursor: 'pointer', fontFamily: C.font, fontSize: 12.5, fontWeight: 600,
-                border: `1px solid ${x === dt ? C.primary : C.border}`, background: x === dt ? C.primaryBg : '#fff', color: x === dt ? C.primaryDark : C.muted }}>
-              <DealIcon type={x} size={13} />{P.DEAL_TYPE_LABELS[x]}
-            </button>
-          ))}
-        </div>
-      )}
-      <div style={{ display: 'grid', gap: 7 }}>
-        {rows.map((t, i) => {
-          const agent = isNum(t.agentRate) && Number(t.agentRate) > 0 && Number(t.agentRate) < 100 ? Number(t.agentRate) : null
-          const raw = t.totals?.[dt]
-          const total = agent != null && isNum(raw) && Number(raw) >= agent && Number(raw) <= 100 ? Number(raw) : null
-          const parts = agent == null ? [] : [
-            { key: 'a', pct: agent, color: AGENT_COLOR, text: `${r2(agent)}%`, title: `Negotiator ${r2(agent)}%` },
-            ...(total != null
-              ? [{ key: 'p', pct: total - agent, color: POOL_COLOR, text: `${r2(total - agent)}%`, title: `Upline pool ${r2(total - agent)}%` },
-                { key: 'c', pct: 100 - total, color: COMPANY_COLOR, ink: C.text, text: `${r2(100 - total)}%`, title: `Company ${r2(100 - total)}%` }]
-              : [{ key: 'x', pct: 100 - agent, color: '#fff', hatch: true, ink: C.muted, text: 'total not set' }]),
-          ]
-          return (
-            <Fragment key={t.id ?? `t${i}`}>
-              {i === firstYearly && i > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: C.muted, margin: '4px 0 0' }}>
-                  <span style={{ flex: 1, height: 1, background: C.borderStrong }} />Then each year, on this year's commission<span style={{ flex: 1, height: 1, background: C.borderStrong }} />
-                </div>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'minmax(0, 200px) minmax(0, 1fr)', gap: narrow ? 4 : 12, alignItems: 'center' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  <span style={{ minWidth: 30, padding: '2px 6px', borderRadius: 6, background: '#fff', border: `1px solid ${C.border}`, fontSize: 12, fontWeight: 700, textAlign: 'center' }}>{t.name || `T${i + 1}`}</span>
-                  <span style={{ minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600, ...ellipsis }}>{String(t.title || '').trim() || <span style={{ color: C.muted, fontWeight: 500 }}>No name</span>}</span>
-                    <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{isNum(t.threshold) ? (Number(t.threshold) ? `from ${rmShort(t.threshold)}` : 'everyone starts here') : 'amount not set'}</span>
-                  </span>
-                </span>
-                {agent == null
-                  ? <span style={{ fontSize: 12.5, color: C.muted }}>Set an agent rate to see this tier.</span>
-                  : <Bar parts={parts} label={`${P.tierLabel(t)}: ${parts.map(p => p.title || p.text).join(', ')}`} />}
-              </div>
-            </Fragment>
-          )
-        })}
       </div>
     </div>
   )

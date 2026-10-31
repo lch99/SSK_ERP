@@ -5,6 +5,7 @@
 import { setupView } from './localApi.js'
 import * as P from '../../shared/payout.js'
 import { UPLOADS } from '../../shared/files.js'
+import * as L from '../../shared/listings.js'
 import { makeErpSample, setupSignature, erpBlockers, nextPayDate, payoutApprovers, payoutForClose, localToday, docNames, ERP_VERSION } from './erpSample.js'
 
 const KEY = 'ssk-demo-erp-v1'
@@ -32,6 +33,7 @@ function current({ rebuild = false } = {}) {
     data = makeErpSample(setup)
     store(data)
   }
+  if (runClock(data, setup)) store(data)
   return { setup, data, blockers }
 }
 
@@ -56,7 +58,7 @@ function change(fn) {
   return reply(state)
 }
 const newId = data => Math.max(0, ...['staff', 'listings', 'customers', 'deals', 'moneyIn', 'closes', 'payouts', 'requests', 'archives', 'moneyOut',
-  'vendorRequests', 'enquiries', 'titles', 'areas', 'videos', 'propertyTypes'].flatMap(k => (data[k] || []).map(x => x.id))) + 1
+  'vendorRequests', 'enquiries', 'titles', 'areas', 'videos', 'propertyTypes', 'viewings', 'notices'].flatMap(k => (data[k] || []).map(x => x.id))) + 1
 const log = (data, today, dealId, field, before, after, by = 'admin') => data.audit.unshift({ at: `${today} ${now()}`, by, dealId, field, before, after })
 
 // ── Closed Case: line status New / Pending Queries / Ready ──
@@ -277,6 +279,10 @@ export const closeDeal = id => change((data, setup, today) => {
   deal.docs = Object.fromEntries(Object.keys(deal.docs).map(k => [k, true]))
   const listing = data.listings.find(l => l.id === deal.listingId)
   if (listing) Object.assign(listing, { status: listing.type === 'sale' ? 'sold' : 'rented', closedOn: today, flags: listing.flags.filter(f => f !== 'Process Deal') })
+  // A full close can make someone the building's Project Manager (the current system does it here).
+  const title = listing && data.titles.find(t => t.id === listing.titleId)
+  if (title) recheckLeads(data, title, today)
+  if (listing) for (const k of fans(data, 'listings', listing.id)) notify(data, k, 'listing', `${listing.code} (${listing.title}) was ${listing.type === 'sale' ? 'sold' : 'rented out'} by us.`, `listings/${listing.id}`, today)
 
   // Money that now goes back out, as request forms.
   const branch = setup.branches.find(b => b.id === deal.branchId)
@@ -358,7 +364,17 @@ export const addListing = body => change((data, setup, today) => {
     branchId: branch?.id ?? holder.branchId, holderId: holder.id, creatorId: holder.id, flags: body.flags || [], portals: [], created: today, updated: today,
     views: 0, viewsApp: 0, enquiries: 0, photos: photoSet ? photoSet.length : Number(body.photos) || 0, ...(photoSet && { photoSet }), videos: Number(body.videos) || 0, owner: { name: str(body.ownerName), ic: '', phone: str(body.ownerPhone) }, dealId: null, priceUpdated: today, photosOn: today,
     followUps: [], titleId: data.titles.find(t => same(t.name, body.title) && same(t.area, body.area))?.id ?? null,
-    share: { users: [], pmId: null, coPh: [] }, marketingRemarks: '', remarksPrivate: true, description: str(body.desc), remarks: str(body.remarks), draft: !!body.draft })
+    share: { users: [], pmId: null, coPh: [] }, marketingRemarks: '', remarksPrivate: true, description: str(body.desc), remarks: str(body.remarks), draft: !!body.draft,
+    phLog: [{ on: today, staffId: holder.id, from: 'created' }] })
+  // Tell whoever watches the building, and the building's lead for this type.
+  const l = data.listings.at(-1)
+  const title = data.titles.find(t => t.id === l.titleId)
+  if (title) {
+    const lead = l.type === 'sale' ? title.managerId : title.handlerId
+    for (const k of new Set([...fans(data, 'titles', title.id), lead].filter(x => x != null && x !== holder.id))) {
+      notify(data, k, 'listing', `New listing in ${title.name}: ${l.code}, ${l.type === 'sale' ? 'for sale' : 'for rent'} at ${rm(l.askPrice)}.`, `listings/${l.id}`, today)
+    }
+  }
 })
 
 export const addStaff = body => change((data, setup, today) => {
@@ -387,8 +403,12 @@ export const addStaff = body => change((data, setup, today) => {
 export const setStaffStatus = (id, status) => change((data, setup, today) => {
   const s = data.staff.find(x => x.id === id)
   if (!s) return 'That person no longer exists.'
-  if (!['active', 'inactive', 'pending'].includes(status)) return 'Unknown status.'
-  Object.assign(s, { status, leftOn: status === 'inactive' ? today : null })
+  if (!['active', 'inactive', 'pending', 'suspended', 'locked'].includes(status)) return 'Unknown status.'
+  const was = s.status
+  Object.assign(s, { status, leftOn: status === 'inactive' ? today : null, statusOn: today, statusWhy: null })
+  if (status === 'active') s.lastActive = today
+  // Not active any more: their listings go to whoever the handler rules pick next.
+  if (was === 'active' && status !== 'active') (data.runs ||= {}).handover = { at: stamp(today), staffId: id, changed: handOver(data, setup, id, today) }
 })
 
 // ── Property: vendor requests and enquiries ──
@@ -758,6 +778,16 @@ export const updateListing = (id, fields) => change((data, setup, today) => {
   if ('askPrice' in f && !(Number(f.askPrice) >= 0)) return 'The price cannot be negative.'
   const maxVideos = UPLOADS.listingVideo.maxFiles
   if (f.videoSet?.length > maxVideos) return `A listing holds up to ${maxVideos} videos. Delete one before adding another.`
+  if (f.share) {
+    const sh = f.share
+    const coPh = (sh.coPh || []).filter(c => c.staffId).map(c => ({ staffId: Number(c.staffId), until: c.locked ? null : c.until || null, locked: !!c.locked, from: c.from || today }))
+    if (coPh.length > L.LISTING_RULES.coPhSlots) return `A listing has ${L.LISTING_RULES.coPhSlots} co-product handler slots.`
+    if (new Set(coPh.map(c => c.staffId)).size < coPh.length) return 'The same person is in two co-product handler slots.'
+    if (coPh.filter(c => c.locked).length > 1) return 'Only one co-product handler can be locked in.'
+    if (coPh.some(c => c.until && c.until < today && !(l.share?.coPh || []).some(o => o.staffId === c.staffId && o.until === c.until))) return 'A co-product handler\'s "valid until" date has passed.'
+    f.share = { users: [...new Set((sh.users || []).map(Number))], pmId: sh.pmId ? Number(sh.pmId) : null, coPh }
+  }
+  const before = { holderId: l.holderId, askPrice: l.askPrice, status: l.status, share: structuredClone(l.share || {}) }
   for (const k of LISTING_EDIT) {
     if (!(k in f)) continue
     if (k === 'askPrice' && Number(f.askPrice) !== l.askPrice) Object.assign(l, { priceBefore: l.askPrice, priceUpdated: today })
@@ -767,6 +797,26 @@ export const updateListing = (id, fields) => change((data, setup, today) => {
   if (f.photoSet) Object.assign(l, { photos: f.photoSet.length, photosOn: today })
   if (f.videoSet) l.videos = f.videoSet.length
   l.updated = today
+  if (f.holderId != null && Number(f.holderId) !== before.holderId) {
+    ;(l.phLog ||= []).push({ on: today, staffId: l.holderId, from: 'manual' })
+    notify(data, l.holderId, 'listing', `You are now the product handler of ${l.code} (${l.title}).`, `listings/${l.id}`, today)
+  }
+  if (f.share) {
+    const was = new Set([before.share?.pmId, ...(before.share?.coPh || []).map(c => c.staffId)].filter(Boolean))
+    for (const k of [l.share.pmId, ...l.share.coPh.map(c => c.staffId)].filter(x => x && !was.has(x))) {
+      notify(data, k, 'listing', `You were added as ${k === l.share.pmId ? 'Main' : 'Co-'}Product Handler of ${l.code} (${l.title}).`, `listings/${l.id}`, today)
+    }
+    settleHandler(data, setup, l, today)
+  }
+  // Whoever keeps it as a favourite hears about price changes and where it went.
+  if (l.askPrice !== before.askPrice) {
+    const down = l.askPrice < before.askPrice
+    for (const k of fans(data, 'listings', l.id)) notify(data, k, down ? 'good' : 'bad', `${l.code} (${l.title}) ${down ? 'dropped' : 'went up'} from ${rm(before.askPrice)} to ${rm(l.askPrice)}.`, `listings/${l.id}`, today)
+  }
+  if (l.status !== before.status) {
+    const back = l.status === 'active'
+    for (const k of fans(data, 'listings', l.id)) notify(data, k, back ? 'good' : 'bad', `${l.code} (${l.title}) is ${back ? 'back on the market' : `now ${({ rented: 'Rent Out', invalid: 'Not Valid', sold_other: 'Sold By Other', outdated: 'Outdated', sold: 'Sold' })[l.status]}`}.`, `listings/${l.id}`, today)
+  }
 })
 export const addListingFollowUp = (id, body) => change((data, setup, today) => {
   const l = data.listings.find(x => x.id === id)
@@ -778,6 +828,8 @@ export const addListingFollowUp = (id, body) => change((data, setup, today) => {
     appointment: b.appointmentDate ? { date: b.appointmentDate, time: b.appointmentTime } : null })
   l.followUps.sort((a, c) => a.date.localeCompare(c.date))
   l.updated = today
+  // A co-product handler's follow-up can make them the handler.
+  settleHandler(data, setup, l, today)
 })
 export const deleteListing = id => change(data => {
   const l = data.listings.find(x => x.id === id)
@@ -785,6 +837,7 @@ export const deleteListing = id => change(data => {
   if (data.deals.some(d => d.listingId === id)) return 'This listing has an E-Form, so it cannot be deleted. Set it Not Valid instead.'
   data.listings = data.listings.filter(x => x.id !== id)
   data.enquiries = data.enquiries.filter(e => e.listingId !== id)
+  data.viewings = data.viewings.filter(v => !v.listingIds.includes(id))
 })
 
 // ── Titles (buildings) and areas ──
@@ -936,4 +989,242 @@ export const deletePropertyType = id => change(data => {
   const n = data.listings.filter(l => l.category === t.name).length
   if (n) return `${n} listing${n > 1 ? 's use' : ' uses'} ${t.name}.`
   data.propertyTypes = data.propertyTypes.filter(x => x.id !== id)
+})
+
+// ── Listing life: product handler, building leads, viewings, favourites, notices ──
+// The rules are in shared/listings.js; these keep the records in step with them.
+const stamp = today => `${today} ${now()}`
+const viewer = by => (by == null || by === '' ? 0 : Number(by))     // 0: the office demo user (Superadmin)
+const staffBy = data => new Map(data.staff.map(s => [s.id, s]))
+function chainOf(data, sid) {
+  const by = staffBy(data), out = [], seen = new Set([sid])
+  let p = by.get(by.get(sid)?.uplineId)
+  while (p && !seen.has(p.id)) { out.push(p); seen.add(p.id); p = by.get(p.uplineId) }
+  return out
+}
+// What the handler rules need to know about a listing: who is active, its
+// building, and the area and branch manager above whoever looked after it.
+function handlerCtx(data, setup, l, today) {
+  const by = staffBy(data)
+  const base = l.holderId ?? l.creatorId
+  const chain = chainOf(data, base)
+  const amRole = [...(setup.roles || [])].reverse()[1]?.code
+  return { today, active: id => by.get(id)?.status === 'active', title: data.titles.find(t => t.id === l.titleId) || null,
+    areaManagerId: amRole ? chain.find(p => p.role === amRole)?.id ?? null : null, branchManagerId: chain.at(-1)?.id ?? null }
+}
+function notify(data, to, cat, text, link, today) {
+  (data.notices ||= []).unshift({ id: newId(data), to, at: stamp(today), cat, text, link: link || null, readBy: [] })
+  if (data.notices.length > 1500) data.notices.length = 1500
+}
+const fans = (data, kind, id) => Object.entries(data.favourites || {}).filter(([, f]) => (f[kind] || []).includes(id)).map(([k]) => Number(k))
+// Re-pick a listing's product handler; log and tell the new one when it changes.
+function settleHandler(data, setup, l, today, from) {
+  if (l.status !== 'active') return null
+  const pick = L.pickHandler(l, handlerCtx(data, setup, l, today))
+  if (!pick || pick.staffId === l.holderId) return null
+  l.holderId = pick.staffId
+  ;(l.phLog ||= []).push({ on: today, staffId: pick.staffId, from: from || pick.from })
+  notify(data, pick.staffId, 'listing', `You are now the product handler of ${l.code} (${l.title}): ${L.HANDLER_FROM[from || pick.from].toLowerCase()}.`, `listings/${l.id}`, today)
+  // Viewings still waiting move with the listing.
+  for (const v of data.viewings || []) if (v.listingIds[0] === l.id && ['new', 'rescheduled', 'confirmed'].includes(v.status)) v.handlerId = pick.staffId
+  return pick
+}
+// Someone stopped being active: their listings go to whoever the rules pick next.
+function handOver(data, setup, staffId, today) {
+  let n = 0
+  for (const l of data.listings) if (l.holderId === staffId && settleHandler(data, setup, l, today)) n++
+  return n
+}
+function recheckLeads(data, title, today, ranking = L.buildingRanking(title.id, data)) {
+  const changed = []
+  for (const kind of ['sale', 'rental']) {
+    const next = L.nextLead(kind, title, ranking[kind])
+    if (!next.changed) continue
+    const [idKey, keepKey, label] = kind === 'sale' ? ['managerId', 'managerPermanent', 'Project Manager'] : ['handlerId', 'handlerPermanent', 'Project Handler']
+    const was = title[idKey]
+    Object.assign(title, { [idKey]: next.staffId, [keepKey]: next.permanent })
+    ;(title.leadLog ||= []).push({ on: today, kind, staffId: next.staffId, was: was ?? null, n: next.top.n, permanent: next.permanent })
+    notify(data, next.staffId, 'good', `You are now the ${label} of ${title.name}${next.permanent ? ', for good' : ''}.`, 'titles', today)
+    changed.push(kind)
+  }
+  return changed
+}
+
+// The clock, run whenever the records are read: the time rules of the current
+// system, applied lazily as it does. Viewings expire or wait for review, co-PH
+// slots run out, unverified accounts are suspended and idle ones locked.
+function runClock(data, setup) {
+  const today = localToday(), at = stamp(today)
+  let changed = false
+  data.viewings ||= []; data.notices ||= []; data.favourites ||= {}
+  for (const v of data.viewings) {
+    const s = L.viewingClock(v, at)
+    if (s !== v.status) { v.status = s; changed = true }
+  }
+  for (const l of data.listings) {
+    if (l.status === 'active' && (l.share?.coPh || []).some(c => c.staffId && !c.locked && c.until && c.until < today) && settleHandler(data, setup, l, today)) changed = true
+  }
+  for (const s of data.staff) {
+    const due = L.staffDue(s, today)
+    if (!due) continue
+    Object.assign(s, due === 'suspend' ? { status: 'suspended', statusWhy: `Not verified within ${L.LISTING_RULES.pendingDays} days of joining` }
+      : { status: 'locked', statusWhy: `No activity for ${L.LISTING_RULES.idleDays} days` }, { statusOn: today })
+    handOver(data, setup, s.id, today)
+    changed = true
+  }
+  return changed
+}
+
+// ── Viewings (the current app's appointments) ──
+const OPEN_VIEWING = ['new', 'rescheduled', 'confirmed']
+function checkSlot(data, b, handlerId, today, skipId) {
+  if (!b.date || !b.time) return 'Pick the date and time.'
+  if (`${b.date} ${b.time}` <= stamp(today)) return 'Pick a time later than now.'
+  const end = L.endTime(b.time, b.minutes)
+  const clash = data.viewings.find(v => v.id !== skipId && v.handlerId === handlerId && OPEN_VIEWING.includes(v.status) && L.clashes(v, { date: b.date, time: b.time, end }))
+  if (clash) return `The product handler already has ${clash.code} from ${clash.time} to ${clash.end} that day. Pick another time.`
+  return null
+}
+const viewingOf = (data, id) => data.viewings.find(v => v.id === id)
+const listingName = (data, v) => { const l = data.listings.find(x => x.id === v.listingIds[0]); return l ? `${l.code} (${l.title})` : 'the listing' }
+const shortName = (data, id) => data.staff.find(s => s.id === id)?.short || 'The office'
+
+export const bookViewing = body => change((data, setup, today) => {
+  const b = body || {}
+  const ids = [...new Set((b.listingIds || []).map(Number))]
+  const ls = ids.map(i => data.listings.find(l => l.id === i))
+  if (!ls.length || ls.some(l => !l)) return 'Pick the listing to view.'
+  if (ls.some(l => l.status !== 'active')) return 'Only listings still on the market can be viewed.'
+  const by = data.staff.find(s => s.id === Number(b.requestedBy))
+  if (!by || by.status !== 'active') return 'Pick the agent bringing the customer.'
+  const customer = b.customerId ? data.customers.find(c => c.id === Number(b.customerId)) : null
+  const name = str(b.customerName) || customer?.name, phone = str(b.customerPhone) || customer?.phone
+  if (!name) return 'Enter the customer\'s name.'
+  if (!validPhone(phone)) return 'Please enter a valid phone number for the customer.'
+  const l = ls[0]
+  const slot = checkSlot(data, b, l.holderId, today)
+  if (slot) return slot
+  const own = l.holderId === by.id
+  const last = data.viewings.reduce((m, v) => Math.max(m, Number(v.code.slice(5)) || 0), 30000)
+  const v = { id: newId(data), code: `VIEW-${last + 1}`, listingIds: ids, requestedBy: by.id, handlerId: l.holderId, customerId: customer?.id ?? null,
+    customer: { name, phone }, date: b.date, time: b.time, end: L.endTime(b.time, b.minutes), status: own ? 'confirmed' : 'new', created: stamp(today),
+    remarks: str(b.remark) ? [{ at: stamp(today), by: by.id, text: str(b.remark) }] : [], review: null }
+  data.viewings.push(v)
+  if (!own) notify(data, l.holderId, 'viewing', `${by.short} asked to view ${l.code} (${l.title}) on ${v.date} at ${v.time}. Confirm it with the owner.`, `appointments/${v.id}`, today)
+})
+export const confirmViewing = (id, by) => change((data, setup, today) => {
+  const v = viewingOf(data, id)
+  if (!v || !['new', 'rescheduled'].includes(v.status)) return 'Only a viewing waiting to be confirmed can be confirmed.'
+  v.status = 'confirmed'
+  v.remarks.push({ at: stamp(today), by: viewer(by) || v.handlerId, text: 'Confirmed with the owner.' })
+  notify(data, v.requestedBy, 'viewing', `${shortName(data, v.handlerId)} confirmed your viewing of ${listingName(data, v)} on ${v.date} at ${v.time}.`, `appointments/${v.id}`, today)
+})
+export const rescheduleViewing = (id, body) => change((data, setup, today) => {
+  const v = viewingOf(data, id)
+  if (!v || !OPEN_VIEWING.includes(v.status)) return 'Only an upcoming viewing can be moved.'
+  const b = body || {}
+  const slot = checkSlot(data, b, v.handlerId, today, v.id)
+  if (slot) return slot
+  const who = viewer(b.by)
+  const was = `${v.date} ${v.time}`
+  Object.assign(v, { date: b.date, time: b.time, end: L.endTime(b.time, b.minutes), status: who === v.handlerId ? 'confirmed' : 'rescheduled' })
+  v.remarks.push({ at: stamp(today), by: who, text: `Moved from ${was} to ${v.date} ${v.time}.${str(b.reason) ? ` ${str(b.reason)}` : ''}` })
+  const other = who === v.handlerId ? v.requestedBy : v.handlerId
+  notify(data, other, 'viewing', `The viewing of ${listingName(data, v)} moved to ${v.date} at ${v.time}.${other === v.handlerId ? ' Confirm the new time with the owner.' : ''}`, `appointments/${v.id}`, today)
+})
+export const cancelViewing = (id, reason, by) => change((data, setup, today) => {
+  const v = viewingOf(data, id)
+  if (!v || !OPEN_VIEWING.includes(v.status)) return 'Only an upcoming viewing can be cancelled.'
+  if (!str(reason)) return 'Say why it is cancelled.'
+  const who = viewer(by)
+  v.status = 'cancelled'
+  v.remarks.push({ at: stamp(today), by: who, text: `Cancelled: ${str(reason)}` })
+  for (const to of new Set([v.requestedBy, v.handlerId].filter(x => x !== who))) notify(data, to, 'viewing', `The viewing of ${listingName(data, v)} on ${v.date} at ${v.time} was cancelled: ${str(reason)}`, `appointments/${v.id}`, today)
+})
+// The agent who brought the customer says how it went. It goes on the listing's
+// follow-ups (and the customer's, when linked), like any follow-up.
+export const reviewViewing = (id, body) => change((data, setup, today) => {
+  const v = viewingOf(data, id)
+  if (!v || v.status !== 'review') return 'A viewing can be reviewed once it is over.'
+  const b = body || {}
+  if (!L.VIEWING_OUTCOME[b.outcome]) return 'Pick how it went.'
+  v.status = 'done'
+  v.review = { at: stamp(today), outcome: b.outcome, text: str(b.text) }
+  const note = `${L.VIEWING_OUTCOME[b.outcome]}${str(b.text) ? `: ${str(b.text)}` : ''} (${v.code})`
+  for (const lid of v.listingIds) {
+    const l = data.listings.find(x => x.id === lid)
+    if (!l) continue
+    l.followUps.push({ date: v.date, action: 1, by: v.requestedBy, remark: note, appointment: null })
+    l.followUps.sort((a, c) => a.date.localeCompare(c.date))
+    l.updated = today
+    settleHandler(data, setup, l, today)
+  }
+  const c = v.customerId && data.customers.find(x => x.id === v.customerId)
+  if (c) c.followUps.push({ date: v.date, action: 'Viewing', note, property: listingName(data, v), price: null, listingId: v.listingIds[0] })
+  if (b.outcome === 'offer') notify(data, v.handlerId, 'good', `${shortName(data, v.requestedBy)}'s customer is making an offer on ${listingName(data, v)}.`, `listings/${v.listingIds[0]}`, today)
+})
+export const addViewingRemark = (id, text, by) => change((data, setup, today) => {
+  const v = viewingOf(data, id)
+  if (!v) return 'That viewing no longer exists.'
+  if (!str(text)) return 'Type the remark.'
+  const who = viewer(by)
+  v.remarks.push({ at: stamp(today), by: who, text: str(text) })
+  for (const to of new Set([v.requestedBy, v.handlerId].filter(x => x !== who))) notify(data, to, 'viewing', `${shortName(data, who)} on ${v.code}: ${str(text)}`, `appointments/${v.id}`, today)
+})
+
+// ── Favourites and notifications (each person's own; 0 = the office demo user) ──
+export const toggleFavourite = (kind, id, by) => change(data => {
+  if (!['listings', 'titles'].includes(kind)) return 'Unknown favourite.'
+  const key = viewer(by)
+  const f = (data.favourites[key] ||= { listings: [], titles: [] })
+  f[kind] = f[kind].includes(id) ? f[kind].filter(x => x !== id) : [...f[kind], id]
+})
+export const readNotices = (ids, by) => change(data => {
+  const key = viewer(by)
+  const branchId = data.staff.find(s => s.id === key)?.branchId ?? null
+  for (const n of data.notices) {
+    if ((ids === 'all' ? L.noticeFor(n, key, branchId) : ids.includes(n.id)) && !n.readBy.includes(key)) n.readBy.push(key)
+  }
+})
+export const sendNotice = body => change((data, setup, today) => {
+  const b = body || {}
+  if (!str(b.text)) return 'Type the message.'
+  const to = b.to === 'all' || String(b.to).startsWith('branch:') ? b.to : Number(b.to)
+  if (to !== 'all' && !String(to).startsWith('branch:') && !data.staff.some(s => s.id === to)) return 'Pick who gets it.'
+  notify(data, to, 'notice', str(b.text), str(b.link) || null, today)
+})
+
+// ── Owner details: seen only by people tied to the listing, and every look is logged ──
+export const revealOwner = (listingId, by) => change((data, setup, today) => {
+  const l = data.listings.find(x => x.id === listingId)
+  if (!l) return 'That listing no longer exists.'
+  ;(l.ownerViews ||= []).unshift({ at: stamp(today), by: viewer(by) })
+  l.ownerViews.length = Math.min(l.ownerViews.length, 50)
+})
+
+// ── Checks the office can run by hand (the current system's admin tasks) ──
+export const recheckHandlers = () => change((data, setup, today) => {
+  let n = 0
+  for (const l of data.listings) if (settleHandler(data, setup, l, today)) n++
+  ;(data.runs ||= {}).handlers = { at: stamp(today), changed: n }
+})
+export const recheckBuildingLeads = () => change((data, setup, today) => {
+  let n = 0
+  const rankings = L.buildingRankings(data)
+  for (const t of data.titles.filter(x => x.status === 0)) n += recheckLeads(data, t, today, rankings.get(t.id) || { sale: [], rental: [] }).length
+  ;(data.runs ||= {}).leads = { at: stamp(today), changed: n }
+})
+export const markOutdated = () => change((data, setup, today) => {
+  let n = 0
+  for (const l of data.listings) if (L.isOutdated(l, today)) { l.status = 'outdated'; n++; for (const k of fans(data, 'listings', l.id)) notify(data, k, 'bad', `${l.code} (${l.title}) is now Outdated: nobody updated it for a while.`, `listings/${l.id}`, today) }
+  ;(data.runs ||= {}).outdated = { at: stamp(today), changed: n }
+})
+// Back from Suspended or Locked: their listings come back from the stand-in.
+export const returnListings = staffId => change((data, setup, today) => {
+  const s = data.staff.find(x => x.id === staffId)
+  if (!s || s.status !== 'active') return 'Switch the account back on first.'
+  const list = L.handedAway(data.listings, staffId)
+  if (!list.length) return 'None of their listings are waiting to come back.'
+  for (const l of list) { l.holderId = staffId; l.phLog.push({ on: today, staffId, from: 'returned' }) }
+  ;(data.runs ||= {}).returned = { at: stamp(today), staffId, changed: list.length }
 })

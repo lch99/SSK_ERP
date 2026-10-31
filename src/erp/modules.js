@@ -17,11 +17,13 @@ const todo = {
   requests: d => d.moneyOut.filter(x => x.status === 'new' || x.status === 'queried').length,
   salary: d => d.requests.filter(r => r.status === 'new').length,
   vendor: d => d.vendorRequests.filter(v => v.status === 0).length,
+  viewings: d => (d.viewings || []).filter(v => v.status === 'new' || v.status === 'rescheduled').length,
 }
 
 export const MODULES = [
   { key: 'home', label: 'Home', icon: 'home', home: 'dashboard', items: [
     { label: 'Dashboard', path: 'dashboard' },
+    { label: 'Notifications', path: 'notifications' },
     { label: 'My profile', path: 'settings' },
   ] },
   { key: 'listings', label: 'Listings', icon: 'building', home: 'listings', items: [
@@ -29,7 +31,7 @@ export const MODULES = [
     { section: 'Properties', was: 'Property' },
     { label: 'All listings', was: 'My Property Listing', path: 'listings' },
     { label: 'Owner requests', was: 'Vendor Requests', path: 'vendor-requests', badge: todo.vendor },
-    { label: 'Viewings', was: 'Appointment', path: 'appointments' },
+    { label: 'Viewings', was: 'Appointment / Appointment library', path: 'appointments', badge: todo.viewings },
     { label: 'Enquiries', was: 'Check Enquiry', path: 'enquiries' },
     { section: 'Customers', was: 'Customer Database' },
     { label: 'All customers', path: 'customers' },
@@ -75,6 +77,8 @@ export const MODULES = [
     { label: 'Staff pay summary', was: 'Staff Summary', path: 'reports/staff' },
     { label: 'Payout calculator', was: 'E-Forms Case Summary', path: 'reports/cases' },
     { label: 'Landlord checks', was: 'Archived Case Landlord', path: 'reports/landlord' },
+    { label: 'Sales by building', was: 'Total Transaction Value (Project Manager)', path: 'reports/buildings' },
+    { label: 'Follow-ups by person', was: 'Listing follow-up staff action ref', path: 'reports/followups' },
     { label: '2020 commission page', was: 'Commission', path: 'commission' },
     { label: 'Old records (V1)', was: 'Show more / E-Forms (Old) / Overide Module / Downline\'s E-Forms', path: 'old-records' },
   ] },
@@ -104,6 +108,7 @@ export const MODULES = [
   { key: 'system', label: 'System', icon: 'setup', home: 'system', items: [
     { label: 'Settings', was: 'System Settings / System Preference Portal', path: 'system' },
     { label: 'Setup', path: 'setup', perm: 'setup.edit' },
+    { label: 'Automatic rules', was: 'Sys-tasks / cron', path: 'system/rules' },
     { section: 'Users', was: 'H.R Portal' },
     { label: 'Office staff', was: 'All Agent/Staff / Admin / Accounting', path: 'staff/office' },
     { label: 'Add office staff', was: 'Add New Agent/Staff', path: 'staff/new/office' },

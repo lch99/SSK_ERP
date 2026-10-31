@@ -19,7 +19,10 @@ import Dashboard from './pages/Dashboard.jsx'
 import Customers from './pages/Customers.jsx'
 import Listings from './pages/Listings.jsx'
 import ListingNew from './pages/ListingNew.jsx'
-import { VendorRequests, Appointments, Enquiries, Titles, Areas } from './pages/Property.jsx'
+import { VendorRequests, Enquiries, Titles, Areas } from './pages/Property.jsx'
+import Viewings from './pages/Viewings.jsx'
+import Rules from './pages/Rules.jsx'
+import { NoticeBell, Notifications } from './notices.jsx'
 import Deals from './pages/Deals.jsx'
 import Reports from './pages/Reports.jsx'
 import MoneyIn from './pages/MoneyIn.jsx'
@@ -38,11 +41,14 @@ import Access from './pages/Access.jsx'
 import { AccessProvider, NoAccess, ViewAsBar, outOfReach, useAccess } from './access.jsx'
 
 // Pages by the first part of the address (#/<page>/…). `own` pages bring their own layout.
+// System → Settings, and System → Automatic rules at #/system/rules.
+const System = ({ parts }) => (parts[1] === 'rules' ? <Rules /> : <SystemSettings />)
+
 const PAGES = {
   dashboard: Dashboard, customers: Customers, listings: Listings, 'listing-new': ListingNew, 'listing-roles': Listings,
-  'vendor-requests': VendorRequests, appointments: Appointments, enquiries: Enquiries, titles: Titles, areas: Areas,
+  'vendor-requests': VendorRequests, appointments: Viewings, enquiries: Enquiries, notifications: Notifications, titles: Titles, areas: Areas,
   deals: Deals, projects: Projects, commission: Commission, reports: Reports, 'money-in': MoneyIn, payouts: Payouts, 'money-out': MoneyOut,
-  staff: Staff, invoices: Invoices, salary: Salary, 'my-pay': MyPay, videos: Videos, settings: Profile, system: SystemSettings, 'org-chart': OrgChart, 'old-records': OldRecords, access: Access,
+  staff: Staff, invoices: Invoices, salary: Salary, 'my-pay': MyPay, videos: Videos, settings: Profile, system: System, 'org-chart': OrgChart, 'old-records': OldRecords, access: Access,
 }
 const OWN = { setup: SetupPage, users: UsersPage }
 
@@ -451,6 +457,7 @@ function TopBar({ wide, me, profile, authDisabled, erp, onMenu, onSignOut, onCha
               options={[{ value: '', label: 'All branches' }, ...branches.map(b => ({ value: b.id, label: b.name }))]} />
           </span>
         ) : <span style={{ flex: 1 }} />}
+        <NoticeBell />
         <UserMenu wide={wide} me={me} profile={profile} authDisabled={authDisabled} onSignOut={onSignOut} onChangePassword={onChangePassword} onHelp={onHelp} />
       </div>
     </header>

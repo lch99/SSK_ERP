@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import * as P from '../../shared/payout.js'
-import { C, inp, sel, btn, btnPrimary, th, td, label } from '../styles.js'
+import { C, inp, sel, btn, btnPrimary, label } from '../styles.js'
 import Section from './Section.jsx'
 import { useDraft } from './useDraft.js'
-import { useNarrow } from './useNarrow.js'
-import { TierLadder } from './visuals.jsx'
+import TierEditor from './TierEditor.jsx'
 import { Group, Choice } from './ui.jsx'
 import { UplineFields, uplineErrors, uplineEdits } from './UplinesSection.jsx'
 import HierarchyPreview from './HierarchyPreview.jsx'
@@ -38,11 +37,9 @@ const moneyKey = (plans, u, side) => JSON.stringify([
   u.roles.map(r => r.code), u.roles.map(r => Number(u.splits?.[r.code]) || 0), Number(side),
 ])
 
-const blankTier = (n, last) => ({ id: null, name: `T${n + 1}`, title: '', basis: last?.basis || 'lifetime', threshold: n ? '' : 0, agentRate: '', totals: {} })
-
 // ── Tiers, uplines and payouts ───────────────────────────────────────────────
-// Each tier plan is one table: the agent rate and the total payout side by
-// side. Branches pay on the standard plan unless picked for another one.
+// Each tier plan is one ladder (TierEditor.jsx): a line per tier, opened to
+// change it. Branches pay on the standard plan unless picked for another one.
 // Below it, the upline chain that shares the pool and the split between two
 // agents on one deal (both the same for every plan). All saved together; once
 // Setup is done, a change that moves money asks from which E-Form date it applies.
@@ -63,7 +60,6 @@ export default function TiersSection({ setup, save, step, done }) {
   const [perTypeRaw, setPerType] = useState(() => differs(setup.plans))
   const perType = perTypeRaw && enabled.length > 1
   const [fill, setFill] = useState({ value: '', mode: 'flat' })
-  const [boxRef, narrow] = useNarrow(perType ? 640 + enabled.length * 110 : 760)
 
   // Saved in ladder order, so check them that way too.
   const sorted = plans.map(p => ({ ...p, tiers: P.sortTiers(p.tiers) }))
@@ -84,8 +80,6 @@ export default function TiersSection({ setup, save, step, done }) {
 
   const setPlan = patch => setPlans(plans.map((p, i) => (i === active ? { ...p, ...patch } : p)))
   const setTiers = tiers => setPlan({ tiers })
-  const edit = (i, k, v) => setTiers(plan.tiers.map((t, j) => (j === i ? { ...t, [k]: v } : t)))
-  const setTotal = (i, dt, v) => setTiers(plan.tiers.map((t, j) => (j === i ? { ...t, totals: { ...t.totals, ...(dt ? { [dt]: v } : everyType(v)) } } : t)))
 
   const addPlan = () => {
     setPlans([...plans, { id: null, name: '', branchIds: [], tiers: plan.tiers.map(t => ({ ...t, id: null })) }])
@@ -130,45 +124,9 @@ export default function TiersSection({ setup, save, step, done }) {
   }
 
   const onStandard = P.branchesOnPlan(plans, setup.branches, 0)
-  const cols = perType ? enabled : [null]
-
-  // The inputs for one tier, laid out as a table row or a card below.
-  const fields = (t, i) => {
-    const rateBad = isNum(t.agentRate) && (Number(t.agentRate) <= 0 || Number(t.agentRate) >= 100)
-    const totalCell = dt => {
-      const v = t.totals?.[dt || enabled[0] || 'sale']
-      const ok = isNum(v) && isNum(t.agentRate) && !P.validateTotal(v, t.agentRate)
-      const bad = isNum(v) && isNum(t.agentRate) && !ok
-      return (
-        <span style={{ display: 'inline-block', whiteSpace: 'nowrap' }}>
-          <input style={{ ...inp, width: 76, ...(bad ? { border: `1px solid ${C.err}` } : {}) }} type="number" min="0" max="100" step="0.01" value={v ?? ''}
-            aria-label={`Total payout${dt ? ` for ${P.DEAL_TYPE_LABELS[dt]}` : ''}, ${t.name || `tier ${i + 1}`}`} onChange={e => setTotal(i, dt, e.target.value)} /> %
-          <span style={{ display: 'block', fontSize: 12, color: bad ? C.err : C.muted, marginTop: 2 }}>
-            {ok ? `uplines ${r2(v - t.agentRate)} · company ${r2(100 - v)}` : bad ? `at least ${t.agentRate}%` : ' '}
-          </span>
-        </span>
-      )
-    }
-    return {
-      code: <input style={{ ...inp, width: 64 }} maxLength={20} value={t.name} placeholder={`T${i + 1}`} aria-label="Tier code" onChange={e => edit(i, 'name', e.target.value)} />,
-      title: <input style={{ ...inp, width: '100%' }} maxLength={60} value={t.title ?? ''} placeholder="e.g. Senior Negotiator" aria-label="Tier name" onChange={e => edit(i, 'title', e.target.value)} />,
-      basis: (
-        <select style={sel} value={t.basis} aria-label="Climbs on" onChange={e => edit(i, 'basis', e.target.value)}>
-          <option value="lifetime">Lifetime</option>
-          <option value="yearly">This year</option>
-        </select>
-      ),
-      threshold: <input style={{ ...inp, width: 110 }} type="number" min="0" step="1000" value={t.threshold} aria-label="Reached at (RM)" onChange={e => edit(i, 'threshold', e.target.value)} />,
-      rate: <span style={{ whiteSpace: 'nowrap' }}><input style={{ ...inp, width: 70, ...(rateBad ? { border: `1px solid ${C.err}` } : {}) }} type="number" min="0" max="100" step="0.01"
-        value={t.agentRate} aria-label="Agent rate" onChange={e => edit(i, 'agentRate', e.target.value)} /> %</span>,
-      totals: cols.map(totalCell),
-      remove: <button style={btn} onClick={() => setTiers(plan.tiers.filter((_, j) => j !== i))} title="Remove tier" aria-label={`Remove ${t.name || 'tier'}`}>✕</button>,
-    }
-  }
-
   return (
     <Section id="tiers" step={step} title="Tiers, uplines and payouts" done={done} dirty={dirty} onReset={reset}
-      hint={<>For each tier: the <b>agent rate</b> the negotiator keeps, and the <b>total payout</b> when they have uplines. The difference is the <b>upline pool</b>, shared by the upline levels further down; the rest stays with the company. <b>Lifetime</b> tiers climb on commission since joining; after the top lifetime tier, <b>this-year</b> tiers climb on this year's commission. Tiers are put in order of the RM amount when you save.</>}
+      hint={<>For each tier: the <b>agent rate</b> the negotiator keeps, and the <b>total payout</b> when they have uplines. The difference is the <b>upline pool</b>, shared by the upline levels further down; the rest stays with the company. Agents climb the tiers <b>since joining</b> on the commission they have earned, then optionally <b>each year</b> on that year's commission. Click a tier to change it.</>}
       errors={errors} onSave={() => save(from ? [['rules-from', { from }], ...steps] : steps)}>
 
       <RulesHistory setup={setup} />
@@ -255,55 +213,7 @@ export default function TiersSection({ setup, save, step, done }) {
         </div>
       )}
 
-      <TierLadder tiers={plan.tiers} enabled={enabled} />
-
-      <div ref={boxRef}>
-        {!plan.tiers.length &&<p style={{ color: C.muted, fontSize: 14, margin: '0 0 4px' }}>No tiers yet. Every agent starts in the first tier, at RM 0.</p>}
-        {plan.tiers.length > 0 && !narrow && (
-          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-            <thead><tr>
-              <th style={th}>Code</th><th style={th}>Name</th><th style={th}>Climbs on</th><th style={th}>Reached at (RM)</th><th style={th}>Agent rate</th>
-              {cols.map(dt => <th key={dt || 'all'} style={th}>{dt ? `Total · ${P.DEAL_TYPE_LABELS[dt]}` : 'Total payout'}</th>)}
-              <th style={th} />
-            </tr></thead>
-            <tbody>
-              {plan.tiers.map((t, i) => {
-                const f = fields(t, i)
-                return (
-                  <tr key={t.id ?? `new-${i}`}>
-                    <td style={{ ...td, width: 1 }}>{f.code}</td>
-                    <td style={td}>{f.title}</td>
-                    <td style={{ ...td, width: 1 }}>{f.basis}</td>
-                    <td style={{ ...td, width: 1 }}>{f.threshold}</td>
-                    <td style={{ ...td, width: 1 }}>{f.rate}</td>
-                    {f.totals.map((cell, k) => <td key={k} style={{ ...td, width: 1, paddingTop: 12 }}>{cell}</td>)}
-                    <td style={{ ...td, width: 1 }}>{f.remove}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-        {plan.tiers.length > 0 && narrow && plan.tiers.map((t, i) => {
-          const f = fields(t, i)
-          return (
-            <div key={t.id ?? `new-${i}`} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                {f.code}
-                <span style={{ flex: 1, minWidth: 0 }}>{f.title}</span>
-                {f.remove}
-              </div>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <div><span style={label}>Climbs on</span>{f.basis}</div>
-                <div><span style={label}>Reached at (RM)</span>{f.threshold}</div>
-                <div><span style={label}>Agent rate</span>{f.rate}</div>
-                {f.totals.map((cell, k) => <div key={k}><span style={label}>{cols[k] ? `Total · ${P.DEAL_TYPE_LABELS[cols[k]]}` : 'Total payout'}</span>{cell}</div>)}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      <button style={{ ...btn, marginTop: 10 }} onClick={() => setTiers([...plan.tiers, blankTier(plan.tiers.length, plan.tiers[plan.tiers.length - 1])])}>+ Add tier</button>
+      <TierEditor key={`tiers-${active}`} tiers={plan.tiers} setTiers={setTiers} enabled={enabled} perType={perType} />
 
       {/* The chain is company-wide, so it sits apart from the plan tabs above. */}
       <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 24, paddingTop: 2 }}>

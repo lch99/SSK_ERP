@@ -73,7 +73,9 @@ export const CUSTOMER_ACTION = { 0: 'Admin Follow-Up', 1: 'Manager Follow-Up', 2
 export const CUSTOMER_FROM = { iProperty: 'iProperty', 'Mudah.my': 'Mudah.my', Banner: 'Banner', Intro: 'Intro', others: 'Other' }
 export const STAFF_STATUS = {
   active: { label: 'Active', tone: 'green', help: 'Can sign in and be paid.' },
-  pending: { label: 'Pending', tone: 'amber', help: 'New. HR still has to enable them.' },
+  pending: { label: 'Pending', tone: 'amber', help: 'New. HR still has to enable them (within 7 days, or the account is suspended).' },
+  suspended: { label: 'Suspended', tone: 'red', help: 'Cannot sign in: not verified within 7 days of joining, or suspended by HR. Their listings went to the next person in line.' },
+  locked: { label: 'Locked', tone: 'red', help: 'Cannot sign in: no activity for 60 days. HR unlocks it; their listings went to the next person in line.' },
   inactive: { label: 'Inactive', tone: 'gray', help: 'Left or disabled. Cannot sign in.' },
 }
 export const VENDOR_STATUS = {
@@ -248,6 +250,7 @@ export function inBranch(m, branchId) {
     requests: d.requests.filter(x => m.staff[x.staffId]?.branchId === branchId),
     vendorRequests: d.vendorRequests.filter(x => x.branchId === branchId),
     enquiries: d.enquiries.filter(x => m.listings[x.listingId]?.branchId === branchId),
+    viewings: (d.viewings || []).filter(x => m.listings[x.listingIds[0]]?.branchId === branchId),
     titles: d.titles.filter(x => x.branchId === branchId),
     areas: d.areas.filter(x => x.branchId === branchId),
   }

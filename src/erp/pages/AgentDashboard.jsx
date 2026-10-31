@@ -44,9 +44,16 @@ export default function AgentDashboard({ id }) {
   const queried = w.checking.filter(l => l.status === 'queried')
   const sentBack = m.data.requests.filter(r => r.staffId === id && r.status === 'invalid')
   const outdated = m.data.listings.filter(l => l.holderId === id && l.status === 'outdated')
+  const views = m.data.viewings || []
+  const toConfirm = views.filter(v => v.handlerId === id && (v.status === 'new' || v.status === 'rescheduled'))
+  const toReview = views.filter(v => v.requestedBy === id && v.status === 'review')
+  const soon = views.filter(v => (v.handlerId === id || v.requestedBy === id) && v.status === 'confirmed' && v.date === today)
   const plural = (n, one, many = `${one}s`) => `${num(n)} ${n === 1 ? one : many}`
   const todo = [
     w.ready.length && { icon: 'wallet', tone: C.primary, to: 'my-pay', text: <><b>{rm(sum(w.ready, l => l.amount))}</b> ready to claim: get it paid or stack it</> },
+    toConfirm.length && { icon: 'calendar', tone: C.warn, to: 'appointments', text: <><b>{plural(toConfirm.length, 'viewing')}</b> of your listings to confirm with the owner</> },
+    toReview.length && { icon: 'calendar', tone: C.info, to: 'appointments', text: <><b>{plural(toReview.length, 'viewing')}</b> to review: how did it go?</> },
+    soon.length && { icon: 'calendar', tone: C.ok, to: 'appointments', text: <><b>{plural(soon.length, 'viewing')}</b> today, the first at {soon.sort((a, b) => a.time.localeCompare(b.time))[0].time}</> },
     drafts.length && { icon: 'deals', tone: C.warn, to: drafts.length === 1 ? `deals/${drafts[0].id}` : 'deals?status=draft', text: <><b>{plural(drafts.length, 'draft E-Form')}</b> to finish and submit</> },
     queried.length && { icon: 'alert', tone: C.err, to: 'my-pay', text: <><b>{plural(queried.length, 'payout line')}</b> in Pending Queries: {queried[0].query}</> },
     sentBack.length && { icon: 'alert', tone: C.err, to: `salary/${sentBack[0].id}`, text: <><b>{sentBack[0].code}</b> sent back: {sentBack[0].remark}</> },

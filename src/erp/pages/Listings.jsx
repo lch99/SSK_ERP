@@ -10,11 +10,14 @@ import Icon from '../Icon.jsx'
 import ListingActions, { photosOf, videosOf, mediaCount } from './ListingActions.jsx'
 import { Photo, coverOf, prunePreviews } from '../photos.jsx'
 import { useFeedback } from '../feedback.jsx'
-import { useCan } from '../access.jsx'
+import { useCan, useAccess } from '../access.jsx'
+import * as L from '../../../shared/listings.js'
+import { useViewer, useOwnerSight, OwnerContact, FavStar, RatingPill, HotTags, BookViewing } from '../listingLife.jsx'
+import { ListingViewings } from './Viewings.jsx'
 
 // My Property Listing (Property menu) and the same list by role (Listing menu).
 const VIEWS = [
-  ['all', 'All'], ['today', 'Added Today'], ['price', 'Latest Price Updated'], ['creator', 'Creator Listing'], ['sold', 'Sold Out'],
+  ['all', 'All'], ['hot', 'Hot lists'], ['fav', 'My favourites'], ['today', 'Added Today'], ['price', 'Latest Price Updated'], ['creator', 'Creator Listing'], ['sold', 'Sold Out'],
   ['rent', 'Rent Out'], ['outdated', 'Outdated'], ['photos', 'Last Upload Photo'], ['followup', 'Last Follow-Up'],
 ]
 const ROLES = {
@@ -26,9 +29,22 @@ const ROLE_TITLES = {
 }
 const SHADES = { 2: ['#fde2e8', '#f7c4d1'], 1: ['#e3edfb', '#c9dbf5'], 3: ['#efe8fb', '#ddd0f6'] }
 const lastFollow = l => l.followUps[l.followUps.length - 1] || null
+const priceBox = { padding: '6px 8px', border: `1px solid ${C.border}`, borderRadius: 8, width: 92, fontFamily: C.font, fontSize: 13 }
 
 export default function Listings({ parts }) {
   const { m, scoped: d, setup } = useErp()
+  const viewer = useViewer()
+  const sightOf = useOwnerSight()
+  const access = useAccess()
+  // Agents (and branch roles) also see every active listing in the agency, to
+  // bring their customers to it; the owner's details stay hidden from them.
+  const market = access?.scope && access.scope !== 'all'
+  const [hot, setHot] = useState('')
+  const [rating, setRating] = useState('')
+  const [minPrice, setMinPrice] = useState('')
+  const [maxPrice, setMaxPrice] = useState('')
+  const [beds, setBeds] = useState('')
+  const [book, setBook] = useState(null)
   // Once a visit, stored photo previews no listing uses any more are dropped.
   useEffect(() => { if (m) prunePreviews(m.data.listings) }, [m])
   const byRole = parts[0] === 'listing-roles'
@@ -53,24 +69,27 @@ export default function Listings({ parts }) {
     ? [...new Set(d.listings.map(ownerOf).filter(Boolean))].map(id => m.staff[id]).sort((a, b) => a.short.localeCompare(b.short)) : []
   const fromVendor = new Set(m.data.vendorRequests.filter(v => v.listingId).map(v => v.listingId))
 
-  const scoped = useMemo(() => d.listings.filter(l => {
+  const favs = m.data.favourites?.[viewer.key]?.listings || []
+  const source = view === 'market' ? m.data.listings.filter(l => l.status === 'active') : d.listings
+  const scoped = useMemo(() => source.filter(l => {
     if (byRole) {
       if (role === 'outdated') return l.status === 'outdated'
       if (role === 'vendor') return fromVendor.has(l.id)
       return !who || ownerOf(l) === Number(who)
     }
-    return { all: true, today: l.created === m.today, price: !!l.priceBefore, creator: true, sold: l.status === 'sold', rent: l.status === 'rented',
+    return { all: true, market: true, hot: L.hotLists(l).length > 0, fav: favs.includes(l.id), today: l.created === m.today, price: !!l.priceBefore, creator: true, sold: l.status === 'sold', rent: l.status === 'rented',
       outdated: l.status === 'outdated', photos: l.photos > 0, followup: l.followUps.length > 0 }[view]
-  }), [d.listings, byRole, role, who, view, m]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [source, byRole, role, who, view, m, favs]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(() => {
     const words = q.trim().toLowerCase()
     return scoped.filter(l => (!cate || listingCategory(l) === Number(cate)) && (!type || l.type === type) &&
       (!mv || (mv === 'complete' ? l.marketValue : !l.marketValue)) && (!flag || l.flags.includes(flag)) &&
       (follow === '' || lastFollow(l)?.action === Number(follow)) && (!track || l.status === track) &&
-      (byRole || !who || l.holderId === Number(who)) &&
-      (!words || [l.code, l.title, l.area, l.address, m.staff[l.holderId]?.short].join(' ').toLowerCase().includes(words)))
-  }, [scoped, cate, type, mv, flag, follow, track, who, byRole, q, m])
+      (byRole || !who || l.holderId === Number(who)) && (!hot || L.hotLists(l).includes(hot)) && (!rating || L.priceRating(l)?.band === rating) &&
+      (!minPrice || l.askPrice >= Number(minPrice)) && (!maxPrice || l.askPrice <= Number(maxPrice)) && (!beds || l.beds >= Number(beds)) &&
+      (!words || [l.code, l.title, l.area, sightOf(l).level === 'none' ? '' : l.address, m.staff[l.holderId]?.short].join(' ').toLowerCase().includes(words)))
+  }, [scoped, cate, type, mv, flag, follow, track, who, byRole, q, m, hot, rating, minPrice, maxPrice, beds]) // eslint-disable-line react-hooks/exhaustive-deps
   const sortKey = { price: 'price', followup: 'follow', creator: 'creator' }[view] || 'updated'
 
   const columns = [
@@ -83,21 +102,24 @@ export default function Listings({ parts }) {
       const cover = coverOf(photosOf(l))
       return (
         <span style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13 }}>
+          <FavStar kind="listings" id={l.id} size={14} />
           {cover && <span style={{ width: 52, height: 39, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: C.grayBg }}><Photo src={cover.preview} /></span>}
-          <span style={{ minWidth: 0 }}><b>{l.title}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{l.area} · {l.category} · {l.type === 'sale' ? 'Sale' : 'Rent'}</span></span>
+          <span style={{ minWidth: 0 }}><b>{l.title}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{l.area} · {l.category} · {l.type === 'sale' ? 'Sale' : 'Rent'}</span>
+            <HotTags l={l} /></span>
         </span>
       )
     } },
-    { key: 'unit', label: 'Unit Number / Size', render: l => <span style={{ fontSize: 12.5 }}>{l.address.split(',')[0]}<span style={{ display: 'block', color: C.muted }}>{num(l.builtUp)} sq ft{l.beds ? ` · ${l.beds}R${l.baths}B` : ''}</span></span> },
+    { key: 'unit', label: 'Unit Number / Size', render: l => <span style={{ fontSize: 12.5 }}>{sightOf(l).level === 'none' ? <span style={{ color: C.muted }}>Unit hidden</span> : l.address.split(',')[0]}<span style={{ display: 'block', color: C.muted }}>{num(l.builtUp)} sq ft{l.beds ? ` · ${l.beds}R${l.baths}B` : ''}</span></span> },
     { key: 'price', label: 'Ad · Best · M. Value', help: COLUMN.listingPrice, align: 'right', sort: l => (view === 'price' ? l.priceUpdated : l.askPrice), render: l => (
       <span style={{ fontSize: 13 }}>{rm0(l.askPrice)}
         {l.priceBefore && view === 'price' && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>was {rm0(l.priceBefore)} · {date(l.priceUpdated, { short: true })}</span>}
-        <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm0(l.bestPrice)} · {l.marketValue ? rm0(l.marketValue) : 'no M.V.'}</span></span>
+        <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm0(l.bestPrice)} · {l.marketValue ? rm0(l.marketValue) : 'no M.V.'}</span>
+        <RatingPill l={l} /></span>
     ) },
     { key: 'creator', label: 'Product Handler · Creator', help: COLUMN.listingHolder, sort: l => m.staffName(l.creatorId), render: l => (
       <span style={{ fontSize: 13 }}>{m.staffName(l.holderId)}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{l.creatorId !== l.holderId ? `by ${m.staffName(l.creatorId)}` : 'own listing'}</span></span>
     ) },
-    { key: 'owner', label: 'Owner Contact', render: l => <span style={{ fontSize: 12.5 }}>{l.owner.name}<span style={{ display: 'block', color: C.muted }}>{l.owner.phone}</span></span> },
+    { key: 'owner', label: 'Owner Contact', help: COLUMN.ownerContact, render: l => <OwnerContact l={l} sight={sightOf(l)} /> },
     { key: 'follow', label: 'Settings · Follow-Up', help: COLUMN.listingFollow, sort: l => lastFollow(l)?.date || '', render: l => (
       <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {l.flags.slice(0, 2).map(f => <Pill key={f} tone={f === 'Process Deal' ? 'blue' : 'gray'} dot={false} style={{ fontSize: 11 }}>{f}</Pill>)}
@@ -105,19 +127,28 @@ export default function Listings({ parts }) {
       </span>
     ) },
     { key: 'status', label: 'Status', render: l => <Status of={LISTING_STATUS} value={l.status} /> },
-    { key: 'actions', label: '', card: false, render: l => <ListingActions l={l} quiet /> },
+    { key: 'actions', label: '', card: false, render: l => <ListingActions l={l} quiet onBook={() => setBook(l)} /> },
   ]
   const cats = Object.entries(LISTING_CATEGORY).map(([k, label]) => ({ k, label, n: scoped.filter(l => listingCategory(l) === Number(k)).length })).filter(c => c.n)
   const { onOrder, nav } = useRecordNav(open?.id, id => `${base}/${id}`)
-  const filters = [cate, type, mv, flag, follow, track, who].filter(x => x !== '').length
-  const clear = () => { setQ(''); setCate(''); setType(''); setMv(''); setFlag(''); setFollow(''); setTrack(''); setWho('') }
-  const title = byRole ? ROLE_TITLES[role] : `All listings${view === 'all' ? '' : ` · ${VIEWS.find(v => v[0] === view)[1]}`}`
+  const filters = [cate, type, mv, flag, follow, track, who, rating, minPrice, maxPrice, beds].filter(x => x !== '').length
+  const clear = () => { setQ(''); setCate(''); setType(''); setMv(''); setFlag(''); setFollow(''); setTrack(''); setWho(''); setRating(''); setMinPrice(''); setMaxPrice(''); setBeds('') }
+  const views = market ? [...VIEWS.slice(0, 1), ['market', 'Whole agency'], ...VIEWS.slice(1)] : VIEWS
+  const title = byRole ? ROLE_TITLES[role] : `All listings${view === 'all' ? '' : ` · ${views.find(v => v[0] === view)[1]}`}`
 
   return (
     <Page title={title} help={byRole ? PAGE.listingRoles : PAGE.listings} sub={byRole ? 'Property Listings Library by who looks after them' : 'Property Listings Library. Published to the SubSaleKing site.'}
       actions={<button style={btn} onClick={() => go('listing-new')}>Add a listing</button>}>
       <Card pad={16}>
-        {!byRole && <Tabs value={view} onChange={setView} tabs={VIEWS.map(([key, label]) => ({ key, label }))} />}
+        {!byRole && <Tabs value={view} onChange={v => { setView(v); setHot('') }} tabs={views.map(([key, label]) => ({ key, label }))} />}
+        {view === 'hot' && (
+          <div style={{ marginBottom: 12 }}>
+            <Chips label="Hot list" value={hot} onChange={setHot} options={[{ key: '', label: 'All hot', count: scoped.length },
+              ...Object.entries(L.HOT_LISTS).map(([key, h]) => ({ key, label: h.label, count: scoped.filter(l => L.hotLists(l).includes(key)).length }))]} />
+            <p style={{ fontSize: 12.5, color: C.muted, margin: '6px 0 0' }}>{hot ? L.HOT_LISTS[hot].help : 'Worked out from each listing: price against market value, photos and the key. They update as listings change.'}</p>
+          </div>
+        )}
+        {view === 'market' && <p style={{ fontSize: 13, color: C.muted, margin: '0 0 12px' }}>Every listing on the market in the agency. Book a viewing for your customer; the product handler confirms it with the owner. Owners' details stay with the people tied to each listing.</p>}
         <div style={{ marginBottom: 12 }}>
           <Chips label="Category" value={cate} onChange={setCate} options={[{ key: '', label: 'All', count: scoped.length }, ...cats.map(c => ({ key: c.k, label: c.label, count: c.n }))]} />
         </div>
@@ -129,6 +160,13 @@ export default function Listings({ parts }) {
                 .map(s => ({ value: String(s.id), label: `${role === 'bm' ? 'B.M ' : ''}${s.short} (${s.code})` }))]} />
           )}
           <Select label="Listing type" value={type} onChange={setType} options={[['', 'All Listings'], ['sale', 'Sales Listing'], ['rental', 'Rental Listing']].map(([value, label]) => ({ value, label }))} />
+          <Select label="Price vs market" value={rating} onChange={setRating} options={[{ value: '', label: 'Any price vs market' }, ...Object.entries(L.RATING).map(([value, r]) => ({ value, label: r.label }))]} />
+          <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+            <input type="number" min="0" style={{ ...priceBox }} value={minPrice} onChange={e => setMinPrice(e.target.value)} placeholder="Min RM" aria-label="Lowest Ad Price" />
+            <span style={{ color: C.muted }}>–</span>
+            <input type="number" min="0" style={{ ...priceBox }} value={maxPrice} onChange={e => setMaxPrice(e.target.value)} placeholder="Max RM" aria-label="Highest Ad Price" />
+          </span>
+          <Select label="Bedrooms" value={beds} onChange={setBeds} options={[{ value: '', label: 'Any bedrooms' }, ...[1, 2, 3, 4, 5].map(n => ({ value: String(n), label: `${n}+ bedrooms` }))]} />
           <Select label="Market value" value={mv} onChange={setMv} options={[['', 'All market value'], ['complete', 'Complete Market Value'], ['incomplete', 'Incomplete Market Value']].map(([value, label]) => ({ value, label }))} />
           <Select label="Settings" value={flag} onChange={setFlag} options={[{ value: '', label: '[Settings]' }, ...LISTING_SETTINGS.map(f => ({ value: f, label: f }))]} />
           <Select label="Follow-up" value={follow} onChange={setFollow} options={[{ value: '', label: '[Follow-Up]' }, ...Object.entries(FOLLOW_UP_ACTIONS).map(([value, label]) => ({ value, label }))]} />
@@ -142,9 +180,10 @@ export default function Listings({ parts }) {
           : <CardGrid rows={rows} m={m} base={base} />}
       </Card>
       <Drawer open={!!open} onClose={() => go(base)} width={620} title={open?.title} sub={open ? `${open.code} · ${open.category} · ${open.area}` : ''} nav={layout === 'table' ? nav : null}
-        footer={open && <ListingActions key={open.id} l={open} />}>
-        {open && <ListingDetails l={open} m={m} />}
+        footer={open && <ListingActions key={open.id} l={open} onBook={() => setBook(open)} />}>
+        {open && <ListingDetails l={open} m={m} onBook={() => setBook(open)} />}
       </Drawer>
+      <BookViewing listing={book} open={!!book} onClose={() => setBook(null)} />
     </Page>
   )
 }
@@ -179,7 +218,11 @@ function ListingCard({ l, m, base }) {
         {mediaCount(l) && <span style={{ position: 'absolute', bottom: 8, right: 8, fontSize: 11, fontWeight: 600, color: C.text, background: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '1px 6px' }}>{mediaCount(l)}</span>}
       </div>
       <div style={{ padding: '10px 12px 12px' }}>
-        <div style={{ fontSize: 17, fontWeight: 700 }}>{rm0(l.askPrice)}{l.type === 'rental' && <span style={{ fontSize: 12, fontWeight: 500, color: C.muted }}> /month</span>}</div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 17, fontWeight: 700 }}>{rm0(l.askPrice)}{l.type === 'rental' && <span style={{ fontSize: 12, fontWeight: 500, color: C.muted }}> /month</span>}</span>
+          <RatingPill l={l} />
+        </div>
+        <HotTags l={l} />
         <div style={{ fontWeight: 600, fontSize: 14, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.title}</div>
         <div style={{ fontSize: 12.5, color: C.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.category} · {l.area}</div>
         <div style={{ fontSize: 12.5, color: C.muted, marginTop: 6 }}>{l.beds ? `${l.beds} bed · ${l.baths} bath · ` : ''}{num(l.builtUp)} sq ft</div>
@@ -192,11 +235,44 @@ function ListingCard({ l, m, base }) {
   )
 }
 
+// Who handles the listing and why, by the rules in shared/listings.js, with
+// every change before (the current system's product handler history).
+function Handler({ l, m, title }) {
+  const log = l.phLog || []
+  const last = log.at(-1)
+  const bm = m.branchManagerOf(l.holderId)
+  const lead = l.type === 'sale' ? title?.managerId : title?.handlerId
+  return (
+    <Block title="People" help={CARD.productHandler}>
+      <div style={{ display: 'grid', gap: 10 }}>
+        <Who name={m.staffName(l.holderId)} to={`staff/${l.holderId}`} sub={`Product Handler (gets the Product side)${last && last.staffId === l.holderId ? ` · ${L.HANDLER_FROM[last.from]}` : ''}`} />
+        {l.creatorId !== l.holderId && <Who name={m.staffName(l.creatorId)} to={`staff/${l.creatorId}`} sub="Listing Creator" />}
+        {bm && bm.id !== l.holderId && <Who name={bm.short} to={`staff/${bm.id}`} sub="Branch Manager" />}
+        {lead && <Who name={m.staffName(lead)} to={`staff/${lead}`} sub={`${l.type === 'sale' ? 'Project Manager' : 'Project Handler'} of ${title.name}`} />}
+      </div>
+      {log.length > 1 && (
+        <details style={{ marginTop: 10, fontSize: 13 }}>
+          <summary style={{ cursor: 'pointer', color: C.primaryDark, fontWeight: 600 }}>Product handler history ({log.length})</summary>
+          <ol style={{ listStyle: 'none', margin: '6px 0 0', padding: 0 }}>
+            {[...log].reverse().map((x, i) => (
+              <li key={i} style={{ display: 'flex', gap: 10, padding: '5px 0', borderBottom: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 12, color: C.muted, width: 70, flexShrink: 0 }}>{date(x.on, { short: true })}</span>
+                <span><b>{m.staffName(x.staffId)}</b> <span style={{ color: C.muted }}>· {L.HANDLER_FROM[x.from] || x.from}</span></span>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+    </Block>
+  )
+}
+
 // Ad Price can be changed right here (it saves when you press Save or Enter).
 function AdPrice({ l }) {
   const erp = useErp()
   const fb = useFeedback()
-  const editable = useCan()('listings', 'edit')
+  // Only on the viewer's own listings (not the rest of the agency's).
+  const editable = useCan()('listings', 'edit') && erp.scoped.listings.some(x => x.id === l.id)
   const [v, setV] = useState(String(l.askPrice))
   const changed = Number(v) !== l.askPrice && Number(v) >= 0 && v !== ''
   const save = () => changed && fb.run(() => erp.updateListing(l.id, { askPrice: Number(v) }), `${l.code} Ad Price set to ${rm(Number(v))}`)
@@ -210,17 +286,20 @@ function AdPrice({ l }) {
   )
 }
 
-export function ListingDetails({ l, m }) {
+export function ListingDetails({ l, m, onBook }) {
   const deal = l.dealId ? m.deals[l.dealId] : null
   const title = m.titles[l.titleId]
   const share = l.share || { users: [], pmId: null, coPh: [] }
+  const sight = useOwnerSight()(l)
+  const can = useCan()
+  const rating = L.priceRating(l)
   const photos = photosOf(l)
   const videos = videosOf(l)
   // Photos with a stored preview, cover first; the strip shows up to 8.
   const strip = photos.filter(p => p.preview).sort((x, y) => y.cover - x.cover)
   return (
     <>
-      <Block title="Listing" right={<Status of={LISTING_STATUS} value={l.status} />}>
+      <Block title="Listing" right={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><FavStar kind="listings" id={l.id} label="Favourite" /><Status of={LISTING_STATUS} value={l.status} /></span>}>
         {strip.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 6, marginBottom: 14 }}>
             {strip.slice(0, 8).map((p, i) => (
@@ -240,6 +319,12 @@ export function ListingDetails({ l, m }) {
           ['C.Date', date(l.created)], ['U.Date', date(l.updated)], l.commission != null && ['Commission', `${l.commission}%`],
           l.trackingPrice != null && l.status !== 'active' && ['Went for', rm(l.trackingPrice)],
         ]} />
+        {(rating || L.hotLists(l).length > 0) && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 12, fontSize: 12.5, color: C.muted }}>
+            <RatingPill l={l} long />{rating && <span>{rating.diff > 0 ? `${rm0(rating.diff)} above` : `${rm0(-rating.diff)} below`} market value</span>}<HotTags l={l} />
+          </div>
+        )}
+        {l.status === 'active' && L.isOutdated(l, m.today) && <p style={{ fontSize: 12.5, color: C.warn, margin: '8px 0 0' }}>Not updated for over {L.LISTING_RULES.outdatedDays[l.type === 'rental' ? 'rental' : 'sale']} days: it will be marked Outdated unless someone follows it up.</p>}
         {l.description && <p style={{ fontSize: 13, margin: '10px 0 0', whiteSpace: 'pre-wrap' }}>{l.description}</p>}
         {l.remarks && <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>Personal use remarks: {l.remarks}</p>}
         {l.flags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>{l.flags.map(f => <Pill key={f} tone={f === 'Process Deal' ? 'blue' : 'gray'} dot={false}>{f}</Pill>)}</div>}
@@ -253,24 +338,35 @@ export function ListingDetails({ l, m }) {
           </div>
         </Block>
       )}
-      <Block title="People">
-        <div style={{ display: 'grid', gap: 10 }}>
-          <Who name={m.staffName(l.holderId)} to={`staff/${l.holderId}`} sub="Product Handler (gets the Product side)" />
-          {l.creatorId !== l.holderId && <Who name={m.staffName(l.creatorId)} to={`staff/${l.creatorId}`} sub="Listing Creator" />}
-          {m.branchManagerOf(l.holderId) && <Who name={m.branchManagerOf(l.holderId).short} sub="Branch Manager" />}
-          {title?.handlerId && <Who name={m.staffName(title.handlerId)} sub={`Project Handler for ${title.name}`} />}
-        </div>
-      </Block>
+      <Handler l={l} m={m} title={title} />
       <Block title="Share" help={CARD.share}>
         <KV min={160} items={[
           ['Shared users', share.users.length ? share.users.map(id => m.staffName(id)).join(', ') : 'Not shared'],
-          ['Project Manager', share.pmId ? m.staffName(share.pmId) : '—'],
-          ['Co-Product Handlers', share.coPh.length ? share.coPh.map(c => `${m.staffName(c.staffId)}${c.until ? ` (until ${date(c.until, { short: true })})` : ''}`).join(', ') : `${3 - share.coPh.length} of 3 slots free`],
+          ['Main Product Handler', share.pmId ? m.staffName(share.pmId) : '—'],
+          ['Co-Product Handlers', share.coPh.length ? (
+            <span key="co" style={{ display: 'grid', gap: 2 }}>{share.coPh.map(c => (
+              <span key={c.staffId}>{m.staffName(c.staffId)} <span style={{ color: C.muted, fontSize: 12 }}>
+                {c.locked ? '· locked in (key or exclusive)' : !c.until ? '· no end date' : c.until < m.today ? `· ended ${date(c.until, { short: true })}` : `· until ${date(c.until, { short: true })}`}</span></span>
+            ))}</span>
+          ) : `${L.LISTING_RULES.coPhSlots} slots free`],
         ]} />
       </Block>
-      <Block title={l.type === 'sale' ? 'Owner' : 'Landlord'}>
-        <KV min={160} items={[['Name', l.owner.name], ['IC no.', l.owner.ic ? maskIc(l.owner.ic) : '—'], ['Owner Contact', l.owner.phone]]} />
+      <Block title={l.type === 'sale' ? 'Owner' : 'Landlord'} help={CARD.ownerPrivacy}>
+        {sight.level === 'none' ? (
+          <p style={{ margin: 0, fontSize: 13.5, color: C.muted }}>Only the people tied to this listing see the owner. To show it to your customer, book a viewing: {m.staffName(l.holderId)} arranges it with the owner.</p>
+        ) : (
+          <>
+            <KV min={160} items={[['Owner', <OwnerContact key="o" l={l} sight={sight} reveal />], ['IC no.', l.owner.ic ? maskIc(l.owner.ic) : '—'],
+              ['Unit', l.address.split(',')[0]], sight.roles.length > 0 && ['You are', sight.roles.map(r => L.LISTING_ROLE[r]).join(', ')]]} />
+            {(sight.level === 'full' || can('listings', 'full')) && (l.ownerViews || []).length > 0 && (
+              <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>
+                Looked at by {[...new Map(l.ownerViews.map(x => [x.by, x])).values()].slice(0, 6).map(x => `${x.by ? m.staffName(x.by) : 'the office'} (${date(x.at.slice(0, 10), { short: true })})`).join(', ')}
+              </p>
+            )}
+          </>
+        )}
       </Block>
+      <ListingViewings l={l} onBook={onBook} />
       <Block title="Follow-up history">
         {!l.followUps.length ? <p style={{ margin: 0, color: C.muted, fontSize: 13.5 }}>Never followed up.</p> : (
           <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>

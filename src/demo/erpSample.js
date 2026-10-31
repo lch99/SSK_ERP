@@ -6,8 +6,9 @@
 // Every payout goes through shared/payout.js, never through maths of its own.
 import * as P from '../../shared/payout.js'
 import * as A from '../../shared/agents.js'
+import { addListingLife } from './listingSample.js'
 
-export const ERP_VERSION = 9
+export const ERP_VERSION = 10
 const SEED = 20261021
 const r2 = n => Math.round(n * 100) / 100
 
@@ -400,7 +401,7 @@ export function makeErpSample(setup, asOf = localToday()) {
       tenure: R.chance(0.7) ? 'Freehold' : 'Leasehold',
       furnishing: sale ? R.pick(['Unfurnished', 'Partly furnished', 'Partly furnished', 'Fully furnished']) : R.pick(['Partly furnished', 'Fully furnished', 'Fully furnished', 'Unfurnished']),
       askPrice, bestPrice: Math.round(askPrice * (sale ? R.int(93, 99) : R.int(95, 100)) / 100 / round) * round,
-      marketValue: sale && R.chance(0.6) ? Math.round(askPrice * R.int(95, 108) / 100 / 1000) * 1000 : null,
+      marketValue: sale && R.chance(0.6) ? Math.round(askPrice * R.int(82, 104) / 100 / 1000) * 1000 : null,
       status: 'active', closedOn: null, branchId: branch.id, holderId: holder.id, creatorId: creator.id,
       flags: FLAGS.filter(() => R.chance(0.22)), portals: PORTALS.filter(() => R.chance(0.6)),
       created, updated: created, views: R.int(40, 2400), enquiries: R.int(0, 38), photos: R.chance(0.1) ? 0 : R.int(4, 24),
@@ -1000,9 +1001,7 @@ export function makeErpSample(setup, asOf = localToday()) {
     })
   }
 
-  return {
-    version: ERP_VERSION, sig: setupSignature(setup), asOf, start,
-    staff, listings, customers, deals, moneyIn, closes, payouts, requests, archives, moneyOut,
-    vendorRequests, enquiries, titles, areas, videos, audit, propertyTypes, v1,
-  }
+  const records = { staff, listings, customers, deals, moneyIn, closes, payouts, requests, archives, moneyOut, vendorRequests, enquiries, titles, areas, videos, audit, propertyTypes, v1 }
+  const life = addListingLife(records, { R: makeRng(SEED + 11), asOf, id })
+  return { version: ERP_VERSION, sig: setupSignature(setup), asOf, start, ...records, ...life }
 }

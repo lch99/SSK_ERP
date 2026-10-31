@@ -70,6 +70,9 @@ export function outOfReach(route, erp, scope) {
   const list = RECORDS[route[0]]
   if (scope === 'all' || !list || !/^\d+$/.test(route[1] || '') || !erp.m || !erp.scoped) return false
   const id = Number(route[1])
+  // Listings still on the market are open to every agent (the whole agency
+  // sells them), with the owner's details hidden from those not tied to them.
+  if (list === 'listings' && erp.m.listings[id]?.status === 'active') return false
   return erp.m.data[list].some(x => x.id === id) && !erp.scoped[list].some(x => x.id === id)
 }
 

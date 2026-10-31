@@ -27,12 +27,14 @@ const REPORTS = {
   summary: ['E-Forms by person', 'Per person: submissions, closings, cases and payouts.'],
   cases: ['Payout calculator', 'Pick a case and type a claim to preview who gets paid what.'],
   landlord: ['Landlord checks', 'Confirm each landlord after a rental case is archived.'],
+  buildings: ['Sales by building', 'Full-closed sales and rentals in each building, with its Project Manager and Project Handler (Total Transaction Value).'],
+  followups: ['Follow-ups by person', 'Listing follow-ups each person made, by action, and the viewings they booked and hosted.'],
 }
 
 export default function Reports({ parts }) {
   const key = REPORTS[parts[1]] ? parts[1] : 'total'
   const [title, sub] = REPORTS[key]
-  const Comp = { total: Total, staff: StaffSummary, agents: Agents, tracker: Tracker, summary: Summary, cases: CaseSummary, landlord: Landlord }[key]
+  const Comp = { total: Total, staff: StaffSummary, agents: Agents, tracker: Tracker, summary: Summary, cases: CaseSummary, landlord: Landlord, buildings: Buildings, followups: FollowUps }[key]
   return <Page title={title} sub={sub} help={`${sub}\nNarrow it down with the filters at the top. Download CSV, where shown, opens the report in Excel.`}><Comp /></Page>
 }
 
@@ -82,6 +84,75 @@ function Total() {
         ]} />
       </Card>
     </>
+  )
+}
+
+// The current ERP's Total Transaction Value (Project Manager): what closed in
+// full in each building in the period, and who leads the building.
+function Buildings() {
+  const { m, scoped: d } = useErp()
+  const r = useRange(m)
+  const [q, setQ] = useState('')
+  const rows = useMemo(() => {
+    const by = new Map()
+    for (const x of d.deals) {
+      if (x.status !== 'closed' || !x.closedOn || !r.inRange(x.closedOn)) continue
+      const t = m.titles[m.listings[x.listingId]?.titleId]
+      if (!t) continue
+      const row = by.get(t.id) || { t, sales: 0, saleValue: 0, rentals: 0, rentValue: 0, fees: 0 }
+      if (x.type === 'rental') { row.rentals++; row.rentValue += Number(x.price || 0) } else { row.sales++; row.saleValue += Number(x.price || 0) }
+      row.fees += Number(x.money?.billed || 0)
+      by.set(t.id, row)
+    }
+    return [...by.values()].sort((a, b) => b.saleValue - a.saleValue || b.rentals - a.rentals)
+  }, [d.deals, m, r.from, r.to]) // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = rows.filter(x => !q || `${x.t.name} ${x.t.area}`.toLowerCase().includes(q.toLowerCase()))
+  return (
+    <Card pad={16}>
+      <Toolbar>{r.ui}<input style={{ ...inp, width: 200 }} value={q} onChange={e => setQ(e.target.value)} placeholder="Building or area" aria-label="Search" /><span style={{ flex: 1 }} />
+        <Download onClick={() => downloadCsv('sales-by-building.csv', ['Building', 'Area', 'Sales closed', 'Sale value', 'Rentals closed', 'Monthly rent', 'Agency fees', 'Project Manager', 'Project Handler'],
+          shown.map(x => [x.t.name, x.t.area, x.sales, x.saleValue, x.rentals, x.rentValue, x.fees, x.t.managerId ? m.staffName(x.t.managerId) : '', x.t.handlerId ? m.staffName(x.t.handlerId) : '']))} /></Toolbar>
+      <DataTable rows={shown} rowKey={x => x.t.id} narrowAt={860} empty="Nothing closed in full in these dates" columns={[
+        { key: 'b', label: 'Building', render: x => <span><b>{x.t.name}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.t.area}</span></span> },
+        { key: 's', label: 'Sales closed', align: 'right', render: x => <span>{x.sales}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm(x.saleValue)}</span></span> },
+        { key: 'r', label: 'Rentals closed', align: 'right', render: x => <span>{x.rentals}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.rentals ? `${rm(x.rentValue)}/month` : ''}</span></span> },
+        { key: 'f', label: 'Agency fees', align: 'right', render: x => <b>{rm(x.fees)}</b> },
+        { key: 'pm', label: 'Project Manager · Handler', render: x => <span style={{ fontSize: 13 }}>{x.t.managerId ? m.staffName(x.t.managerId) : '—'}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.t.handlerId ? m.staffName(x.t.handlerId) : 'No handler'}</span></span> },
+      ]} />
+    </Card>
+  )
+}
+
+// The current ERP's listing follow-up staff action report, with viewings.
+function FollowUps() {
+  const { m, scoped: d } = useErp()
+  const r = useRange(m)
+  const rows = useMemo(() => {
+    const by = new Map()
+    const row = id => { if (!by.has(id)) by.set(id, { id, n: {}, total: 0, booked: 0, hosted: 0, done: 0, keen: 0 }); return by.get(id) }
+    for (const l of d.listings) for (const f of l.followUps) if (f.by != null && r.inRange(f.date)) { const x = row(f.by); x.n[f.action] = (x.n[f.action] || 0) + 1; x.total++ }
+    for (const v of d.viewings || []) {
+      if (!r.inRange(v.date)) continue
+      const b = row(v.requestedBy); b.booked++
+      if (v.status === 'done') { b.done++; if (['interested', 'second', 'offer'].includes(v.review?.outcome)) b.keen++ }
+      row(v.handlerId).hosted++
+    }
+    return [...by.values()].filter(x => m.staff[x.id]).sort((a, b) => b.total + b.booked - a.total - a.booked)
+  }, [d, m, r.from, r.to]) // eslint-disable-line react-hooks/exhaustive-deps
+  const ACTIONS = [[0, 'Calls'], [1, 'Viewing'], [2, 'Nego'], [3, 'Closing']]
+  return (
+    <Card pad={16}>
+      <Toolbar>{r.ui}<span style={{ flex: 1 }} />
+        <Download onClick={() => downloadCsv('follow-ups-by-person.csv', ['Code', 'Name', ...ACTIONS.map(a => a[1]), 'Follow-ups', 'Viewings booked', 'Viewings hosted', 'Viewed', 'Interested'],
+          rows.map(x => [m.staff[x.id].code, m.staff[x.id].name, ...ACTIONS.map(([k]) => x.n[k] || 0), x.total, x.booked, x.hosted, x.done, x.keen]))} /></Toolbar>
+      <DataTable rows={rows} rowKey={x => x.id} narrowAt={900} empty="No follow-ups or viewings in these dates" columns={[
+        { key: 'who', label: 'Staff', render: x => <Who name={m.staffName(x.id)} sub={m.branchName(m.staff[x.id].branchId)} to={`staff/${x.id}`} size={26} /> },
+        ...ACTIONS.map(([k, label]) => ({ key: `a${k}`, label, align: 'right', render: x => x.n[k] || 0 })),
+        { key: 'total', label: 'Follow-ups', align: 'right', render: x => <b>{x.total}</b> },
+        { key: 'booked', label: 'Viewings booked · hosted', align: 'right', render: x => `${x.booked} · ${x.hosted}` },
+        { key: 'keen', label: 'Viewed · interested', align: 'right', render: x => `${x.done} · ${x.keen}` },
+      ]} />
+    </Card>
   )
 }
 

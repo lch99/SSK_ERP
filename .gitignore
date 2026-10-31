@@ -9,3 +9,8 @@ logs
 !.vscode/extensions.json
 .idea
 backend/*.sqlite3
+
+# Database dumps (copies of production hold personal data): never commit them
+*.sql
+*.sql.gz
+*.dump

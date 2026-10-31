@@ -145,6 +145,8 @@ details[open] > summary::before { transform: rotate(90deg); }
 tr.ssk-row:focus-visible { outline: 2px solid #ec003f; outline-offset: -2px; }
 tr.ssk-row:focus-visible > td { background-color: #fff7f9; }
 div.ssk-row:focus-visible { outline: 2px solid #ec003f; outline-offset: 1px; }
+.ssk-tier[aria-expanded=false]:hover { background: #fafbfc !important; }
+.ssk-tier:focus-visible { outline: 2px solid #ec003f; outline-offset: -2px; }
 .ssk-sort:focus-visible, .ssk-tab:focus-visible { outline: 2px solid #ec003f; outline-offset: 2px; }
 .ssk-sort:hover { color: #101828; }
 .ssk-tab:not([aria-selected=true]):hover { color: #8b0836 !important; background: #fafbfc !important; }

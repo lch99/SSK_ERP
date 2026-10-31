@@ -18,6 +18,7 @@ import { buildOrg } from '../org.js'
 import { useNarrow } from '../../setup/useNarrow.js'
 import { makeXlsx, download, XLSX_TYPE } from '../../setup/sheet.js'
 import { NoAccess, useAccess, useCan, useGate } from '../access.jsx'
+import * as L from '../../../shared/listings.js'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
@@ -137,7 +138,12 @@ function StaffList({ office = false }) {
       <span><Status of={STAFF_STATUS} value={s.status} />
         {s.expiresOn && s.status !== 'inactive' && <span style={{ display: 'block', fontSize: 12, color: s.expiresOn < addDaysIso(m.today, 30) ? C.warn : C.muted, marginTop: 3 }}>until {date(s.expiresOn, { short: true })}</span>}</span>
     ) },
-    { key: 'seen', label: 'Last Login/Activity', sort: s => s.lastActive || '', render: s => <span style={{ fontSize: 12.5, color: C.muted }}>{s.lastActive ? ago(s.lastActive, m.today) : 'Never'}</span> },
+    { key: 'seen', label: 'Last Login/Activity', sort: s => s.lastActive || '', render: s => {
+      const idle = s.lastActive ? L.daysBetween(String(s.lastActive).slice(0, 10), m.today) : null
+      const left = L.LISTING_RULES.idleDays + 1 - idle
+      return <span style={{ fontSize: 12.5, color: C.muted }}>{s.lastActive ? ago(s.lastActive, m.today) : 'Never'}
+        {s.status === 'active' && idle != null && left <= 15 && <span style={{ display: 'block', color: C.warn, fontWeight: 600 }}>Locks in {left} day{left === 1 ? '' : 's'}</span>}</span>
+    } },
     { key: 'actions', label: '', card: false, render: s => <StaffMenu s={s} /> },
   ].flatMap(c => (!office ? [c] : c.key === 'level' ? [
     { key: 'type', label: 'Account Type', sort: s => ACCOUNT_TYPES[s.type] || '', render: s => <Pill tone="violet" dot={false}>{ACCOUNT_TYPES[s.type] || s.type}</Pill> },
@@ -173,7 +179,7 @@ function StaffList({ office = false }) {
               {quick && <Pill tone={quick === 'new' ? 'blue' : 'amber'}>{quick === 'new' ? 'Joined this month' : 'Expiring in 30 days'}</Pill>}
             </Toolbar>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Chips label="Status" value={tab} onChange={setTab} options={['all', 'active', 'inactive', 'pending'].map(k => ({
+              <Chips label="Status" value={tab} onChange={setTab} options={['all', 'active', 'inactive', 'pending', 'suspended', 'locked'].filter(k => k === 'all' || k === 'active' || match.some(s => s.status === k)).map(k => ({
                 key: k, label: k === 'all' ? 'All' : STAFF_STATUS[k].label, count: k === 'all' ? match.length : match.filter(s => s.status === k).length }))} />
               <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={exportRows} disabled={!rows.length}
                 title="Every row that matches the filters, not just the page on screen">
@@ -205,17 +211,39 @@ function Profile({ id }) {
   const holders = P.uplineHolders(m.staff, id, setup.roles)
   const downline = (m.downline[id] || []).filter(k => k.status !== 'inactive')
   const yearDeals = deals.filter(d => d.date.startsWith(m.year) && d.status !== 'cancelled' && d.status !== 'draft')
+  const handling = m.data.listings.filter(l => l.holderId === id && l.status === 'active').length
+  const away = L.handedAway(m.data.listings, id).length
+  const due = L.staffDue(s, m.today)
+  // Leaving Active hands their listings to whoever the rules pick next; say so first.
+  const setStatus = async v => {
+    if (s.status === 'active' && v !== 'active' && handling > 0 && !(await fb.confirm({ title: `Set ${s.short} ${STAFF_STATUS[v].label}?`,
+      body: `${s.short} handles ${handling} listing${handling > 1 ? 's' : ''}. ${handling > 1 ? 'They go' : 'It goes'} to the next person in line (a co-product handler, the building's lead, the area manager or the branch manager). You can give ${handling > 1 ? 'them' : 'it'} back when ${s.short} is active again.`,
+      confirmLabel: `Set ${STAFF_STATUS[v].label}` }))) return
+    const st = await fb.run(() => erp.setStaffStatus(s.id, v))
+    if (st) { const n = st.data.runs?.handover?.staffId === s.id && s.status === 'active' ? st.data.runs.handover.changed : 0; fb.toast(`${s.short} is now ${STAFF_STATUS[v].label}${n ? `; ${n} listing${n > 1 ? 's' : ''} handed on` : ''}`) }
+  }
 
   return (
     <Page back={agent ? { to: 'staff', label: 'All agents' } : { to: 'staff/office', label: 'Office staff' }} help={agent ? PAGE.profile : PAGE.officeProfile}
       actions={<>
-        {can('staff', 'edit') && <Select plain label="Enable/Unlock Staff" value={s.status} onChange={v => fb.run(() => erp.setStaffStatus(s.id, v), `${s.short} is now ${STAFF_STATUS[v].label}`)}
-          options={[{ value: 'active', label: 'Enabled (Active)' }, { value: 'inactive', label: 'Disabled (Inactive)' }, { value: 'pending', label: 'Pending' }]} />}
+        {can('staff', 'edit') && <Select plain label="Enable/Unlock Staff" value={s.status} onChange={v => setStatus(v)}
+          options={[{ value: 'active', label: 'Enabled (Active)' }, { value: 'inactive', label: 'Disabled (Inactive)' }, { value: 'pending', label: 'Pending' },
+            { value: 'suspended', label: 'Suspended' }, { value: 'locked', label: 'Locked' }]} />}
         {can('staff', 'edit') && <button style={btn} onClick={() => go(`staff/${s.id}/edit`)}>Edit</button>}
         <StaffMenu s={s} label="More" />
       </>}
       title={<span style={{ display: 'inline-flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}><Avatar name={s.short} size={42} photo={s.photo} />{s.short}<Status of={STAFF_STATUS} value={s.status} /></span>}
       sub={<>{s.name} · {s.code} · {agent ? '' : `${ACCOUNT_TYPES[s.type] || s.type} · `}{m.branchName(s.branchId)}{s.role ? ` · ${m.roleName(s.role)}` : ''} · joined {date(s.joined)}{s.leftOn ? ` · left ${date(s.leftOn)}` : ''}</>}>
+      {(s.status === 'suspended' || s.status === 'locked') && (
+        <Notice tone="red">{STAFF_STATUS[s.status].label}{s.statusOn ? ` on ${date(s.statusOn)}` : ''}{s.statusWhy ? `: ${s.statusWhy.toLowerCase()}` : ''}. Set them Enabled (Active) to let them sign in again.</Notice>
+      )}
+      {due && <Notice tone="amber">{due === 'suspend' ? `Still Pending ${L.daysBetween(s.joined, m.today)} days after joining: suspended automatically after ${L.LISTING_RULES.pendingDays}.` : `No activity for over ${L.LISTING_RULES.idleDays} days: locked automatically.`}</Notice>}
+      {s.status === 'active' && away > 0 && can('staff', 'edit') && (
+        <Notice tone="blue">
+          {away} of {s.short}'s listings went to stand-ins while the account was off.{' '}
+          <button style={{ ...small, padding: '2px 10px' }} onClick={() => fb.run(() => erp.returnListings(s.id), `${away} listing${away > 1 ? 's' : ''} given back to ${s.short}`)}>Give them back</button>
+        </Notice>
+      )}
       {agent && <div style={{ ...cols(210, 14), marginBottom: 16 }}>
         <Stat label="Tier now" value={P.tierLabel(t.tier)} sub={`Agent rate ${t.tier.agentRate}%${t.kept ? ' · kept from last year' : ''}`} tone="brand" icon="reports" />
         <Stat label={`Commission in ${m.year}`} value={rm(t.yearly)} sub={`Lifetime ${rm(t.lifetime)}`} />

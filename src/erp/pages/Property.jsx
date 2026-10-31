@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react'
+import * as L from '../../../shared/listings.js'
 import { C, btn, btnPrimary, inp } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { VENDOR_STATUS, TITLE_STATUS, AREA_STATUS, LISTING_CATEGORY } from '../model.js'
-import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Who, Link, Menu, Stat, Modal, FormField, TextArea, Notice, SelectionBar, cols, go, mono, small, field } from '../ui.jsx'
-import { CARD, PAGE } from '../help.js'
+import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Pill, Who, Link, Menu, Stat, Modal, FormField, TextArea, Notice, SelectionBar, cols, go, mono, small, field } from '../ui.jsx'
+import { CARD, COLUMN, PAGE } from '../help.js'
 import { STATES } from './options.js'
 import { useFeedback } from '../feedback.jsx'
-import { rm0, date, ago } from '../format.js'
+import { rm0, rmShort, date, ago } from '../format.js'
 import Icon from '../Icon.jsx'
 import { useCan, useGate } from '../access.jsx'
+import { FavStar } from '../listingLife.jsx'
 
 // ── Vendor Requests: owners who asked us (through the public site) to list ──
 export function VendorRequests() {
@@ -53,29 +55,6 @@ export function VendorRequests() {
           <Select label="Status" value={status} onChange={setStatus} options={[{ value: '', label: 'All' }, ...Object.entries(VENDOR_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
         </Toolbar>
         <DataTable columns={columns} rows={rows} rowKey={v => v.id} defaultSort={{ key: 'date', dir: 'desc' }} narrowAt={900} empty="No vendor requests" />
-      </Card>
-    </Page>
-  )
-}
-
-// ── Appointment: viewings booked from listing follow-ups ──
-export function Appointments() {
-  const { m, scoped: d } = useErp()
-  const [tab, setTab] = useState('upcoming')
-  const all = d.listings.flatMap(l => l.followUps.filter(f => f.appointment).map((f, i) => ({ id: `${l.id}-${i}`, l, f, at: `${f.appointment.date} ${f.appointment.time}` })))
-  const rows = all.filter(a => (tab === 'upcoming' ? a.f.appointment.date >= m.today : a.f.appointment.date < m.today))
-  const columns = [
-    { key: 'at', label: 'Date · Time', sort: a => a.at, nowrap: true, render: a => <span><b>{date(a.f.appointment.date)}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{a.f.appointment.time}</span></span> },
-    { key: 'listing', label: 'Listing', render: a => <span><Link to={`listings/${a.l.id}`} style={mono}>{a.l.code}</Link><span style={{ display: 'block', fontSize: 12.5 }}>{a.l.title}, {a.l.area}</span></span> },
-    { key: 'agent', label: 'Agent', render: a => m.staffName(a.f.by) },
-    { key: 'owner', label: 'Owner', render: a => <span style={{ fontSize: 13 }}>{a.l.owner.name}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{a.l.owner.phone}</span></span> },
-    { key: 'remark', label: 'Remark', render: a => <span style={{ fontSize: 12.5, color: C.muted }}>{a.f.remark}</span> },
-  ]
-  return (
-    <Page title="Viewings" help={PAGE.appointments} sub="Viewings booked from listing follow-ups.">
-      <Card pad={16}>
-        <Tabs value={tab} onChange={setTab} tabs={[{ key: 'upcoming', label: 'Upcoming', count: all.filter(a => a.f.appointment.date >= m.today).length }, { key: 'past', label: 'Past', count: all.filter(a => a.f.appointment.date < m.today).length }]} />
-        <DataTable columns={columns} rows={rows} defaultSort={{ key: 'at', dir: tab === 'upcoming' ? 'asc' : 'desc' }} narrowAt={820} empty="No appointments" />
       </Card>
     </Page>
   )
@@ -138,6 +117,7 @@ export function Titles() {
     for (const l of m.data.listings) c[l.titleId] = (c[l.titleId] || 0) + 1
     return c
   }, [m])
+  const rankings = useMemo(() => L.buildingRankings(m.data), [m.data])
   const inTab = t => (tab === 'list' ? t.status === 0 || t.status === 3 : t.status === 1 || t.status === 2)
   const rows = d.titles.filter(t => inTab(t) && (!cate || t.category === Number(cate)) && (!area || t.area === area) &&
     (!q || `${t.name} ${t.area}`.toLowerCase().includes(q.toLowerCase())))
@@ -156,11 +136,16 @@ export function Titles() {
   const startEdit = t => { setError(null); setEdit(t ? { id: t.id, name: t.name, area: t.area, category: String(t.category), handlerId: t.handlerId ? String(t.handlerId) : '', managerId: t.managerId ? String(t.managerId) : '', remark: t.remark || '' }
     : { name: '', area: areaNames[0] || '', category: '2', handlerId: '', managerId: '', remark: '' }) }
   const columns = [
-    { key: 'name', label: 'Title', sort: t => t.name, render: t => <span><b>{t.name}</b>{t.remark && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{t.remark}</span>}</span> },
+    { key: 'name', label: 'Title', sort: t => t.name, render: t => (
+      <span style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+        {tab === 'list' && <FavStar kind="titles" id={t.id} size={14} />}
+        <span><b>{t.name}</b>{t.remark && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{t.remark}</span>}</span>
+      </span>
+    ) },
     { key: 'cate', label: 'Category', render: t => LISTING_CATEGORY[t.category] },
     { key: 'area', label: 'Area · State', sort: t => t.area, render: t => <span>{t.area}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{t.state}</span></span> },
     tab === 'list'
-      ? { key: 'handler', label: 'Manager · Handler', render: t => <span style={{ fontSize: 13 }}>{t.managerId ? m.staffName(t.managerId) : '—'}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{t.handlerId ? m.staffName(t.handlerId) : 'No handler'}</span></span> }
+      ? { key: 'handler', label: 'Project Manager · Project Handler', help: COLUMN.buildingLeads, render: t => <Leads t={t} ranking={rankings.get(t.id)} m={m} /> }
       : { key: 'by', label: 'Create By', render: t => <span style={{ fontSize: 13 }}>{m.staffName(t.requestedBy)}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{t.requestedOn ? date(t.requestedOn) : ''}</span></span> },
     { key: 'count', label: 'Listings', align: 'right', sort: t => counts[t.id] || 0, render: t => counts[t.id] || 0 },
     { key: 'status', label: 'Status', render: t => <Status of={TITLE_STATUS} value={t.status} /> },
@@ -177,11 +162,15 @@ export function Titles() {
       ]} />
     ) },
   ]
+  const recheck = async () => {
+    const st = await fb.run(() => erp.recheckBuildingLeads())
+    if (st) { const n = st.data.runs?.leads?.changed || 0; fb.toast(n ? `${n} building lead${n > 1 ? 's' : ''} changed; each new lead is told` : 'Checked every building: no lead changes') }
+  }
   const replacements = removing ? m.data.titles.filter(t => t.status === 0 && t.id !== removing.title.id && t.area === removing.title.area) : []
   const otherReplacements = removing ? m.data.titles.filter(t => t.status === 0 && t.id !== removing.title.id && t.area !== removing.title.area) : []
   return (
     <Page title="Buildings & estates" help={PAGE.titles} sub="Buildings and housing estates that listings are filed under. Agents request new titles; admins approve them."
-      actions={manage && <button style={btnPrimary} onClick={() => startEdit(null)}>Create New Title</button>}>
+      actions={manage && <><button style={btn} onClick={recheck} title="Hand each building to the product handler the rules pick">Re-check leads</button><button style={btnPrimary} onClick={() => startEdit(null)}>Create New Title</button></>}>
       <Card pad={16}>
         <Tabs value={tab} onChange={v => { setTab(v); setPicked(new Set()) }} tabs={[{ key: 'list', label: 'Titles', count: d.titles.filter(t => t.status === 0 || t.status === 3).length },
           { key: 'requests', label: 'Title Requests', count: d.titles.filter(t => t.status === 1).length }]} />
@@ -206,8 +195,8 @@ export function Titles() {
             <FormField label="Title name" required wide><input style={field} value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} placeholder="e.g. Residensi Harmoni" autoFocus /></FormField>
             <FormField label="Area" required><Select block plain label="Area" value={edit.area} onChange={v => setEdit({ ...edit, area: v })} options={areaNames.map(a => ({ value: a, label: a }))} /></FormField>
             <FormField label="Category"><Select block plain label="Category" value={edit.category} onChange={v => setEdit({ ...edit, category: v })} options={Object.entries(LISTING_CATEGORY).map(([value, label]) => ({ value, label }))} /></FormField>
-            <FormField label="Title Manager"><Select block plain label="Manager" value={edit.managerId} onChange={v => setEdit({ ...edit, managerId: v })} options={people('No manager')} /></FormField>
-            <FormField label="Title Handler (Project Handler)" help="New listings under this title get them as project handler"><Select block plain label="Handler" value={edit.handlerId} onChange={v => setEdit({ ...edit, handlerId: v })} options={people('No handler')} /></FormField>
+            <FormField label="Project Manager (sales)" help={`Taken over by whoever passes ${rmShort(L.LISTING_RULES.projectManager.win)} in full-closed sales here`}><Select block plain label="Manager" value={edit.managerId} onChange={v => setEdit({ ...edit, managerId: v })} options={people('No manager')} /></FormField>
+            <FormField label="Project Handler (rentals)" help={`Taken over by whoever holds the key to ${L.LISTING_RULES.projectHandler.win}+ rentals here`}><Select block plain label="Handler" value={edit.handlerId} onChange={v => setEdit({ ...edit, handlerId: v })} options={people('No handler')} /></FormField>
             <FormField label="Remark" wide><TextArea value={edit.remark} onChange={e => setEdit({ ...edit, remark: e.target.value })} /></FormField>
           </div>
         )}
@@ -226,6 +215,31 @@ export function Titles() {
         ) : <p style={{ fontSize: 13.5, margin: 0 }}>No listings use this title. It will be removed.</p>)}
       </Modal>
     </Page>
+  )
+}
+
+// A building's two leads, each with how far the top product handler is from
+// taking over (or that the post is theirs for good).
+function Leads({ t, ranking, m }) {
+  const line = (kind, id, permanent, rule, unit, goal) => {
+    const top = ranking?.[kind]?.[0]
+    const challenger = top && top.staffId !== id ? top : null
+    const own = ranking?.[kind]?.find(r => r.staffId === id)
+    return (
+      <span style={{ display: 'block', fontSize: 13 }}>
+        <span style={{ color: C.muted, fontSize: 12 }}>{kind === 'sale' ? 'PM ' : 'PH '}</span>{id ? m.staffName(id) : '—'}
+        {permanent && <Pill tone="violet" dot={false} style={{ fontSize: 10.5, marginLeft: 6 }}>For good</Pill>}
+        <span style={{ display: 'block', fontSize: 12, color: C.muted }}>
+          {permanent ? `Passed ${goal(rule.keep)}` : challenger ? `${m.staffName(challenger.staffId)} leads with ${unit(challenger.n)} of ${goal(rule.win)}` : own ? `${unit(own.n)} of ${goal(rule.win)} to keep it` : 'Nobody close yet'}
+        </span>
+      </span>
+    )
+  }
+  return (
+    <span style={{ display: 'grid', gap: 4 }}>
+      {line('sale', t.managerId, t.managerPermanent, L.LISTING_RULES.projectManager, rmShort, rmShort)}
+      {line('rental', t.handlerId, t.handlerPermanent, L.LISTING_RULES.projectHandler, n => `${n} key${n === 1 ? '' : 's'}`, n => `${n} keys`)}
+    </span>
   )
 }
 

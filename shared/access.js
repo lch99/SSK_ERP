@@ -129,12 +129,20 @@ export const ACTIONS = {
   saveVideo: need('videos', 'edit'), deleteVideo: need('videos', 'full'),
   verifyLandlord: need('reports', 'full'),
   addPropertyType: need('system', 'full'), deletePropertyType: need('system', 'full'),
+  bookViewing: need('listings', 'edit'), confirmViewing: need('listings', 'edit'), rescheduleViewing: need('listings', 'edit'),
+  cancelViewing: need('listings', 'edit'), reviewViewing: need('listings', 'edit'), addViewingRemark: need('listings', 'edit'),
+  toggleFavourite: need('listings', 'view'), revealOwner: need('listings', 'view'),
+  recheckHandlers: need('listings', 'full'), recheckBuildingLeads: need('listings', 'full'), markOutdated: need('listings', 'full'),
+  returnListings: need('staff', 'edit'), sendNotice: need('staff', 'edit'),
+  // Everyone reads their own notifications.
+  readNotices: { area: null },
 }
 
 // Why `role` may not run `action`, or null when it may.
 export function refusal(policy, role, action) {
   const n = ACTIONS[action]
   if (!n) return role === 'superadmin' ? null : `"${action}" has no access rule yet, so only the Superadmin can use it.`
+  if (!n.area) return null
   if (allows(policy, role, n.area, n.level)) return null
   const area = AREAS.find(a => a.key === n.area).label
   return `${roleOf(role)?.label || role} has ${LEVEL_LABEL[levelOf(policy, role, n.area)].toLowerCase()} on ${area}; this needs ${LEVEL_LABEL[n.level]}.`
@@ -154,7 +162,7 @@ const PATHS = [
   ['salary', 'salary'], ['my-pay', 'salary'], ['salary/request', 'salary', 'edit'], ['salary/incentives', 'salary', 'edit'], ['salary/creator', 'salary', 'edit'],
   ['invoices', 'invoices'],
   ['staff', 'staff'], ['staff/new', 'staff', 'edit'], ['org-chart', 'staff'],
-  ['videos', 'videos'], ['reports', 'reports'], ['system', 'system'],
+  ['videos', 'videos'], ['reports', 'reports'], ['system', 'system'], ['system/rules', 'listings'],
 ]
 export function pathNeeds(path) {
   const p = String(path).replace(/^\/+/, '')
@@ -214,6 +222,8 @@ export function visibleData(data, who, scope) {
     requests: data.requests.filter(x => mine.has(x.staffId)),
     vendorRequests: data.vendorRequests.filter(x => (scope === 'branch' ? inBranch(x) : listingIds.has(x.listingId))),
     enquiries: data.enquiries.filter(x => listingIds.has(x.listingId)),
+    // Viewings they booked or host (as the listing's product handler).
+    viewings: (data.viewings || []).filter(x => mine.has(x.requestedBy) || mine.has(x.handlerId)),
     titles: data.titles.filter(inBranch),
     areas: data.areas.filter(inBranch),
     // Records from the first system (V1), by the person they belong to.

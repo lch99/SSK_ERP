@@ -35,7 +35,7 @@ const withCover = list => {
   return first < 0 || list.some(p => p.cover) ? list : list.map((p, i) => (i === first ? { ...p, cover: true } : p))
 }
 
-export default function ListingActions({ l, quiet }) {
+export default function ListingActions({ l, quiet, onBook }) {
   const erp = useErp()
   const gate = useGate()
   const { m } = erp
@@ -91,10 +91,15 @@ export default function ListingActions({ l, quiet }) {
     ['commission', 'Commission', v => `${v}%`], ['builtUp', 'Built-up (sq ft)'], ['beds', 'Bedrooms'], ['baths', 'Bathrooms'], ['tenure', 'Tenure'], ['furnishing', 'Furnishing'],
     ['ownerName', 'Owner Name'], ['ownerPhone', 'Owner Contact'], ['description', 'Full Descriptions'], ['remarks', 'Personal Use Remarks']]) : []
 
+  // Listings outside the viewer's own (the whole agency's) can only be viewed with a customer.
+  const mine = erp.scoped.listings.some(x => x.id === l.id)
+  const book = onBook && l.status === 'active' && gate({ label: 'Book a viewing', icon: 'calendar', sub: `With ${m.staffName(l.holderId)}, who confirms with the owner`, onClick: onBook }, 'listings', 'edit')
+  if (!mine) return <Menu quiet={quiet} label="Actions" items={[{ section: l.code }, book || { label: 'Book a viewing', icon: 'calendar', disabled: true, why: 'The listing is not on the market' }]} />
   return (
     <>
       <Menu quiet={quiet} label="Actions" items={[
         { section: l.code },
+        book, book && '-',
         { label: 'Edit listing', icon: 'edit', onClick: () => openWith('edit', { askPrice: l.askPrice, bestPrice: l.bestPrice, marketValue: l.marketValue ?? '', commission: l.commission ?? '',
           beds: l.beds, baths: l.baths, builtUp: l.builtUp, tenure: l.tenure, furnishing: l.furnishing, description: l.description || '', remarks: l.remarks || '',
           ownerName: l.owner.name, ownerPhone: l.owner.phone }) },
@@ -105,7 +110,7 @@ export default function ListingActions({ l, quiet }) {
         '-',
         { label: 'Share', icon: 'share', sub: (l.share?.coPh || []).length ? `${l.share.coPh.length} co-product handler${l.share.coPh.length > 1 ? 's' : ''}` : null,
           onClick: () => openWith('share', { users: (l.share?.users || []).map(String), pmId: l.share?.pmId ? String(l.share.pmId) : '',
-            coPh: [0, 1, 2].map(i => ({ staffId: l.share?.coPh?.[i]?.staffId ? String(l.share.coPh[i].staffId) : '', until: l.share?.coPh?.[i]?.until || '' })), add: '' }) },
+            coPh: [0, 1, 2].map(i => { const c = l.share?.coPh?.[i]; return { staffId: c?.staffId ? String(c.staffId) : '', until: c?.until || '', locked: !!c?.locked, from: c?.from } }), add: '' }) },
         { label: 'Album', icon: 'image', sub: mediaCount(l) || 'No photos or videos yet', onClick: () => openWith('album', {
           media: [...photosOf(l).map(p => ({ ...p, type: 'photo' })), ...videosOf(l).map(v => ({ ...v, type: 'video' }))], picked: [] }) },
         '-',
@@ -180,21 +185,28 @@ export default function ListingActions({ l, quiet }) {
       </Modal>
 
       <Modal open={dialog === 'follow'} onClose={close} title={`Listing Follow-up · ${l.code}`} width={560}
-        footer={footer('Save', () => save(() => erp.addListingFollowUp(l.id, f), f.appointmentDate ? 'Follow-up saved · the appointment is under Viewings' : 'Follow-up saved'))}>
+        footer={footer('Save', () => save(() => erp.addListingFollowUp(l.id, f), 'Follow-up saved'))}>
         {error && <Notice tone="red">{error}</Notice>}
         <div style={grid}>
           <FormField label="Date"><input type="date" style={field} value={f.date || ''} max={m.today} onChange={set('date')} /></FormField>
           <FormField label="Action"><Select block plain label="Action" value={f.action} onChange={v => setF(x => ({ ...x, action: v }))} options={[0, 1, 2, 3].map(k => ({ value: String(k), label: FOLLOW_UP_ACTIONS[k] }))} /></FormField>
           <FormField label="Agent"><Select block plain label="Agent" value={f.by} onChange={v => setF(x => ({ ...x, by: v }))} options={agentOptions('Select agent')} /></FormField>
-          <FormField label="Appointment date" help="For a viewing"><input type="date" style={field} value={f.appointmentDate || ''} min={m.today} onChange={set('appointmentDate')} /></FormField>
-          <FormField label="Appointment time"><input type="time" style={field} value={f.appointmentTime || ''} onChange={set('appointmentTime')} /></FormField>
-          <FormField label="Remarks" wide><TextArea value={f.remark || ''} onChange={set('remark')} placeholder="e.g. Owner open to nego, viewing with buyer on Saturday" /></FormField>
+          <FormField label="Remarks" wide><TextArea value={f.remark || ''} onChange={set('remark')} placeholder="e.g. Owner open to nego, price firm until month end" /></FormField>
         </div>
+        <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>A follow-up by a co-product handler can make them the product handler (the latest one wins).
+          {onBook && <> Bringing a customer? <button type="button" style={{ ...small, padding: '1px 8px', fontSize: 12 }} onClick={() => { close(); onBook() }}>Book a viewing</button> instead.</>}</p>
       </Modal>
 
       <Modal open={dialog === 'share'} onClose={close} title={`View Share Listing Settings · ${l.code}`} width={600}
-        footer={footer('Save', () => save(() => erp.updateListing(l.id, { share: { users: f.users.map(Number), pmId: f.pmId ? Number(f.pmId) : null,
-          coPh: f.coPh.filter(c => c.staffId).map(c => ({ staffId: Number(c.staffId), until: c.until || null })) } }), `${l.code} sharing saved`))}>
+        footer={footer('Save', async () => {
+          const was = l.holderId
+          await save(async () => {
+            const st = await erp.updateListing(l.id, { share: { users: f.users.map(Number), pmId: f.pmId ? Number(f.pmId) : null,
+              coPh: f.coPh.filter(c => c.staffId).map(c => ({ staffId: Number(c.staffId), until: c.until || null, locked: !!c.locked, from: c.from })) } })
+            const now = st.data.listings.find(x => x.id === l.id)?.holderId
+            if (now !== was) fb.toast(`${m.staffName(now)} is now the product handler`)
+          }, `${l.code} sharing saved`)
+        })}>
         {error && <Notice tone="red">{error}</Notice>}
         <div style={{ display: 'grid', gap: 14 }}>
           <FormField label="Share to users" help="They can see and market this listing">
@@ -208,13 +220,24 @@ export default function ListingActions({ l, quiet }) {
             </div>
             <Select block plain label="Add user" value="" onChange={v => v && setF(x => ({ ...x, users: x.users.includes(v) ? x.users : [...x.users, v] }))} options={staffOptions('+ Add a user')} />
           </FormField>
-          <FormField label="Project Manager (PM)"><Select block plain label="PM" value={f.pmId} onChange={v => setF(x => ({ ...x, pmId: v }))} options={staffOptions('No PM')} /></FormField>
+          <FormField label="Main Product Handler" help="Handles the listing whenever no co-product handler outranks them">
+            <Select block plain label="Main Product Handler" value={f.pmId} onChange={v => setF(x => ({ ...x, pmId: v }))} options={agentOptions('No main product handler')} />
+          </FormField>
           {(f.coPh || []).map((c, i) => (
-            <div key={i} style={grid}>
+            <div key={i} style={{ ...grid, alignItems: 'end' }}>
               <FormField label={`Co-Product Handler slot ${i + 1}`}><Select block plain label="Co-PH" value={c.staffId} onChange={v => setF(x => ({ ...x, coPh: x.coPh.map((y, j) => (j === i ? { ...y, staffId: v } : y)) }))} options={agentOptions('Empty slot')} /></FormField>
-              <FormField label="Valid until"><input type="date" style={field} value={c.until} min={m.today} onChange={e => setF(x => ({ ...x, coPh: x.coPh.map((y, j) => (j === i ? { ...y, until: e.target.value } : y)) }))} /></FormField>
+              {c.locked ? <p style={{ margin: '0 0 8px', fontSize: 12.5, color: C.muted }}>Locked in: no end date.</p>
+                : <FormField label="Valid until"><input type="date" style={field} value={c.until} min={m.today} onChange={e => setF(x => ({ ...x, coPh: x.coPh.map((y, j) => (j === i ? { ...y, until: e.target.value } : y)) }))} /></FormField>}
+              {c.staffId && (
+                <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13, paddingBottom: 8 }} title="They hold the key or an exclusive: they stay product handler and no other slot can take over">
+                  <input type="checkbox" checked={!!c.locked} style={{ accentColor: C.primary }}
+                    onChange={e => setF(x => ({ ...x, coPh: x.coPh.map((y, j) => ({ ...y, locked: j === i ? e.target.checked : e.target.checked ? false : y.locked })) }))} />
+                  Lock in (key or exclusive)
+                </label>
+              )}
             </div>
           ))}
+          <p style={{ fontSize: 12.5, color: C.muted, margin: 0 }}>Who becomes product handler: a locked co-product handler; else the co-product handler who followed the listing up last; else the main product handler; else the current one.</p>
         </div>
       </Modal>
 

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import * as P from '../../../shared/payout.js'
+import * as L from '../../../shared/listings.js'
 import { C, btn } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { DEAL_STATUS, sum } from '../model.js'
@@ -62,6 +63,7 @@ function CompanyDashboard({ me }) {
   const toCollect = sum(openDeals, x => x.money.billed)
   const collected = sum(openDeals, x => Math.min(m.cleared(x.id), x.money.billed))
   const bounced = d.moneyIn.filter(t => t.status === 'returned' && daysFrom(t.date, today) <= 60)
+  const unconfirmed = (d.viewings || []).filter(v => (v.status === 'new' || v.status === 'rescheduled') && v.date <= L.addDays(today, 1))
   const attention = [
     queried.length && { icon: 'alert', tone: C.err, text: <><b>{new Set(queried.map(p => p.dealId)).size} case{new Set(queried.map(p => p.dealId)).size > 1 ? 's' : ''}</b> with Pending Queries</>, to: 'payouts' },
     toApprove.length && { icon: 'payouts', tone: C.warn, text: <><b>{toApprove.length} close-case lines</b> ({rm(sum(toApprove, p => p.amount))}) waiting to be made Ready</>, to: 'payouts' },
@@ -69,6 +71,7 @@ function CompanyDashboard({ me }) {
     outToApprove.length && { icon: 'moneyOut', tone: C.warn, text: <><b>{outToApprove.length} request form{outToApprove.length > 1 ? 's' : ''}</b> to approve</>, to: 'money-out' },
     stale.length && { icon: 'deals', tone: C.info, text: <><b>{stale.length} E-Form{stale.length > 1 ? 's' : ''}</b> submitted over 45 days ago and still collecting</>, to: 'deals' },
     bounced.length && { icon: 'alert', tone: C.err, text: <><b>{bounced.length} returned cheque{bounced.length > 1 ? 's' : ''}</b> in the last 60 days</>, to: 'money-in' },
+    unconfirmed.length && { icon: 'calendar', tone: C.warn, text: <><b>{unconfirmed.length} viewing{unconfirmed.length > 1 ? 's' : ''}</b> today or tomorrow still not confirmed by the product handler</>, to: 'appointments' },
   ].filter(Boolean)
 
   // Top earners this year, by the commission they earned on (what tiers climb on).

@@ -38,7 +38,8 @@ export function Choice({ name, value, options, onChange, recommended, min = 200 
             <span style={{ minWidth: 0 }}>
               <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>
                 {o.label}
-                {recommended === o.value && <span style={{ fontSize: 11, fontWeight: 600, color: C.ok, background: C.okBg, padding: '1px 7px', borderRadius: 10, marginLeft: 6 }}>Recommended</span>}
+                {/* The space lets the badge drop to its own line in a narrow card. */}
+                {recommended === o.value && <>{' '}<span style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, color: C.ok, background: C.okBg, padding: '1px 7px', borderRadius: 10, marginLeft: 2 }}>Recommended</span></>}
               </span>
               {o.desc && <span style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 2, lineHeight: 1.4 }}>{o.desc}</span>}
             </span>
