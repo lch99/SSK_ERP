@@ -184,10 +184,12 @@ export const endDowntime = act('endDowntime')
 
 // Projects. The demo keeps them in this browser, made from the sample's project
 // E-Forms (src/demo/projectsApi.js); the server keeps them with the other
-// records. Saving gives back what was saved; then reload the ERP (useProjects).
+// records. Like the other actions (through ErpContext), a save gives back the
+// ERP's records, plus `result`: the project or incentive saved.
 export const projectsOf = (data, setup) => (DEMO ? projects.getProjects(data, setup).projects : data?.projects || [])
-const projectAct = (name, inBrowser) => (...args) => (DEMO ? Promise.resolve().then(() => inBrowser(...args))
-  : request(`/erp/actions/${name}`, { method: 'POST', body: { args } }).then(r => r.result))
+const projectAct = (name, inBrowser) => (...args) => (DEMO
+  ? Promise.resolve().then(() => inBrowser(...args)).then(result => erp.getErp().then(s => ({ ...s, result })))
+  : request(`/erp/actions/${name}`, { method: 'POST', body: { args } }))
 export const saveProject = projectAct('saveProject', projects.saveProject)
 export const saveIncentive = projectAct('saveIncentive', projects.saveIncentive)
 export const deleteIncentive = projectAct('deleteIncentive', projects.deleteIncentive)

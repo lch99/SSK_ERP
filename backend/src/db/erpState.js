@@ -1,15 +1,15 @@
 // The whole ERP in the shape the demo store keeps it (src/demo/erpApi.js), read
 // from the tables, and what one action changes in it written back.
 //
-// Stage one of moving the ERP onto the server: the pages still get every
-// record at once, and the actions are the demo's own (the same rules on both
-// sides), run on what was read here. Before real data the pages move to the
-// paged lists (routes/erp.js) and each action to loading only the records it
-// touches (CLAUDE.md "Server rule"); saveChanges() stays as it is.
+// Stage one of moving the ERP onto the server: the pages still get the records
+// at once (limited to each person: db/erpGuard.js), and the actions are
+// shared/erpActions.js, run on what was read here. Before real data the pages
+// move to the paged lists (routes/erp.js) and each action to loading only the
+// records it touches (CLAUDE.md "Server rule"); saveChanges() stays as it is.
 const { MODELS, toRecords, childRows, parseJson } = require('./records');
 const { loadSetup } = require('./setupStore');
 const { localToday } = require('./days');
-const { erpBlockers } = require('../../../src/demo/erpSample.js');
+const { erpBlockers } = require('../../../shared/erpRules.js');
 
 // Parents before children, so every row a record points at is already there.
 const KINDS = ['propertyTypes', 'staff', 'titles', 'areas', 'projects', 'listings', 'enquiries', 'vendorRequests', 'deals', 'customers',
@@ -18,7 +18,9 @@ const RUNS_KEY = 'erp:runs';
 // The order the demo store keeps them in (a few pages show them as they come); the rest by id.
 const newest = col => [{ column: col, order: 'desc' }, 'id'];
 const ORDER_BY = {
-  enquiries: newest('date'), vendorRequests: newest('date'), notices: newest('at'),
+  enquiries: newest('date'), vendorRequests: newest('date'),
+  // Newest first; of two at the same minute, the later one first (as a new notice goes on top).
+  notices: [{ column: 'at', order: 'desc' }, { column: 'id', order: 'desc' }],
   customers: ['date', 'id'], moneyIn: ['date', 'id'], closes: ['date', 'id'], requests: ['date', 'id'], moneyOut: ['date', 'id'], viewings: ['code'],
 };
 
@@ -47,9 +49,13 @@ async function loadState(q) {
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const own = (m, r) => Object.fromEntries(Object.entries(r).filter(([k]) => !m.children[k]));
 
+// Notifications are never deleted here: a browser keeps only the latest, the tables keep them all.
+const KEPT = new Set(['notices']);
+
 // Writes what changed between `before` and `after` (both in the demo's shape):
-// new records, then changed ones, then removed ones (children first).
-async function saveChanges(trx, before, after) {
+// new records, then changed ones, then removed ones (children first). `by`: the
+// signed-in person's username, written on new E-Form history entries.
+async function saveChanges(trx, before, after, { by } = {}) {
   const plan = KINDS.map(key => {
     const m = MODELS[key];
     const was = new Map((before[key] || []).map(r => [r.id, r]));
@@ -58,7 +64,7 @@ async function saveChanges(trx, before, after) {
       key, m,
       added: [...now.values()].filter(r => !was.has(r.id)),
       changed: [...now.values()].filter(r => was.has(r.id) && !same(r, was.get(r.id))).map(r => [was.get(r.id), r]),
-      removed: [...was.keys()].filter(id => !now.has(id)),
+      removed: KEPT.has(key) ? [] : [...was.keys()].filter(id => !now.has(id)),
     };
   });
   for (const { key, m, added } of plan) {
@@ -84,10 +90,11 @@ async function saveChanges(trx, before, after) {
     await trx(m.table).whereIn('id', removed).del();
   }
 
-  // New E-Form history entries are at the front.
+  // New E-Form history entries are at the front; they name whoever is signed in.
   const fresh = (after.audit || []).slice(0, Math.max(0, (after.audit || []).length - (before.audit || []).length));
+  if (by) for (const a of fresh) a.by = by;
   if (fresh.length) {
-    await trx('audit_log').insert(fresh.reverse().map(a => ({
+    await trx('audit_log').insert([...fresh].reverse().map(a => ({
       created_at: a.at, username: a.by, action: 'update', entity: 'deal', entity_id: String(a.dealId),
       detail: JSON.stringify({ field: a.field, before: a.before, after: a.after }),
     })));

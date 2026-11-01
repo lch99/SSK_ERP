@@ -18,13 +18,19 @@ async function viewerOf(req) {
   if (req.viewer) return req.viewer;
   const u = req.user;
   const staff = u.staffId ? await db('staff').where('id', u.staffId).first('id', 'type', 'branch_id') : null;
-  const role = staff ? AC.roleForType(staff.type) : AC.roleForUser(u);
+  let role = staff ? AC.roleForType(staff.type) : AC.roleForUser(u);
   const policy = await loadPolicy();
+  let me = { staffId: staff?.id ?? null, branchId: staff?.branch_id ?? u.branchId ?? null };
+  // "View the ERP as" (?as=<role>&asStaff=<id>): someone who manages access sees
+  // what that role and person would, on this request only. It only ever narrows.
+  const as = req.query?.as;
+  if (as && AC.roleOf(as) && AC.managesAccess(role)) {
+    const other = /^\d+$/.test(String(req.query.asStaff || '')) ? await db('staff').where('id', Number(req.query.asStaff)).first('id', 'branch_id') : null;
+    role = as;
+    me = { staffId: other?.id ?? null, branchId: other?.branch_id ?? null };
+  }
   const scope = AC.scopeOf(policy, role);
-  req.viewer = {
-    role, policy, scope, staffId: staff?.id ?? null, branchId: staff?.branch_id ?? u.branchId ?? null,
-    team: scope === 'team' ? await teamIds(db, staff?.id ?? null) : null,
-  };
+  req.viewer = { role, policy, scope, ...me, team: scope === 'team' ? await teamIds(db, me.staffId) : null };
   return req.viewer;
 }
 

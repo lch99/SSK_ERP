@@ -180,3 +180,43 @@ export function validateIncentive(inc) {
   }
   return errors;
 }
+
+const fail = errors => { throw Object.assign(new Error(errors[0]), { errors, status: 400 }) }
+const projectOf = (s, id) => s.projects.find(x => x.id === id) || fail(['That project no longer exists.'])
+
+// The changes, on a store { nextId, projects }: the demo's (src/demo/projectsApi.js),
+// or the server's, made from the records it read (backend/src/routes/erp.js).
+export function saveProjectIn(s, project, tiers = []) {
+  const p = {
+    ...project,
+    name: String(project.name || '').trim(), developer: String(project.developer || '').trim(),
+    location: String(project.location || '').trim(),
+    units: project.units === '' || project.units == null ? '' : Number(project.units),
+    devCommissionPct: Number(project.devCommissionPct),
+  }
+  const errors = [...validateProject(p), ...validateProjectTotals(p, tiers)]
+  if (s.projects.some(x => x.id !== p.id && x.name.toLowerCase() === p.name.toLowerCase())) errors.push(`There is already a project called "${p.name}".`)
+  if (errors.length) fail(errors)
+  if (p.id == null) {
+    p.id = s.nextId++
+    p.incentives = []
+    p.status ||= 'selling'
+    s.projects.push(p)
+  } else s.projects = s.projects.map(x => (x.id === p.id ? { ...x, ...p } : x))
+  return structuredClone(p)
+}
+
+export function saveIncentiveIn(s, projectId, incentive) {
+  const inc = { ...incentive, name: String(incentive.name || '').trim(),
+    steps: (incentive.steps || []).filter(x => x.units !== '' || x.amount !== '').map(x => ({ units: Number(x.units), amount: Number(x.amount) })) }
+  const errors = validateIncentive(inc)
+  if (errors.length) fail(errors)
+  const p = projectOf(s, projectId)
+  if (inc.id == null) { inc.id = s.nextId++; p.incentives.push(inc) } else p.incentives = p.incentives.map(x => (x.id === inc.id ? inc : x))
+  return structuredClone(inc)
+}
+
+export function deleteIncentiveIn(s, projectId, incentiveId) {
+  const p = projectOf(s, projectId)
+  p.incentives = p.incentives.filter(x => x.id !== incentiveId)
+}

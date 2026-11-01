@@ -104,15 +104,18 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
   const { n } = await where(q(spec.table)).count({ n: '*' }).first();
   const rows = await where(q(spec.table)).select(`${spec.table}.*`).orderBy(parseSort(params.sort, spec)).limit(size).offset((page - 1) * size);
 
+  // counts=0: a later page (the first one had the counts).
   const counts = {};
-  for (const [key, c] of Object.entries(spec.counts || {})) {
+  for (const [key, c] of Object.entries(params.counts === '0' ? {} : spec.counts || {})) {
     if (c.col) {
       const got = await where(q(spec.table), [key]).select({ v: c.col }).count({ n: '*' }).groupBy(c.col);
       counts[key] = Object.fromEntries(got.map(r => [r.v ?? '', Number(r.n)]));
     } else if (c.only) {
       const b = q(spec.table);
       scope(b);
-      for (const [k, [v, p]] of Object.entries(await prepareSet(c.only(ctx)))) spec.filters[k].apply(b, v, p);
+      // Its own filters, and of the page's only those it keeps (the chosen branch).
+      const kept = Object.fromEntries(active.filter(([k]) => c.keep.includes(k)).map(([k]) => [k, params[k]]));
+      for (const [k, [v, p]] of Object.entries(await prepareSet({ ...kept, ...c.only(ctx) }))) spec.filters[k].apply(b, v, p);
       const r = await b.count({ n: '*' }).sum({ s: c.sum }).first();
       counts[key] = { n: Number(r.n), sum: r2(Number(r.s) || 0) };
     } else {

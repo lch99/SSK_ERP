@@ -66,9 +66,7 @@ const SERVER = {
 };
 
 // ── From a shared description to SQL ────────────────────────────────────────
-const many = v => String(v).split(',').map(s => s.trim()).filter(Boolean);
-const valueOf = s => (s === 'none' ? null : /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : s);
-const truthy = v => v === true || v === 'true' || v === '1' || v === 1;
+const { many, valueOf, truthy, personId } = SHARED;
 
 // A record field's column, e.g. 'buyer.name' → 'deals.buyer_name'.
 function columnOf(m, path, overrides = {}, table = m.table) {
@@ -107,10 +105,12 @@ function filterOf(rule, col, server) {
   if (rule.team) {
     const cols = rule.team.map(col);
     return {
-      prepare: (q, v) => teamIds(q, Number(v)),
+      prepare: (q, v) => (personId(v) == null ? [] : teamIds(q, personId(v))),
       apply: (b, v, ids) => {
+        // Not a person's id: nobody.
+        if (personId(v) == null) return b.whereRaw('1 = 0');
         b.where(x => cols.forEach(c => x.orWhereIn(c, ids)));
-        if (rule.self === false) b.whereNot(col('id'), Number(v));
+        if (rule.self === false) b.whereNot(col('id'), personId(v));
       },
     };
   }
@@ -139,7 +139,7 @@ function serverSpec(key) {
     sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, col(f)])),
     sort: shared.sort,
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
-      typeof c === 'string' ? { col: col(c) } : c.only ? { only: c.only, sum: col(c.sum) } : c])),
+      typeof c === 'string' ? { col: col(c) } : c.only ? { only: c.only, sum: col(c.sum), keep: c.keep || [] } : c])),
     extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => extraOf(k, e)) : null,
   };
 }

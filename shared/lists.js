@@ -18,7 +18,7 @@
 // sorts:  { key: field }; ?sort=-key is newest / biggest first; then by id, the same way.
 // counts: 'field'                { value: n } for each value, leaving out the filter of the same name
 //         { set: { key: value } | ctx => …, ignores? }   n with those filters set as well
-//         { only: ctx => { key: value }, sum: field }    { n, sum } over these filters alone (not the page's)
+//         { only: ctx => { key: value }, sum: field, keep? }   { n, sum } over these filters alone (and of the page's, those it keeps)
 // extras (on each row as `$`):
 //         { sum: field, of: kind, by: field, where?: { field: [values] }, not?: { field: [values] } } → a number
 //         { pick: [fields], of: kind, by: field }   the records of that kind that point at this one, by id
@@ -113,7 +113,7 @@ export const LISTS = {
     counts: {
       status: 'status', type: 'type',
       // The page's "N submitted in <year> · RM … in fees".
-      year: { only: ctx => ({ from: `${ctx.today.slice(0, 4)}-01-01`, to: `${ctx.today.slice(0, 4)}-12-31`, status: 'submitted,partial,closed' }), sum: 'fee' },
+      year: { only: ctx => ({ from: `${ctx.today.slice(0, 4)}-01-01`, to: `${ctx.today.slice(0, 4)}-12-31`, status: 'submitted,partial,closed' }), sum: 'fee', keep: ['branchId'] },
     },
     extras: {
       listingCode: { field: 'code', of: 'listings', from: 'listingId' },
@@ -241,10 +241,13 @@ export const recordsOf = (data, key) => (key === 'v1Eforms' ? data.v1?.eforms : 
 
 // ── The demo's engine: a description run on records in this browser ─────────
 const get = (r, path) => path.split('.').reduce((v, k) => (v == null ? v : v[k]), r)
-const many = v => String(v).split(',').map(s => s.trim()).filter(Boolean)
-const valueOf = s => (s === 'none' ? null : /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : s)
+// How a filter's value is read, here and on the server (backend/src/db/lists.js).
+export const many = v => String(v).split(',').map(s => s.trim()).filter(Boolean)
+export const valueOf = s => (s === 'none' ? null : /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : s)
+export const truthy = v => v === true || v === 'true' || v === '1' || v === 1
+// A person's id, or null for anything else (a team filter then matches nobody).
+export const personId = v => (/^\d+$/.test(String(v)) ? Number(v) : null)
 const same = (a, b) => a === b || (a != null && b != null && String(a) === String(b))
-const truthy = v => v === true || v === 'true' || v === '1' || v === 1
 const atLeast = (v, x) => (typeof v === 'number' ? v >= Number(x) : String(v) >= String(x))
 const atMost = (v, x) => (typeof v === 'number' ? v <= Number(x) : String(v) <= String(x))
 const r2 = n => Math.round(n * 100) / 100
@@ -252,11 +255,7 @@ const r2 = n => Math.round(n * 100) / 100
 const countKey = v => (typeof v === 'boolean' ? String(Number(v)) : v == null ? '' : String(v))
 
 const CUSTOM = {
-  readyToClose: (r, v, ctx) => truthy(v) === (readyLeft(r, cash(r, ctx.data), ctx.setup) > 0),
-}
-function cash(deal, data) {
-  const ex = extrasOf(DEAL_CASH, [deal], data)
-  return ex.get(deal.id)
+  readyToClose: (r, v, ctx) => truthy(v) === (readyLeft(r, ctx.cash().get(r.id), ctx.setup) > 0),
 }
 
 function test(rule, r, v, ctx) {
@@ -275,8 +274,10 @@ function test(rule, r, v, ctx) {
     return Array.isArray(set) ? set.includes(x) : !set.not.includes(x)
   }
   if (rule.team) {
-    const ids = ctx.team(Number(v))
-    return (rule.self !== false || r.id !== Number(v)) && rule.team.some(f => ids.has(get(r, f)))
+    const id = personId(v)
+    if (id == null) return false
+    const ids = ctx.team(id)
+    return (rule.self !== false || r.id !== id) && rule.team.some(f => ids.has(get(r, f)))
   }
   if (rule.custom) return CUSTOM[rule.custom](r, v, ctx)
   return true
@@ -292,11 +293,15 @@ function extrasOf(defs, rows, data) {
       for (const r of rows) out.get(r.id)[key] = byId.get(get(r, e.from))?.[e.field] ?? null
       continue
     }
-    const linked = (data[e.of] || []).filter(x => ids.has(get(x, e.by)) &&
-      Object.entries(e.where || {}).every(([f, vals]) => vals.includes(get(x, f))) &&
-      Object.entries(e.not || {}).every(([f, vals]) => !vals.includes(get(x, f))))
+    const linked = new Map()
+    for (const x of data[e.of] || []) {
+      const to = get(x, e.by)
+      if (!ids.has(to) || !Object.entries(e.where || {}).every(([f, vals]) => vals.includes(get(x, f)))
+        || !Object.entries(e.not || {}).every(([f, vals]) => !vals.includes(get(x, f)))) continue
+      linked.set(to, [...(linked.get(to) || []), x])
+    }
     for (const r of rows) {
-      const mine = linked.filter(x => get(x, e.by) === r.id)
+      const mine = linked.get(r.id) || []
       out.get(r.id)[key] = e.sum ? r2(mine.reduce((t, x) => t + Number(get(x, e.sum) || 0), 0))
         : [...mine].sort((a, b) => a.id - b.id).map(x => Object.fromEntries(e.pick.map(f => [f, get(x, f) ?? null])))
     }
@@ -312,9 +317,17 @@ function compare(a, b) {
 
 // One page of `records` (already limited to what the viewer may see), as the
 // server gives it: { rows, total, counts, page, size }. ctx: { data (every
-// record, for extras and teams), today, setup }.
+// record, for extras and teams), today, setup }. counts=0 leaves the counts out
+// (a later page: the first one had them).
 export function listPage(records, spec, params = {}, ctx = {}) {
-  const c = { ...ctx, team: ctx.team || (id => teamOf(id, ctx.data?.staff || [])) }
+  // Teams and E-Form cash are worked out once per call, not once per record.
+  const teams = new Map()
+  let cashByDeal = null
+  const c = {
+    ...ctx,
+    team: id => { if (!teams.has(id)) teams.set(id, ctx.team ? ctx.team(id) : teamOf(id, ctx.data?.staff || [])); return teams.get(id) },
+    cash: () => (cashByDeal ||= extrasOf(DEAL_CASH, ctx.data?.deals || [], ctx.data || {})),
+  }
   const words = String(params.q || '').trim().toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6)
   const found = r => words.every(w => (spec.search || []).some(f => String(get(r, f) ?? '').toLowerCase().includes(w)))
   const active = Object.entries(spec.filters || {}).filter(([k]) => params[k] !== undefined && params[k] !== '')
@@ -337,12 +350,13 @@ export function listPage(records, spec, params = {}, ctx = {}) {
   const rows = ordered.slice((page - 1) * size, page * size)
 
   const counts = {}
-  for (const [key, def] of Object.entries(spec.counts || {})) {
+  for (const [key, def] of Object.entries(params.counts === '0' ? {} : spec.counts || {})) {
     if (typeof def === 'string') {
       counts[key] = {}
       for (const r of records) if (pass(r, [key])) { const k = countKey(get(r, def)); counts[key][k] = (counts[key][k] || 0) + 1 }
     } else if (def.only) {
-      const set = def.only(c)
+      // Its own filters, and of the page's only those it keeps (the chosen branch).
+      const set = { ...Object.fromEntries(active.filter(([k]) => (def.keep || []).includes(k)).map(([k]) => [k, params[k]])), ...def.only(c) }
       const hits = records.filter(r => Object.entries(set).every(([k, v]) => test(spec.filters[k], r, v, c)))
       counts[key] = { n: hits.length, sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)) }
     } else {

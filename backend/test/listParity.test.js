@@ -28,12 +28,14 @@ function valuesFor(rule, records) {
   if (rule.from || rule.to) { const vals = seen(rule.from || rule.to).sort(); return vals.length ? [vals[Math.floor(vals.length / 2)]] : []; }
   if (rule.yes || rule.notNull || rule.custom) return ['true', 'false'];
   if (rule.oneOf) return Object.keys(rule.sets);
-  if (rule.team) return state.data.staff.filter(s => state.data.staff.some(x => x.uplineId === s.id)).slice(0, 2).map(s => s.id);
+  // A leader or two, and something that is not a person's id (nobody).
+  if (rule.team) return [...state.data.staff.filter(s => state.data.staff.some(x => x.uplineId === s.id)).slice(0, 2).map(s => s.id), 'abc'];
   return [];
 }
 
 function cases(key, spec, records) {
-  const out = [{}, { size: 7, page: 2 }];
+  // counts=0: a later page, without the counts.
+  const out = [{}, { size: 7, page: 2 }, { size: 7, page: 2, counts: '0' }];
   const first = records.find(r => (spec.search || []).some(f => String(get(r, f) ?? '').length > 3));
   if (first) {
     const word = String(spec.search.map(f => get(first, f)).find(v => String(v ?? '').length > 3)).toLowerCase().split(/\s+/)[0].slice(0, 4);

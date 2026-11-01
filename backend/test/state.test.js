@@ -1,17 +1,21 @@
 // Stage one of the ERP on the server (db/erpState.js, /api/erp/state and
-// /api/erp/actions): the pages get every record as the demo store gives them,
-// and each action, run by the server on what it read from the tables, saves
-// exactly what the same action does in the browser.
+// /api/erp/actions): the pages get the records as the demo store gives them,
+// and each action (shared/erpActions.js), run by the server on what it read
+// from the tables, saves exactly what the same action does in the browser.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { db, migrate, startApi, pick, tidy } = require('./helpers');
-const erp = require('../../src/demo/erpApi.js');
-const projects = require('../../src/demo/projectsApi.js');
+const A = require('../../shared/erpActions.js');
+const J = require('../../shared/projects.js');
 const { seedDemo } = require('../src/db/demoSeed');
-const { KINDS } = require('../src/db/erpState');
+const { KINDS, saveChanges } = require('../src/db/erpState');
+const { actorArgs } = require('../src/db/erpGuard');
+const { localToday } = require('../src/db/days');
 
 let api, sample, state;
-const today = new Date().toISOString().slice(0, 10);
+const today = localToday();
+// Sign-in is off in these tests: the server acts as an office account (actor 0).
+const office = { staffId: null };
 
 before(async () => {
   await migrate();
@@ -44,20 +48,29 @@ test('the whole ERP reads back as the demo made it', async () => {
   assert.deepEqual(r.body.blockers, []);
   // Reading runs the time rules first (viewings expire…), as the demo store does.
   const want = structuredClone(sample);
-  erp.clockOn({ data: want, setup: r.body.setup });
+  A.runClock(want, r.body.setup);
   sameData(r.body.data, want, 'state');
-  // Lists come back in the demo's order too (a few pages show them as they come).
-  for (const k of ['enquiries', 'notices', 'moneyIn', 'payouts']) assert.deepEqual(r.body.data[k].map(x => x.id), sample[k].map(x => x.id), `${k} order`);
+  // Lists come back in the demo's order too (a few pages show them as they come);
+  // notices of the same minute put the later one first, as a new one goes on top.
+  for (const k of ['enquiries', 'moneyIn', 'payouts']) assert.deepEqual(r.body.data[k].map(x => x.id), sample[k].map(x => x.id), `${k} order`);
 });
 
-// Runs `name` in memory on the last state and through the API; both must agree.
+// Runs `name` in memory on the last state (after the time rules, acting as the
+// server's signed-in account) and through the API, then reads the tables back:
+// both must agree.
 async function both(name, ...args) {
   const mem = structuredClone(state);
-  await erp.runOn(mem, () => erp[name](...args));
+  A.runClock(mem.data, mem.setup);
+  const why = A[name](...actorArgs(name, args, office))(mem.data, mem.setup, today);
+  assert.ok(!why, `${name} in memory: ${why}`);
+  // New E-Form history is credited to whoever is signed in ('demo' with sign-in off).
+  for (const a of mem.data.audit.slice(0, mem.data.audit.length - state.data.audit.length)) a.by = 'demo';
   const r = await api.call('POST', `/erp/actions/${name}`, { args });
   assert.equal(r.status, 200, `${name}: ${r.body?.error}`);
-  sameData(r.body.data, mem.data, name);
-  state = r.body;
+  sameData(r.body.data, mem.data, `${name} (reply)`);
+  const saved = await api.call('GET', '/erp/state');
+  sameData(saved.body.data, mem.data, `${name} (saved)`);
+  state = saved.body;
   return state.data;
 }
 
@@ -125,17 +138,19 @@ test('every kind of action saves what the demo saves', async () => {
   await both('deletePropertyType', d.propertyTypes.at(-1).id);
 });
 
-// Projects: the demo's own store's changes (src/demo/projectsApi.js), on the server's records.
+// Projects: the changes shared with the demo's project store (shared/projects.js), on the server's records.
 async function bothProjects(name, change, ...args) {
   const mem = structuredClone(state.data);
+  A.runClock(mem, state.setup);
   const s = { projects: mem.projects, nextId: Math.max(0, ...mem.projects.flatMap(p => [p.id, ...p.incentives.map(i => i.id)])) + 1 };
   const want = change(s);
   mem.projects = s.projects;
   const r = await api.call('POST', `/erp/actions/${name}`, { args });
   assert.equal(r.status, 200, `${name}: ${r.body?.error}`);
-  sameData(r.body.data, mem, name);
+  const saved = await api.call('GET', '/erp/state');
+  sameData(saved.body.data, mem, name);
   if (want !== undefined) assert.deepEqual(tidy(pick(r.body.result, want)), tidy(want), `${name}: result`);
-  state = r.body;
+  state = saved.body;
   return r.body.result;
 }
 
@@ -144,11 +159,11 @@ test('projects and their incentives save as the demo saves them', async () => {
   assert.ok(state.data.projects.length > 0, 'the sample has projects');
   const draft = { id: null, name: 'Test Launch', developer: 'Dev Co', location: 'Cheras', category: 'Condominium', units: '', priceFrom: '',
     devCommissionPct: 3, payout: { mode: 'boost', boostPct: 2 } };
-  const p = await bothProjects('saveProject', s => projects.saveProjectIn(s, draft, tiers), draft);
-  await bothProjects('saveProject', s => projects.saveProjectIn(s, { ...p, units: 200 }, tiers), { ...p, units: 200 });
+  const p = await bothProjects('saveProject', s => J.saveProjectIn(s, draft, tiers), draft);
+  await bothProjects('saveProject', s => J.saveProjectIn(s, { ...p, units: 200 }, tiers), { ...p, units: 200 });
   const inc = { name: 'Launch bonus', from: today, to: today, kind: 'perUnit', counts: 'company', perUnit: 300, paidTo: 'agents', agentPct: '' };
-  const i = await bothProjects('saveIncentive', s => projects.saveIncentiveIn(s, p.id, inc), p.id, inc);
-  await bothProjects('deleteIncentive', s => projects.deleteIncentiveIn(s, p.id, i.id), p.id, i.id);
+  const i = await bothProjects('saveIncentive', s => J.saveIncentiveIn(s, p.id, inc), p.id, inc);
+  await bothProjects('deleteIncentive', s => J.deleteIncentiveIn(s, p.id, i.id), p.id, i.id);
   // The same name twice is refused, and nothing is saved.
   const r = await api.call('POST', '/erp/actions/saveProject', { args: [{ ...draft }] });
   assert.equal(r.status, 400);
@@ -166,4 +181,25 @@ test('a refused action changes nothing and says why', async () => {
 test('an unknown action is not found', async () => {
   assert.equal((await api.call('POST', '/erp/actions/getErp', { args: [] })).status, 404);
   assert.equal((await api.call('POST', '/erp/actions/nope', { args: [] })).status, 404);
+});
+
+test('notices are never deleted by a save, and each action is in the audit log with who ran it', async () => {
+  const before = structuredClone(state.data);
+  const after = structuredClone(state.data);
+  after.notices = after.notices.slice(1);
+  await db.transaction(trx => saveChanges(trx, before, after));
+  assert.equal(Number((await db('notices').count({ n: '*' }).first()).n), before.notices.length);
+  const r = await api.call('POST', '/erp/actions/sendNotice', { args: [{ to: 'all', text: 'Audit me' }] });
+  assert.equal(r.status, 200, r.body?.error);
+  const row = await db('audit_log').where({ entity: 'erp', action: 'sendNotice' }).orderBy('id', 'desc').first();
+  assert.equal(row.username, 'demo');
+  assert.ok(JSON.parse(row.detail).changed.notices.length === 1);
+});
+
+test('someone with pay records or created listings cannot be deleted: a reason, not a server error', async () => {
+  const creator = state.data.staff.find(s => state.data.listings.some(l => l.creatorId === s.id) && !state.data.listings.some(l => l.holderId === s.id)
+    && !state.data.deals.some(d => d.agentId === s.id || d.holderId === s.id)) || state.data.staff.find(s => state.data.requests.some(q => q.staffId === s.id));
+  const r = await api.call('POST', '/erp/actions/deleteStaff', { args: [creator.id] });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /Set them Inactive instead/);
 });

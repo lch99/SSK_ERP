@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { C, btn, btnPrimary, inp } from '../../styles.js'
 import * as P from '../../../shared/payout.js'
 import * as J from '../../../shared/projects.js'
-import { saveProject, saveIncentive } from '../../api.js'
 import { useErp } from '../ErpContext.jsx'
 import { Page, Card, Drawer, FormField, field, cols, go, small } from '../ui.jsx'
 import { Choice } from '../../setup/ui.jsx'
@@ -17,7 +16,8 @@ const pctBox = (value, onChange, props = {}) => (
 // ── Add / edit a project ─────────────────────────────────────────────────────
 
 export function ProjectForm({ project, onSaved }) {
-  const { setup } = useErp()
+  const erp = useErp()
+  const { setup } = erp
   const review = useReview()
   const [p, setP] = useState(() => project ? structuredClone(project) : {
     id: null, name: '', developer: '', location: '', category: '', units: '', priceFrom: '',
@@ -52,7 +52,7 @@ export function ProjectForm({ project, onSaved }) {
       ],
     })
     if (!ok) return
-    try { onSaved(await saveProject(p, setup.tiers)) } catch (e) { setErrors(e.errors || [e.message]); window.scrollTo(0, 0) }
+    try { onSaved((await erp.saveProject(p, setup.tiers)).result) } catch (e) { setErrors(e.errors || [e.message]); window.scrollTo(0, 0) }
   }
 
   return (
@@ -110,7 +110,8 @@ const blank = today => ({
 })
 
 export function IncentiveDrawer({ open, incentive, project, onClose, onSaved }) {
-  const { m } = useErp()
+  const erp = useErp()
+  const { m } = erp
   const [d, setD] = useState(null)
   const [errors, setErrors] = useState([])
   const key = open ? incentive?.id ?? 'new' : null
@@ -125,7 +126,7 @@ export function IncentiveDrawer({ open, incentive, project, onClose, onSaved }) 
   const setStep = (i, k, v) => set('steps', d.steps.map((s, j) => (j === i ? { ...s, [k]: v } : s)))
 
   async function save() {
-    try { await saveIncentive(project.id, d); onSaved() } catch (e) { setErrors(e.errors || [e.message]) }
+    try { await erp.saveIncentive(project.id, d); onSaved() } catch (e) { setErrors(e.errors || [e.message]) }
   }
 
   return (

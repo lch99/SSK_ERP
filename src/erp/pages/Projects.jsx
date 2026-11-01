@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { C, btn, btnPrimary } from '../../styles.js'
 import * as P from '../../../shared/payout.js'
 import * as J from '../../../shared/projects.js'
-import { DEMO, projectsOf, deleteIncentive } from '../../api.js'
+import { projectsOf } from '../../api.js'
 import { useErp } from '../ErpContext.jsx'
 import { DEAL_STATUS, sum } from '../model.js'
 import { Page, Card, Stat, Pill, Progress, DataTable, Status, Link, Empty, Notice, cols, go, mono, small, tabular } from '../ui.jsx'
@@ -22,24 +22,22 @@ const STATUS_PILL = { active: ['green', 'Running'], upcoming: ['blue', 'Starts s
 const ORDER = { active: 0, upcoming: 1, ended: 2 }
 const byStatus = today => (a, b) => ORDER[J.incentiveStatus(a, today)] - ORDER[J.incentiveStatus(b, today)] || b.from.localeCompare(a.from)
 
+// Every project (a save through useErp() updates the records, and with them this list).
 export function useProjects() {
-  const { m, setup, reload: reloadErp } = useErp()
-  // The demo's projects are a store of their own: read it again after a change.
-  const [changes, setChanges] = useState(0)
-  const projects = useMemo(() => projectsOf(m?.data, setup), [m, setup, changes]) // eslint-disable-line react-hooks/exhaustive-deps
-  return { projects, reload: () => (DEMO ? setChanges(n => n + 1) : reloadErp()) }
+  const { m, setup } = useErp()
+  return useMemo(() => projectsOf(m?.data, setup), [m, setup])
 }
 
 export default function Projects({ parts }) {
-  const { projects, reload } = useProjects()
+  const projects = useProjects()
   const can = useCan()
   if (parts[1] === 'incentives') return <AllIncentives projects={projects} />
-  if (parts[1] === 'new') return <ProjectForm onSaved={p => { reload(); go(`projects/${p.id}`) }} />
+  if (parts[1] === 'new') return <ProjectForm onSaved={p => go(`projects/${p.id}`)} />
   const project = parts[1] ? projects.find(p => p.id === Number(parts[1])) : null
   if (parts[1] && !project) return <Page title="Project not found" back={{ to: 'projects', label: 'All projects' }}><Empty title="This project doesn't exist" /></Page>
   if (project && parts[2] === 'edit' && !can('projects', 'edit')) return <NoAccess />
-  if (project && parts[2] === 'edit') return <ProjectForm project={project} onSaved={() => { reload(); go(`projects/${project.id}`) }} />
-  if (project) return <ProjectPage project={project} reload={reload} />
+  if (project && parts[2] === 'edit') return <ProjectForm project={project} onSaved={() => go(`projects/${project.id}`)} />
+  if (project) return <ProjectPage project={project} />
   return <ProjectList projects={projects} />
 }
 
@@ -96,9 +94,10 @@ function ProjectList({ projects }) {
 
 // ── One project ──────────────────────────────────────────────────────────────
 
-function ProjectPage({ project: p, reload }) {
+function ProjectPage({ project: p }) {
   const fb = useFeedback()
-  const { m, scoped, setup } = useErp()
+  const erp = useErp()
+  const { m, scoped, setup } = erp
   const [editing, setEditing] = useState(null)   // incentive being edited, {} for new
   const access = useAccess()
   const edit = access.can('projects', 'edit')
@@ -143,7 +142,7 @@ function ProjectPage({ project: p, reload }) {
               <IncentiveCard key={i.id} inc={i} project={p} onEdit={edit ? () => setEditing(i) : null}
                 onDelete={edit && (async () => {
                   if (!(await fb.confirm({ title: `Delete “${i.name}”?`, body: 'The incentive and its progress are removed from this project. Deals are not changed.', confirmLabel: 'Delete incentive', danger: true }))) return
-                  if (await fb.run(() => deleteIncentive(p.id, i.id), `“${i.name}” deleted`)) reload()
+                  await fb.run(() => erp.deleteIncentive(p.id, i.id), `“${i.name}” deleted`)
                 })} />
             ))}
           </div>
@@ -157,7 +156,7 @@ function ProjectPage({ project: p, reload }) {
         </Card>
       </div>
 
-      <IncentiveDrawer open={!!editing} incentive={editing} project={p} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />
+      <IncentiveDrawer open={!!editing} incentive={editing} project={p} onClose={() => setEditing(null)} onSaved={() => setEditing(null)} />
     </Page>
   )
 }

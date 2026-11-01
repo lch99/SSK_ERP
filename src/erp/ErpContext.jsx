@@ -57,7 +57,7 @@ export function ErpProvider({ reloadKey, children }) {
         'addCustomerFollowUp', 'updateStaff', 'setMarketingStaffs', 'deleteStaff', 'saveVideo', 'deleteVideo', 'addPropertyType', 'deletePropertyType',
         'bookViewing', 'confirmViewing', 'rescheduleViewing', 'cancelViewing', 'reviewViewing', 'addViewingRemark',
         'toggleFavourite', 'readNotices', 'sendNotice', 'revealOwner', 'recheckHandlers', 'recheckBuildingLeads', 'markOutdated', 'returnListings',
-        'scheduleDowntime', 'cancelDowntime', 'endDowntime',
+        'scheduleDowntime', 'cancelDowntime', 'endDowntime', 'saveProject', 'saveIncentive', 'deleteIncentive',
       ].map(k => [k, act(api[k], k)])),
     }
   }, [m, scoped, state, error, branch, load, refusal])
