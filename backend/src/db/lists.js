@@ -1,9 +1,11 @@
-// Every ERP list the API serves: what it searches, filters, sorts and counts,
-// which access area it needs, and whose records each reach sees, the same
-// rules as visibleData() in shared/access.js (team = own + downline).
-const { MODELS } = require('./records');
-const { eq, from, to, yes } = require('./list');
-const { localToday, addDays } = require('./days');
+// The server's side of every list in shared/lists.js: its table, whose records
+// each reach sees (the same rules as visibleData() in shared/access.js; team =
+// own + downline), the SQL for the custom filters, and each field's column
+// (from records.js). The searches, filters, sorts, counts and extras themselves
+// come from shared/lists.js, so the demo and the server page the same way.
+const SHARED = require('../../../shared/lists.js');
+const { MODELS, parseJson } = require('./records');
+const { teamIds } = require('./list');
 
 // Records reached through their E-Form (payments, closes, request forms).
 const viaDeal = (b, v, col = 'deal_id') => b.whereIn(col, sub => {
@@ -22,198 +24,127 @@ const mine = (b, v, col) => (v.scope === 'branch'
   : b.whereIn(col, v.team));
 const inBranch = (b, v, col = 'branch_id') => b.where(col, v.branchId);
 const either = (cols) => (b, v) => b.where(x => cols.forEach((c, i) => (i ? x.orWhereIn(c, v.team) : x.whereIn(c, v.team))));
+const byStaff = { branch: (b, v) => mine(b, v, 'staff_id'), team: (b, v) => mine(b, v, 'staff_id') };
 
-const monthStart = () => `${localToday().slice(0, 8)}01`;
+// Cash on an E-Form, in SQL: what cleared, and what is closed already.
+const CLEARED = "(select coalesce(sum(m.amount), 0) from money_in m where m.deal_id = deals.id and m.status = 'cleared')";
+const CLOSED = '(select coalesce(sum(c.claim), 0) from closes c where c.deal_id = deals.id)';
+const GOT = `(case when ${CLEARED} < deals.billed then ${CLEARED} else deals.billed end)`;
 
-const LISTS = {
-  staff: {
-    area: 'staff', table: 'staff',
-    search: ['staff.name', 'staff.short_name', 'staff.code', 'staff.phone', 'staff.ic_no', 'staff.email', 'staff.username'],
-    filters: {
-      branchId: eq('staff.branch_id'), status: eq('staff.status'), type: eq('staff.type'), position: eq('staff.position'),
-      tierId: eq('staff.tier_floor_id'), uplineId: eq('staff.upline_id'),
-      // agent: Agent and Sales Agent accounts; office: everyone else (src/erp/model.js isAgent).
-      kind: (b, v) => (v === 'office' ? b.whereNotIn('staff.type', ['staff', 'sale-staff']) : b.whereIn('staff.type', ['staff', 'sale-staff'])),
-      // teamOf: everyone under that person (worked out before the query: params.teamIds).
-      teamOf: (b, v, p) => b.whereIn('staff.id', p.teamIds || []).whereNot('staff.id', Number(v)),
-      joinedFrom: from('staff.joined_on'), joinedTo: to('staff.joined_on'), expiresBy: to('staff.expires_on'),
-    },
-    sorts: { name: 'staff.name', code: 'staff.code', joined: 'staff.joined_on', expiresOn: 'staff.expires_on', branch: 'staff.branch_id', status: 'staff.status' },
-    sort: 'name',
-    counts: {
-      status: 'staff.status',
-      leaders: { where: b => b.whereNotNull('staff.position') },
-      joinedThisMonth: { where: b => b.where('staff.joined_on', '>=', monthStart()) },
-      // Registration (expiry date) running out within 30 days.
-      expiring: { where: b => b.whereBetween('staff.expires_on', [localToday(), addDays(localToday(), 30)]) },
-    },
-    scope: { branch: (b, v) => inBranch(b, v, 'staff.branch_id'), team: (b, v) => b.whereIn('staff.id', v.team) },
-  },
-
-  listings: {
-    area: 'listings', table: 'listings',
-    search: ['code', 'title', 'address', 'area', 'owner_name', 'owner_phone'],
-    filters: {
-      type: eq('type'), status: eq('status'), branchId: eq('branch_id'), holderId: eq('holder_id'), creatorId: eq('creator_id'),
-      titleId: eq('title_id'), area: eq('area'), category: eq('category'), draft: yes('draft'),
-      priceFrom: from('ask_price'), priceTo: to('ask_price'), createdFrom: from('created_on'), createdTo: to('created_on'),
-    },
-    sorts: { created: 'created_on', updated: 'updated_on', price: 'ask_price', code: 'code', views: 'views' },
-    sort: '-created',
-    counts: { status: 'status', type: 'type' },
-    scope: { branch: inBranch, team: either(['holder_id', 'creator_id']) },
-  },
-
-  customers: {
-    area: 'customers', table: 'customers',
-    search: ['name', 'phone', 'code', 'area'],
-    filters: { type: eq('type'), track: eq('track'), action: eq('action'), ownerId: eq('owner_id'), branchId: eq('branch_id'), source: eq('source'),
-      from: from('date'), to: to('date') },
-    sorts: { date: 'date', name: 'name' },
-    sort: '-date',
-    counts: { track: 'track', type: 'type' },
-    scope: { branch: inBranch, team: (b, v) => b.whereIn('owner_id', v.team) },
-  },
-
+const SERVER = {
+  staff: { table: 'staff', scope: { branch: (b, v) => inBranch(b, v, 'staff.branch_id'), team: (b, v) => b.whereIn('staff.id', v.team) } },
+  listings: { table: 'listings', scope: { branch: inBranch, team: either(['holder_id', 'creator_id']) } },
+  customers: { table: 'customers', scope: { branch: inBranch, team: (b, v) => b.whereIn('owner_id', v.team) } },
   deals: {
-    area: 'deals', table: 'deals',
-    search: ['code', 'buyer_name', 'owner_name', 'property_title', 'property_address'],
-    filters: { status: eq('status'), type: eq('type'), branchId: eq('branch_id'), agentId: eq('agent_id'), holderId: eq('holder_id'),
-      listingId: eq('listing_id'), projectId: eq('project_id'), lvStatus: eq('lv_status'),
-      // Either side of the deal (the sales agent or the listing holder).
-      staffId: (b, v) => b.where(x => x.where('agent_id', Number(v)).orWhere('holder_id', Number(v))),
-      from: from('date'), to: to('date'), closedFrom: from('closed_on'), closedTo: to('closed_on') },
-    sorts: { date: 'date', code: 'code', price: 'price', fee: 'fee', closedOn: 'closed_on' },
-    sort: '-date',
-    counts: { status: 'status', type: 'type' },
-    scope: { branch: inBranch, team: either(['agent_id', 'holder_id']) },
+    table: 'deals', scope: { branch: inBranch, team: either(['agent_id', 'holder_id']) },
+    custom: {
+      // shared/lists.js readyLeft(): open, cleared cash not closed yet, and all of it cleared (or Setup pays as money comes in).
+      readyToClose: {
+        prepare: async q => parseJson((await q('settings').where('key', 'setup').first())?.value)?.approvals?.payWhen || null,
+        apply: (b, v, payWhen) => {
+          const ready = `deals.status in ('submitted', 'partial') and ${GOT} - ${CLOSED} > 0.005 and (${CLEARED} >= deals.billed${payWhen === 'received' ? ' or 1 = 1' : ''})`;
+          b.whereRaw(v === 'true' || v === '1' ? ready : `not (${ready})`);
+        },
+      },
+    },
   },
-
-  moneyIn: {
-    area: 'moneyIn', table: 'money_in',
-    search: ['code', 'payer', 'ref'],
-    filters: { status: eq('status'), dealId: eq('deal_id'), method: eq('method'), purpose: eq('purpose'), from: from('date'), to: to('date') },
-    sorts: { date: 'date', amount: 'amount', bankOn: 'bank_on', code: 'code' },
-    sort: '-date',
-    counts: { status: 'status' },
-    scope: { branch: viaDeal, team: viaDeal },
-  },
-
-  closes: {
-    area: 'payouts', table: 'closes',
-    search: [],
-    filters: { dealId: eq('deal_id'), from: from('date'), to: to('date') },
-    sorts: { date: 'date' },
-    sort: '-date',
-    scope: { branch: viaDeal, team: viaDeal },
-  },
-
-  payouts: {
-    area: 'payouts', table: 'payout_lines',
-    search: ['code'],
-    filters: { status: eq('status'), staffId: eq('staff_id'), dealId: eq('deal_id'), closeId: eq('close_id'), side: eq('side'), role: eq('role'),
-      requestId: eq('request_id'), archiveId: eq('archive_id'), stacked: yes('stacked'), from: from('date'), to: to('date') },
-    sorts: { date: 'date', amount: 'amount', code: 'code' },
-    sort: '-date',
-    counts: { status: 'status' },
-    scope: { branch: viaDeal, team: (b, v) => b.whereIn('staff_id', v.team) },
-  },
-
-  requests: {
-    area: 'salary', table: 'pay_requests',
-    search: ['code'],
-    filters: { status: eq('status'), kind: eq('kind'), staffId: eq('staff_id'), from: from('date'), to: to('date') },
-    sorts: { date: 'date', payOn: 'pay_on', code: 'code' },
-    sort: '-date',
-    counts: { status: 'status', kind: 'kind' },
-    scope: { branch: (b, v) => mine(b, v, 'staff_id'), team: (b, v) => mine(b, v, 'staff_id') },
-  },
-
-  archives: {
-    area: 'payouts', table: 'archives',
-    search: ['code'], filters: { from: from('date'), to: to('date') },
-    sorts: { date: 'date' }, sort: '-date',
-  },
-
-  moneyOut: {
-    area: 'moneyOut', table: 'money_out',
-    search: ['voucher_no', 'payee_name'],
-    filters: { status: eq('status'), type: eq('type'), dealId: eq('deal_id'), branchId: eq('branch_id'), staffId: eq('staff_id'),
-      from: from('date'), to: to('date') },
-    sorts: { date: 'date', amount: 'amount', voucherNo: 'voucher_no' },
-    sort: '-date',
-    counts: { status: 'status', type: 'type' },
-    scope: { branch: viaDeal, team: viaDeal },
-  },
-
-  vendorRequests: {
-    area: 'listings', table: 'vendor_requests',
-    search: ['ticket', 'name', 'phone', 'area'],
-    filters: { status: eq('status'), branchId: eq('branch_id'), listingId: eq('listing_id') },
-    sorts: { date: 'date' }, sort: '-date',
-    counts: { status: 'status' },
-    scope: { branch: inBranch, team: viaListing },
-  },
-
-  enquiries: {
-    area: 'listings', table: 'enquiries',
-    search: ['name', 'phone', 'message'],
-    filters: { listingId: eq('listing_id'), starred: yes('starred'), trashed: yes('trashed') },
-    sorts: { date: 'date' }, sort: '-date',
-    counts: { trashed: 'trashed', starred: { where: b => b.where('starred', 1), ignores: ['starred'] } },
-    scope: { branch: viaListing, team: viaListing },
-  },
-
-  titles: {
-    area: 'listings', table: 'titles',
-    search: ['name', 'area'],
-    filters: { status: eq('status'), branchId: eq('branch_id'), category: eq('category'), area: eq('area') },
-    sorts: { name: 'name', area: 'area', requestedOn: 'requested_on' }, sort: 'name',
-    counts: { status: 'status' },
-    scope: { branch: inBranch, team: inBranch },
-  },
-
-  areas: {
-    area: 'listings', table: 'areas',
-    search: ['name', 'state'],
-    filters: { status: eq('status'), branchId: eq('branch_id'), state: eq('state') },
-    sorts: { name: 'name', requestedOn: 'requested_on' }, sort: 'name',
-    counts: { status: 'status' },
-    scope: { branch: inBranch, team: inBranch },
-  },
-
-  videos: {
-    area: 'videos', table: 'videos',
-    search: ['title', 'description'], filters: { cate: eq('cate') },
-    sorts: { date: 'date', title: 'title' }, sort: '-date',
-    counts: { cate: 'cate' },
-  },
-
-  propertyTypes: { area: 'listings', table: 'property_types', search: ['name'], sorts: { name: 'name' }, sort: 'name' },
-
-  projects: {
-    area: 'projects', table: 'projects',
-    search: ['name', 'developer', 'location'], filters: { status: eq('status') },
-    sorts: { name: 'name', launchedOn: 'launched_on' }, sort: 'name',
-    counts: { status: 'status' },
-  },
-
-  v1Eforms: {
-    area: 'deals', table: 'v1_eforms',
-    search: ['code', 'address'], filters: { staffId: eq('staff_id'), type: eq('type'), status: eq('status') },
-    sorts: { date: 'date', code: 'code' }, sort: '-date',
-    scope: { branch: (b, v) => mine(b, v, 'staff_id'), team: (b, v) => mine(b, v, 'staff_id') },
-  },
-
-  v1Overrides: {
-    area: 'deals', table: 'v1_overrides',
-    search: [], filters: { staffId: eq('staff_id'), year: eq('year') },
-    sorts: { year: 'year' }, sort: '-year',
-    scope: { branch: (b, v) => mine(b, v, 'staff_id'), team: (b, v) => mine(b, v, 'staff_id') },
-  },
+  moneyIn: { table: 'money_in', scope: { branch: viaDeal, team: viaDeal } },
+  closes: { table: 'closes', scope: { branch: viaDeal, team: viaDeal } },
+  payouts: { table: 'payout_lines', scope: { branch: viaDeal, team: (b, v) => b.whereIn('staff_id', v.team) } },
+  requests: { table: 'pay_requests', scope: byStaff },
+  archives: { table: 'archives' },
+  moneyOut: { table: 'money_out', scope: { branch: viaDeal, team: viaDeal }, columns: { 'payee.name': 'payee_name' } },
+  vendorRequests: { table: 'vendor_requests', scope: { branch: inBranch, team: viaListing } },
+  enquiries: { table: 'enquiries', scope: { branch: viaListing, team: viaListing } },
+  titles: { table: 'titles', scope: { branch: inBranch, team: inBranch } },
+  areas: { table: 'areas', scope: { branch: inBranch, team: inBranch } },
+  videos: { table: 'videos' },
+  propertyTypes: { table: 'property_types' },
+  projects: { table: 'projects' },
+  v1Eforms: { table: 'v1_eforms', scope: byStaff },
+  v1Overrides: { table: 'v1_overrides', scope: byStaff },
 };
 
-for (const [key, spec] of Object.entries(LISTS)) spec.model = MODELS[key];
+// ── From a shared description to SQL ────────────────────────────────────────
+const many = v => String(v).split(',').map(s => s.trim()).filter(Boolean);
+const valueOf = s => (s === 'none' ? null : /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : s);
+const truthy = v => v === true || v === 'true' || v === '1' || v === 1;
+
+// A record field's column, e.g. 'buyer.name' → 'deals.buyer_name'.
+function columnOf(m, path, overrides = {}, table = m.table) {
+  if (overrides[path]) return `${table}.${overrides[path]}`;
+  const [head, sub] = path.split('.');
+  const f = m.fields.find(x => x.key === head);
+  const col = sub ? f?.group?.find(g => g.key === sub)?.col : f?.col;
+  if (!col) throw new Error(`${m.name}: no column for "${path}"`);
+  return `${table}.${col}`;
+}
+
+function filterOf(rule, col, server) {
+  if (rule.eq) {
+    const cols = [].concat(rule.eq).map(col);
+    return {
+      apply: (b, v) => {
+        const vals = many(v).map(valueOf);
+        const set = vals.filter(x => x !== null);
+        b.where(x => { for (const c of cols) { if (set.length) x.orWhereIn(c, set); if (set.length < vals.length) x.orWhereNull(c); } });
+      },
+    };
+  }
+  if (rule.from) return { apply: (b, v) => b.where(col(rule.from), '>=', valueOf(v) ?? v) };
+  if (rule.to) return { apply: (b, v) => b.where(col(rule.to), '<=', valueOf(v) ?? v) };
+  if (rule.yes) return { apply: (b, v) => b.where(col(rule.yes), truthy(v) ? 1 : 0) };
+  if (rule.notNull) return { apply: (b, v) => (truthy(v) ? b.whereNotNull(col(rule.notNull)) : b.whereNull(col(rule.notNull))) };
+  if (rule.oneOf) {
+    return {
+      apply: (b, v) => {
+        const set = rule.sets[v];
+        if (Array.isArray(set)) b.whereIn(col(rule.oneOf), set);
+        else if (set) b.whereNotIn(col(rule.oneOf), set.not);
+      },
+    };
+  }
+  if (rule.team) {
+    const cols = rule.team.map(col);
+    return {
+      prepare: (q, v) => teamIds(q, Number(v)),
+      apply: (b, v, ids) => {
+        b.where(x => cols.forEach(c => x.orWhereIn(c, ids)));
+        if (rule.self === false) b.whereNot(col('id'), Number(v));
+      },
+    };
+  }
+  if (rule.custom) return server.custom[rule.custom];
+  throw new Error(`Unknown filter rule ${JSON.stringify(rule)}`);
+}
+
+function extraOf(key, e) {
+  const m = MODELS[e.of];
+  const col = f => columnOf(m, f);
+  if (e.from) return { key, from: e.from, table: m.table, fieldCol: col(e.field) };
+  return {
+    key, table: m.table, model: m, by: e.by, byCol: col(e.by), sumCol: e.sum ? col(e.sum) : null, pick: e.pick,
+    where: Object.entries(e.where || {}).map(([f, vals]) => [col(f), vals]),
+    not: Object.entries(e.not || {}).map(([f, vals]) => [col(f), vals]),
+  };
+}
+
+function serverSpec(key) {
+  const shared = SHARED.LISTS[key], server = SERVER[key], model = MODELS[key];
+  const col = path => columnOf(model, path, server.columns, server.table);
+  return {
+    area: shared.area, table: server.table, model, scope: server.scope,
+    search: (shared.search || []).map(col),
+    filters: Object.fromEntries(Object.entries(shared.filters || {}).map(([k, rule]) => [k, filterOf(rule, col, server)])),
+    sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, col(f)])),
+    sort: shared.sort,
+    counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
+      typeof c === 'string' ? { col: col(c) } : c.only ? { only: c.only, sum: col(c.sum) } : c])),
+    extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => extraOf(k, e)) : null,
+  };
+}
+
+const LISTS = Object.fromEntries(Object.keys(SHARED.LISTS).map(k => [k, serverSpec(k)]));
 
 // The viewer's reach as a where clause on `spec`'s table (nothing for 'all').
 // A reach a list has no rule for sees nothing, never everything.

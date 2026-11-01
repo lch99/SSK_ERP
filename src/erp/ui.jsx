@@ -4,7 +4,7 @@ import { C, btn, inp } from '../styles.js'
 import { createAvatar } from '@dicebear/core'
 import * as notionists from '@dicebear/notionists'
 import Icon from './Icon.jsx'
-import { date } from './format.js'
+import { date, num } from './format.js'
 import { UPLOADS, acceptFor, checkFile, fileHead, fileSize, uploadHint } from '../../shared/files.js'
 
 // Building blocks shared by the ERP pages.
@@ -683,7 +683,10 @@ export function Empty({ title = 'Nothing here', text, icon = 'search', action })
 // Rows with onRow open with a click, or with Enter after Tab / ↑ ↓.
 // onOrder(keys) reports the rows in the order shown (for useRecordNav);
 // onClear adds "Clear filters" to the empty state.
-export function DataTable({ columns, rows, rowKey = r => r.id, onRow, narrowAt = 760, pageSize = 25, empty, selection, defaultSort, onOrder, onClear }) {
+// paged (a list paged by useList): the rows come sorted and a page at a time,
+// so headers sort by a column's sortKey (paged.sort is e.g. '-date') and
+// "Show more" asks for the next page: { total, sort, onSort(sort), onMore, loading }.
+export function DataTable({ columns, rows, rowKey = r => r.id, onRow, narrowAt = 760, pageSize = 25, empty, selection, defaultSort, onOrder, onClear, paged }) {
   const [setWrap, width, wrap] = useBoxWidth()
   const stickyTop = useContext(StickyTop)
   // The widest box the table did not fit in: at or below it, show cards.
@@ -699,16 +702,24 @@ export function DataTable({ columns, rows, rowKey = r => r.id, onRow, narrowAt =
   useEffect(() => setLimit(pageSize), [rows.length, pageSize])
 
   const sorted = useMemo(() => {
-    const col = sort && columns.find(c => c.key === sort.key)
+    const col = !paged && sort && columns.find(c => c.key === sort.key)
     if (!col?.sort) return rows
     const dir = sort.dir === 'asc' ? 1 : -1
     return [...rows].sort((a, b) => {
       const x = col.sort(a), y = col.sort(b)
       return (x < y ? -1 : x > y ? 1 : 0) * dir
     })
-  }, [rows, sort, columns])
+  }, [rows, sort, columns, paged])
   useLayoutEffect(() => { onOrder?.(sorted.map(rowKey)) }, [sorted, onOrder]) // eslint-disable-line react-hooks/exhaustive-deps
-  const shown = sorted.slice(0, limit)
+  const shown = paged ? sorted : sorted.slice(0, limit)
+  // Which column the rows are sorted by, and how: { key, dir }.
+  const sortOf = c => (paged ? (c.sortKey && paged.sort?.replace(/^-/, '') === c.sortKey ? { key: c.key, dir: paged.sort.startsWith('-') ? 'desc' : 'asc' } : null)
+    : sort?.key === c.key ? sort : null)
+  const sortBy = (c, now) => {
+    const dir = now?.dir === 'desc' ? 'asc' : 'desc'
+    if (paged) paged.onSort(dir === 'desc' ? `-${c.sortKey}` : c.sortKey)
+    else setSort({ key: c.key, dir })
+  }
   const selectable = selection ? shown.filter(r => selection.can?.(r) ?? true) : []
   const allOn = selectable.length > 0 && selectable.every(r => selection.selected.has(rowKey(r)))
   const someOn = selectable.some(r => selection.selected.has(rowKey(r)))
@@ -785,16 +796,16 @@ export function DataTable({ columns, rows, rowKey = r => r.id, onRow, narrowAt =
             <tr>
               {selection && <th style={{ ...thStyle, top: stickyTop, width: 28 }}>{box(null)}</th>}
               {columns.map(c => {
-                const active = sort?.key === c.key
+                const now = sortOf(c), active = !!now
                 return (
                   <th key={c.key} style={{ ...thStyle, top: stickyTop, textAlign: c.align || 'left', width: c.width, color: active ? C.text : C.muted }}
-                    aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
-                    {c.sort ? (
-                      <button onClick={() => setSort({ key: c.key, dir: active && sort.dir === 'desc' ? 'asc' : 'desc' })} className="ssk-sort"
+                    aria-sort={active ? (now.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+                    {(paged ? c.sortKey : c.sort) ? (
+                      <button onClick={() => sortBy(c, now)} className="ssk-sort"
                         title={`Sort by ${typeof c.label === 'string' ? c.label : 'this column'}`}
                         style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'flex-end', gap: 3, borderRadius: 4 }}>
                         <span>{c.label}</span>
-                        <Icon name={active && sort.dir === 'asc' ? 'up' : 'down'} size={12} stroke={2.4} style={{ opacity: active ? 1 : 0.3, marginBottom: 2, color: active ? C.primary : 'currentColor' }} />
+                        <Icon name={active && now.dir === 'asc' ? 'up' : 'down'} size={12} stroke={2.4} style={{ opacity: active ? 1 : 0.3, marginBottom: 2, color: active ? C.primary : 'currentColor' }} />
                       </button>
                     ) : c.label}
                     {c.help && <Tip label={`About ${typeof c.label === 'string' ? c.label : 'this column'}`} size={14} style={{ marginLeft: 3 }}>{c.help}</Tip>}
@@ -821,7 +832,12 @@ export function DataTable({ columns, rows, rowKey = r => r.id, onRow, narrowAt =
           </tbody>
         </table>
       )}
-      {sorted.length > limit && (
+      {paged ? rows.length < paged.total && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', padding: '14px 0 2px', fontSize: 13, color: C.muted, flexWrap: 'wrap' }}>
+          <span style={tabular}>Showing {num(rows.length)} of {num(paged.total)}</span>
+          <button style={small} disabled={paged.loading} onClick={paged.onMore}>{paged.loading ? 'Loading…' : `Show ${Math.min(pageSize, paged.total - rows.length)} more`}</button>
+        </div>
+      ) : sorted.length > limit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', padding: '14px 0 2px', fontSize: 13, color: C.muted, flexWrap: 'wrap' }}>
           <span style={tabular}>Showing {limit} of {sorted.length}</span>
           <button style={small} onClick={() => setLimit(limit + pageSize)}>Show {Math.min(pageSize, sorted.length - limit)} more</button>

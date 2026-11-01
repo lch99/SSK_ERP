@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
-import { DEAL_STATUS, PARTY, readyToClose, isAgent, sum, r2 } from '../model.js'
+import { useList } from '../useList.js'
+import { DEAL_STATUS, PARTY, readyToClose, dealCash, isAgent, sum, r2 } from '../model.js'
 import { FlowBar } from '../flow.jsx'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, DateFilter, RangeFilter, DataTable, Status, Progress, Menu, Modal, FormField, FileInput, TextArea, Notice, go, mono, tabular, field } from '../ui.jsx'
 import { COLUMN, PAGE } from '../help.js'
@@ -37,9 +38,11 @@ const VIEWS = {
 // A filter field that is set gets the same crimson tint as a set dropdown.
 const STATUS_FILTER = [['', 'All'], ['draft', 'Draft'], ['submitted', 'Submitted'], ['cancelled', 'Abort/Cancel'], ['closed', 'Closed Full'], ['partial', 'Closed Partial']]
 
+// A page at a time (useList: the server, or the demo's records run the same way).
 function DealList({ view }) {
   const can = useCan()
   const { m, scoped: d, setup } = useErp()
+  const [sort, setSort] = useState('-date')
   const [status, setStatus] = useState(() => hashParam('status'))
   // The list stays mounted between its views, so follow a ?status= link from another view too.
   useEffect(() => {
@@ -63,35 +66,25 @@ function DealList({ view }) {
   const leaders = d.staff.filter(s => s.role).sort((a, b) => a.short.localeCompare(b.short))
   const leadId = Number(lead) || (view === 'branch' ? tops[0]?.id : view === 'team' ? leaders[0]?.id : null)
   const byLeader = view === 'branch' || view === 'team'
-  const team = useMemo(() => {
-    if (!leadId) return null
-    const ids = new Set([leadId])
-    let grew = true
-    while (grew) { grew = false; for (const s of m.data.staff) if (ids.has(s.uplineId) && !ids.has(s.id)) { ids.add(s.id); grew = true } }
-    return ids
-  }, [leadId, m])
 
-  const base = useMemo(() => {
-    const words = q.trim().toLowerCase()
-    return d.deals.filter(x => (!type || x.type === type) && (!who || x.agentId === Number(who) || x.holderId === Number(who)) &&
-      (!team || view === 'personal' || view === 'ready' || team.has(x.agentId) || team.has(x.holderId)) &&
-      (!from || x.date >= from) && (!to || x.date <= to) && (!minPrice || x.price >= Number(minPrice)) && (!maxPrice || x.price <= Number(maxPrice)) &&
-      (!words || [x.code, x.property.address, x.property.title].join(' ').toLowerCase().includes(words)))
-  }, [d.deals, q, type, who, team, view, from, to, minPrice, maxPrice])
-  const rows = (status ? base.filter(x => x.status === status) : base).filter(x => view !== 'ready' || readyToClose(x, m, setup) > 0)
+  const list = useList('deals', {
+    q, type, status, staffId: who, from, to, priceFrom: minPrice, priceTo: maxPrice, sort,
+    teamOf: byLeader && leadId ? leadId : '', ready: view === 'ready' ? 'true' : '',
+  })
+  const byStatus = list.counts.status || {}
   const people = d.staff.filter(s => isAgent(s) && s.status !== 'pending').sort((a, b) => a.short.localeCompare(b.short))
   const filters = [from, to, minPrice, maxPrice, who, type, status].filter(Boolean).length
   const clear = () => { setQ(''); setFrom(''); setTo(''); setMinPrice(''); setMaxPrice(''); setWho(''); setType(''); setStatus('') }
 
   const columns = [
-    { key: 'code', label: 'Code', sort: x => `${x.date}${x.code}`, render: x => (
+    { key: 'code', label: 'Code', sortKey: 'date', render: x => (
       <span style={{ whiteSpace: 'nowrap' }}>
         <span style={{ ...mono, fontWeight: 700, color: C.primaryDark }}>{x.code}</span>
         <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(x.date)}</span>
-        <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{P.DEAL_TYPE_LABELS[x.type]}{x.listingId ? ` · ${m.listings[x.listingId].code}` : ''}</span>
+        <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{P.DEAL_TYPE_LABELS[x.type]}{x.$.listingCode ? ` · ${x.$.listingCode}` : ''}</span>
       </span>
     ) },
-    { key: 'people', label: 'Sale Staff · Product Handler', sort: x => m.staffName(x.agentId), render: x => {
+    { key: 'people', label: 'Sale Staff · Product Handler', render: x => {
       const bm = m.branchManagerOf(x.agentId), am = m.areaManagerOf(x.agentId)
       return (
         <span style={{ display: 'block', fontSize: 13 }}>
@@ -101,16 +94,16 @@ function DealList({ view }) {
         </span>
       )
     } },
-    { key: 'address', label: 'Address', sort: x => x.property.title, render: x => (
+    { key: 'address', label: 'Address', sortKey: 'title', render: x => (
       <span style={{ display: 'block', fontSize: 13 }}>{x.property.title}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.property.address.split(',')[0]}</span></span>
     ) },
-    { key: 'price', label: 'Sell/Rent Price', align: 'right', sort: x => x.price, render: x => rm(x.price) },
-    { key: 'total', label: 'Total · Net Total', help: COLUMN.dealTotal, align: 'right', sort: x => x.money.billed, render: x => (
+    { key: 'price', label: 'Sell/Rent Price', align: 'right', sortKey: 'price', render: x => rm(x.price) },
+    { key: 'total', label: 'Total · Net Total', help: COLUMN.dealTotal, align: 'right', sortKey: 'billed', render: x => (
       <span>{rm(r2(x.money.billed - x.money.coBroke - x.money.referral))}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm(x.money.net)}</span></span>
     ) },
-    { key: 'tx', label: 'Transaction Amount', help: COLUMN.dealTx, sort: x => m.cleared(x.id), render: x => {
+    { key: 'tx', label: 'Transaction Amount', help: COLUMN.dealTx, render: x => {
       if (x.status === 'draft') return <span style={{ color: C.muted, fontSize: 12 }}>—</span>
-      const got = m.cleared(x.id), all = m.received(x.id)
+      const got = x.$.cleared, all = x.$.received
       return (
         <span style={{ display: 'block', minWidth: 0 }}>
           <span style={{ fontSize: 12.5, ...tabular }}>{amt(got)} / {amt(all)}</span>
@@ -118,13 +111,13 @@ function DealList({ view }) {
         </span>
       )
     } },
-    { key: 'status', label: 'Status', sort: x => x.status, render: x => <Status of={DEAL_STATUS} value={x.status} /> },
+    { key: 'status', label: 'Status', sortKey: 'status', render: x => <Status of={DEAL_STATUS} value={x.status} /> },
     { key: 'actions', label: '', card: false, render: x => <DealActions deal={x} quiet /> },
   ]
 
-  const yearDeals = d.deals.filter(x => x.date.startsWith(m.year) && x.status !== 'cancelled' && x.status !== 'draft')
+  const year = list.counts.year || { n: 0, sum: 0 }
   return (
-    <Page title={v.title} help={PAGE[{ personal: 'deals', branch: 'dealsBranch', team: 'dealsTeam', ready: 'dealsReady' }[view] || 'deals']} sub={view === 'ready' ? `${v.sub}.` : <>{v.sub} · {num(yearDeals.length)} submitted in {m.year} · {rm(sum(yearDeals, x => x.fee))} in fees</>}
+    <Page title={v.title} help={PAGE[{ personal: 'deals', branch: 'dealsBranch', team: 'dealsTeam', ready: 'dealsReady' }[view] || 'deals']} sub={view === 'ready' ? `${v.sub}.` : <>{v.sub} · {num(year.n)} submitted in {m.year} · {rm(year.sum)} in fees</>}
       actions={can('deals', 'edit') && <button style={btnPrimary} onClick={() => go('deals/new')}>Submit an E-Form</button>}>
       {view === 'ready' ? <FlowBar here="close" /> : status === 'draft' && <FlowBar here="submit" />}
       <Card pad={16}>
@@ -135,12 +128,14 @@ function DealList({ view }) {
           <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'Everyone' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
           {enabled.length > 1 && <Select label="Form type" value={type} onChange={setType}
             options={[{ value: '', label: 'All types' }, ...enabled.map(t => ({ value: t, label: t === 'sale' ? 'Sales' : P.DEAL_TYPE_LABELS[t] }))]} />}
-          <Select label="Form status" value={status} onChange={setStatus} options={STATUS_FILTER.map(([value, label]) => ({ value, label: value ? `${label} (${base.filter(x => x.status === value).length})` : `All statuses (${base.length})` }))} />
+          <Select label="Form status" value={status} onChange={setStatus} options={STATUS_FILTER.map(([value, label]) => ({ value, label: value ? `${label} (${byStatus[value] || 0})` : `All statuses (${Object.values(byStatus).reduce((t, n) => t + n, 0)})` }))} />
           <DateFilter label="Form date" from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b) }} />
           <RangeFilter label="Sell/Rent price" unit="RM" from={minPrice} to={maxPrice} format={rmShort} onChange={(lo, hi) => { setMinPrice(lo); setMaxPrice(hi) }} />
         </Toolbar>
-        <DataTable columns={columns} rows={rows} onRow={x => go(`deals/${x.id}`)} defaultSort={{ key: 'code', dir: 'desc' }} pageSize={20} narrowAt={980}
-          empty={view === 'ready' && !filters && !q ? 'No deal is ready to close' : 'No E-Forms match'} onClear={filters || q ? clear : undefined} />
+        {list.error && <Notice tone="red">{list.error}</Notice>}
+        <DataTable columns={columns} rows={list.rows} onRow={x => go(`deals/${x.id}`)} pageSize={20} narrowAt={980}
+          paged={{ total: list.total, sort, onSort: setSort, onMore: list.more, loading: list.loading }}
+          empty={list.loading ? 'Loading…' : view === 'ready' && !filters && !q ? 'No deal is ready to close' : 'No E-Forms match'} onClear={filters || q ? clear : undefined} />
       </Card>
     </Page>
   )
@@ -155,11 +150,12 @@ export function useCloseDeal(deal) {
   return async amount => {
     const party = PARTY[deal.type] || PARTY.sale
     const has = p => !!(p?.name && p?.ic && p?.phone)
+    const { cleared } = dealCash(deal, erp.m)
     const checks = [
       [`${party.owner} name, IC and phone`, has(deal.owner)],
       [`${party.buyer} name, IC and phone`, has(deal.buyer)],
       ...Object.entries(deal.docs || {}).map(([name, ok]) => [name, ok]),
-      [`Cleared cash ${rm(erp.m.cleared(deal.id))}`, erp.m.cleared(deal.id) > 0],
+      [`Cleared cash ${rm(cleared)}`, cleared > 0],
     ]
     const missing = checks.filter(c => !c[1]).length
     const ok = await fb.confirm({ title: `Request Close Case for ${deal.code}?`, confirmLabel: 'Request Close Case',
@@ -198,8 +194,9 @@ export function DealActions({ deal, quiet }) {
   const [step, setStep] = useState('form')   // request forms: 'form', then 'review' before submitting
   const closeDeal = useCloseDeal(deal)
   const gate = useGate()
-  const got = Math.min(m.cleared(deal.id), deal.money.billed)
-  const closed = sum(m.closesByDeal[deal.id] || [], c => c.claim)
+  const cash = dealCash(deal, m)
+  const got = Math.min(cash.cleared, deal.money.billed)
+  const closed = cash.closed
   const left = r2(got - closed)
   const live = ['submitted', 'partial'].includes(deal.status)
   const closable = readyToClose(deal, m, setup) > 0
@@ -207,8 +204,8 @@ export function DealActions({ deal, quiet }) {
   const notOpen = deal.status === 'draft' ? 'Not for drafts' : deal.status === 'cancelled' ? 'This case was aborted' : null
   const closeWhy = deal.status === 'closed' ? 'Closed in full already' : !live ? notOpen
     : left <= 0 ? 'No cleared money to close yet' : `Waiting for ${rm(r2(deal.money.billed - got))} more to clear`
-  const outs = m.moneyOutByDeal[deal.id] || []
-  const free = r2(m.cleared(deal.id) - sum(outs, x => x.amount))
+  const outs = cash.outs
+  const free = r2(cash.cleared - sum(outs, x => x.amount))
   const run = async (done, fn) => {
     setBusy(true); setError(null)
     try { await fn(); setDialog(null); setForm({}); fb.toast(done, { action: { label: 'View', onClick: () => go('money-out') } }) } catch (e) { setError(e.message) } finally { setBusy(false) }
@@ -220,7 +217,7 @@ export function DealActions({ deal, quiet }) {
     const ta = deal.rental?.taFee || 0
     setError(null)
     setForm({
-      balance: { amount: Math.max(0, r2(m.cleared(deal.id) - deal.money.billed - ta)) || '' },
+      balance: { amount: Math.max(0, r2(cash.cleared - deal.money.billed - ta)) || '' },
       transfer: {},
       cobroke: { amount: deal.money.coBroke || '' },
       referral: { amount: deal.money.referral || '' },
@@ -262,9 +259,9 @@ export function DealActions({ deal, quiet }) {
         gate({ label: deal.invoiceNo ? `Invoice requested (${deal.invoiceNo})` : 'Request Invoice', icon: 'file', disabled: deal.status === 'draft' || !!deal.invoiceNo, why: deal.invoiceNo ? `On ${date(deal.invoiceOn)}` : 'Not for drafts',
           onClick: () => fb.run(() => erp.requestInvoice(deal.id), `Invoice INV-${deal.code} requested`, { action: { label: 'Open', onClick: () => go(`invoices/doc/${deal.id}/tax-invoice`) } }) }, 'invoices'),
         print('Print Tax Invoice', 'tax-invoice', deal.status !== 'draft', 'Not for drafts'),
-        print('Print Tax Receipt', 'tax-receipt', m.cleared(deal.id) > 0, 'No cleared payment yet'),
+        print('Print Tax Receipt', 'tax-receipt', cash.cleared > 0, 'No cleared payment yet'),
         print('Print SST Invoice', 'sst-invoice', deal.status !== 'draft', 'Not for drafts'),
-        print('Print SST Receipt', 'sst-receipt', m.cleared(deal.id) > 0, 'No cleared payment yet'),
+        print('Print SST Receipt', 'sst-receipt', cash.cleared > 0, 'No cleared payment yet'),
       ]} />
       <Modal open={dialog === 'abort'} onClose={() => setDialog(null)} title={`Abort Case · ${deal.code}`}
         footer={<><button style={btn} onClick={() => setDialog(null)}>Cancel</button>

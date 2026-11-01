@@ -107,6 +107,10 @@ export const unlockUser = id => request(`/users/${id}/unlock`, { method: 'POST' 
 // runs the same actions on them (backend/src/db/erpState.js).
 export const getErp = () => (DEMO ? erp.getErp() : request('/erp/state'))
 export const resetErp = () => (DEMO ? erp.resetErp() : Promise.reject(new Error('The sample records can only be reset in the demo.')))
+// One page of a list (shared/lists.js) from the server: { rows, total, counts, page, size }.
+// Pages use useList (src/erp/useList.js), which runs the same list in the demo.
+export const getListPage = (list, params) =>
+  request(`/erp/${list}?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null).map(([k, v]) => [k, String(v)]))}`)
 const act = name => (...args) => (DEMO ? erp[name](...args) : request(`/erp/actions/${name}`, { method: 'POST', body: { args } }))
 export const approvePayouts = act('approvePayouts')
 export const queryPayouts = act('queryPayouts')

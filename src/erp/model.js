@@ -1,6 +1,7 @@
 // Lookups and totals over the ERP records, built once per load, plus the
 // labels for every status. Pages read from this instead of searching arrays.
 import * as P from '../../shared/payout.js'
+import { readyLeft } from '../../shared/lists.js'
 
 const r2 = n => Math.round(n * 100) / 100
 const sum = (xs, f) => r2((xs || []).reduce((s, x) => s + Number(f(x) || 0), 0))
@@ -224,14 +225,16 @@ export function buildModel(data, setup) {
 }
 
 // Records in the chosen branch (null = every branch).
+// An E-Form's cash: what cleared and what came in, what is closed, and its
+// request forms. A row from a list (useList) brings them as `$`; otherwise the model has them.
+export const dealCash = (deal, m) => deal.$ || {
+  cleared: m.cleared(deal.id), received: m.received(deal.id),
+  closed: sum(m.closesByDeal[deal.id] || [], c => c.claim), outs: m.moneyOutByDeal[deal.id] || [],
+}
+
 // Cleared cash on a deal that is not closed yet, when the deal can close now
 // (all of it has cleared, or Setup pays as money comes in); 0 otherwise.
-export function readyToClose(deal, m, setup) {
-  if (deal.status !== 'submitted' && deal.status !== 'partial') return 0
-  const got = Math.min(m.cleared(deal.id), deal.money.billed)
-  const left = r2(got - sum(m.closesByDeal[deal.id] || [], c => c.claim))
-  return left > 0 && (got >= deal.money.billed || setup.approvals?.payWhen === 'received') ? left : 0
-}
+export const readyToClose = (deal, m, setup) => readyLeft(deal, dealCash(deal, m), setup)
 
 export function inBranch(m, branchId) {
   if (branchId == null) return m.data

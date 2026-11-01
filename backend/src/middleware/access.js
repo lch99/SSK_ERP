@@ -5,22 +5,13 @@
 const db = require('../db/connection');
 const AC = require('../../../shared/access.js');
 const { parseJson } = require('../db/records');
-const { rawRows } = require('../db/list');
+const { teamIds } = require('../db/list');
 
 const POLICY_KEY = 'access';
 
 async function loadPolicy(q = db) {
   const row = await q('settings').where('key', POLICY_KEY).first();
   return AC.tidyPolicy(row ? parseJson(row.value) : null);
-}
-
-// Everyone at or under `staffId` in the upline chart (themselves included).
-async function teamIds(q, staffId) {
-  if (staffId == null) return [];
-  const rows = await q.raw(
-    'with recursive team(id) as (select id from staff where id = ? union select s.id from staff s join team t on s.upline_id = t.id) select id from team',
-    [staffId]);
-  return rawRows(rows).map(r => r.id);
 }
 
 async function viewerOf(req) {

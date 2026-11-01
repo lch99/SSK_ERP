@@ -17,7 +17,7 @@ const AC = require('../../../shared/access.js');
 const erp = require('../../../src/demo/erpApi.js');
 const projects = require('../../../src/demo/projectsApi.js');
 const { requireAuth } = require('../middleware/auth');
-const { viewerOf, needs, teamIds } = require('../middleware/access');
+const { viewerOf, needs } = require('../middleware/access');
 const { LISTS, scopeFor } = require('../db/lists');
 const { listPage, rawRows } = require('../db/list');
 const { MODELS, toRecords, KINDS, parseJson } = require('../db/records');
@@ -183,9 +183,7 @@ router.get('/:list', wrap(async (req, res, next) => {
   needs(spec.area)(req, res, async () => {
     try {
       const v = await viewerOf(req);
-      const params = { ...req.query };
-      if (req.params.list === 'staff' && idOf(params.teamOf) != null) params.teamIds = await teamIds(db, idOf(params.teamOf));
-      res.json(await listPage(db, spec, params, scopeFor(spec, v)));
+      res.json(await listPage(db, spec, { ...req.query }, scopeFor(spec, v)));
     } catch (err) { next(err); }
   });
 }));
