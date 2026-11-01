@@ -239,6 +239,26 @@ const MODELS = {
   v1Overrides: model('v1Overrides', 'v1_overrides', {
     id: 'id', year: 'year', staffId: 'staff_id', cases: 'cases', sales: 'sales:num', override: 'override:num',
   }, { more: false }),
+
+  viewings: model('viewings', 'viewings', {
+    id: 'id', code: 'code',
+    // Every listing viewed; the first is also a column, to find a listing's viewings.
+    listingIds: { read: row => parse(row.listing_ids) ?? [], write: v => ({ listing_ids: JSON.stringify(v || []), listing_id: v?.[0] ?? null }) },
+    requestedBy: 'requested_by', handlerId: 'handler_id', customerId: 'customer_id',
+    customer: group({ name: 'customer_name:text', phone: 'customer_phone:text' }),
+    date: 'date:date', time: 'time', end: 'ends', status: 'status', created: 'created_at:at', remarks: 'remarks:json[]', review: 'review:json',
+  }),
+
+  notices: model('notices', 'notices', {
+    // A staff id (0: the office), 'branch:<id>' or 'all'.
+    id: 'id', to: { read: row => (/^\d+$/.test(row.to_whom) ? Number(row.to_whom) : row.to_whom), write: v => ({ to_whom: String(v) }) },
+    at: 'at:at', cat: 'cat', text: 'text', link: 'link', readBy: 'read_by:json[]',
+  }),
+
+  downtime: model('downtime', 'downtime', {
+    id: 'id', start: 'starts_at:at', end: 'ends_at:at', message: 'message:text', closes: 'closes:bool', by: 'by_id', created: 'created_at:at',
+    cancelled: 'cancelled:bool', endedAt: 'ended_at:at',
+  }),
 };
 
 // Rows → records, with each record's children (follow-ups, marketing access) read in one query per kind.

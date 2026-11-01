@@ -1,5 +1,8 @@
 // The API as an Express app (index.js starts it; the tests run it on a spare port).
 require('dotenv').config();
+// Business days and times are Malaysia's and Singapore's (both UTC+8) wherever the
+// server runs: the ERP's actions read the clock (src/demo/erpApi.js).
+process.env.TZ ||= process.env.APP_TZ || 'Asia/Kuala_Lumpur';
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');

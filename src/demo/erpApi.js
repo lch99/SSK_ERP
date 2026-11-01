@@ -51,13 +51,24 @@ export const resetErp = () => reply(current({ rebuild: true }))
 
 // Apply a change to the stored records and send everything back.
 function change(fn) {
-  const state = current()
+  const state = given || current()
   if (!state.data) return fail(state.blockers[0])
   const err = fn(state.data, state.setup, localToday())
   if (err) return fail(err)
-  store(state.data)
+  if (!given) store(state.data)
   return reply(state)
 }
+
+// The server runs these same actions on the records it read from its tables
+// (backend/src/db/erpState.js): `run` calls one action, which changes
+// `state.data` in place instead of this browser's store.
+let given = null
+export function runOn(state, run) {
+  given = state
+  try { return run() } finally { given = null }
+}
+// The time rules (viewings expire, accounts suspend or lock…); true when something changed.
+export const clockOn = state => runClock(state.data, state.setup)
 const newId = data => Math.max(0, ...['staff', 'listings', 'customers', 'deals', 'moneyIn', 'closes', 'payouts', 'requests', 'archives', 'moneyOut',
   'vendorRequests', 'enquiries', 'titles', 'areas', 'videos', 'propertyTypes', 'viewings', 'notices', 'downtime'].flatMap(k => (data[k] || []).map(x => x.id))) + 1
 const log = (data, today, dealId, field, before, after, by = 'admin') => data.audit.unshift({ at: `${today} ${now()}`, by, dealId, field, before, after })

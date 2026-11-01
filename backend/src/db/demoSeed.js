@@ -11,7 +11,7 @@ const { localToday } = require('./days');
 
 // Parents before children, so every row a record points at is already there.
 const ORDER = ['propertyTypes', 'staff', 'titles', 'areas', 'projects', 'listings', 'enquiries', 'vendorRequests', 'deals', 'customers',
-  'moneyIn', 'archives', 'closes', 'requests', 'payouts', 'moneyOut', 'videos', 'v1Eforms', 'v1Overrides'];
+  'moneyIn', 'archives', 'closes', 'requests', 'payouts', 'moneyOut', 'videos', 'v1Eforms', 'v1Overrides', 'viewings', 'notices', 'downtime'];
 const CHILD_TABLES = ['listing_follow_ups', 'customer_follow_ups', 'staff_marketing'];
 
 async function insertAll(trx, table, rows) {
@@ -25,6 +25,8 @@ async function seedDemo({ asOf = localToday() } = {}) {
     for (const t of CHILD_TABLES) await trx(t).del();
     await trx('audit_log').where('entity', 'deal').del();
     for (const key of [...ORDER].reverse()) await trx(MODELS[key].table).del();
+    await trx('favourites').del();
+    await trx('settings').where('key', 'erp:runs').del();
     await trx('counters').del();
   });
 
@@ -45,10 +47,13 @@ async function seedDemo({ asOf = localToday() } = {}) {
       const kids = records.flatMap(r => childRows(m, r, { strict: true }));
       for (const t of new Set(kids.map(k => k.table))) await insertAll(trx, t, kids.filter(k => k.table === t).map(k => k.row));
     }
-    // The E-Form update tracker lives in the audit log.
-    await insertAll(trx, 'audit_log', data.audit.map(a => ({
+    // The E-Form update tracker lives in the audit log, oldest first (it reads back newest first).
+    await insertAll(trx, 'audit_log', [...data.audit].reverse().map(a => ({
       created_at: a.at, username: a.by, action: 'update', entity: 'deal', entity_id: String(a.dealId),
       detail: JSON.stringify({ field: a.field, before: a.before, after: a.after }),
+    })));
+    await insertAll(trx, 'favourites', Object.entries(data.favourites || {}).map(([viewer, f]) => ({
+      viewer_id: Number(viewer), listings: JSON.stringify(f.listings || []), titles: JSON.stringify(f.titles || []),
     })));
   });
   return { setup, data };

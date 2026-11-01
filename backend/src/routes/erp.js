@@ -7,14 +7,20 @@
 //   GET /deals/:id/history        the E-Form update tracker for one E-Form
 //   GET /:list?q=&sort=&page=&size=&<filters>   { rows, total, counts, page, size }
 //   GET /:list/:id                one record
+// Stage one (db/erpState.js), until the pages move to the lists above:
+//   GET /state                    every record, as the demo store gives them (after the time rules)
+//   POST /actions/:name {args}    one of the demo's actions (shared/access.js ACTIONS), saved; then /state
 const express = require('express');
 const db = require('../db/connection');
+const AC = require('../../../shared/access.js');
+const erp = require('../../../src/demo/erpApi.js');
 const { requireAuth } = require('../middleware/auth');
 const { viewerOf, needs, teamIds } = require('../middleware/access');
 const { LISTS, scopeFor } = require('../db/lists');
 const { listPage, rawRows } = require('../db/list');
 const { MODELS, toRecords, KINDS, parseJson } = require('../db/records');
 const { loadSetup } = require('../db/setupStore');
+const { loadState, saveChanges } = require('../db/erpState');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -23,6 +29,49 @@ const wrap = fn => (req, res, next) => fn(req, res).catch(next);
 const notFound = res => res.status(404).json({ error: 'Not found, or not yours to see.' });
 const idOf = v => (/^\d+$/.test(String(v)) ? Number(v) : null);
 const placeholders = ids => ids.map(() => '?').join(', ');
+
+// ── Stage one: every record, and the demo's own actions ─────────────────────
+// One change at a time, so two saves never hand out the same new id or code.
+let queue = Promise.resolve();
+const oneAtATime = fn => { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; };
+// Reads every record in one transaction, lets `change` alter them (false: nothing
+// to save) and saves the difference.
+const changeState = change => oneAtATime(() => db.transaction(async trx => {
+  const state = await loadState(trx);
+  const before = structuredClone(state.data);
+  if ((await change(state)) !== false && state.data) await saveChanges(trx, before, state.data);
+  return state;
+}));
+
+router.get('/state', wrap(async (req, res) => {
+  res.json(await changeState(state => (state.data ? erp.clockOn(state) : false)));
+}));
+
+// Actions that name who is doing them: someone signed in as a staff record always acts as themselves.
+const ACTOR_ARG = { claimPay: 0, stackPay: 0, readNotices: 1, toggleFavourite: 2, confirmViewing: 1, cancelViewing: 2, addViewingRemark: 2, revealOwner: 1 };
+
+router.post('/actions/:name', wrap(async (req, res) => {
+  const { name } = req.params;
+  if (!Object.hasOwn(AC.ACTIONS, name) || typeof erp[name] !== 'function') return notFound(res);
+  const v = await viewerOf(req);
+  const why = AC.refusal(v.policy, v.role, name);
+  if (why) return res.status(403).json({ error: why, errors: [why] });
+  const args = Array.isArray(req.body?.args) ? [...req.body.args] : [];
+  if (Object.hasOwn(ACTOR_ARG, name) && v.staffId != null) args[ACTOR_ARG[name]] = v.staffId;
+  let refused = null;
+  await changeState(async state => {
+    try {
+      await erp.runOn(state, () => erp[name](...args));
+    } catch (err) {
+      if (err.status !== 400) throw err;
+      refused = err;
+      return false;
+    }
+  });
+  if (refused) return res.status(400).json({ error: refused.message, errors: refused.errors || [refused.message] });
+  // Read back from the tables, so the page shows what was saved.
+  res.json(await loadState(db));
+}));
 
 router.get('/meta', wrap(async (req, res) => {
   const v = await viewerOf(req);
