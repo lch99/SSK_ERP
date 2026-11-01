@@ -50,6 +50,7 @@ const SERVER = {
   },
   moneyIn: { table: 'money_in', scope: { branch: viaDeal, team: viaDeal } },
   closes: { table: 'closes', scope: { branch: viaDeal, team: viaDeal } },
+  sst: { table: 'closes', scope: { branch: viaDeal, team: viaDeal } },
   payouts: { table: 'payout_lines', scope: { branch: viaDeal, team: (b, v) => b.whereIn('staff_id', v.team) } },
   requests: { table: 'pay_requests', scope: byStaff },
   archives: { table: 'archives' },
@@ -68,12 +69,17 @@ const SERVER = {
 // ── From a shared description to SQL ────────────────────────────────────────
 const { many, valueOf, truthy, personId } = SHARED;
 
+// A record field as stored: { col, kind } (null when it has no column of its own).
+function fieldOf(m, path) {
+  const [head, sub] = path.split('.');
+  const f = m.fields.find(x => x.key === head);
+  const g = sub ? f?.group?.find(x => x.key === sub) : f;
+  return g?.col ? g : null;
+}
 // A record field's column, e.g. 'buyer.name' → 'deals.buyer_name'.
 function columnOf(m, path, overrides = {}, table = m.table) {
   if (overrides[path]) return `${table}.${overrides[path]}`;
-  const [head, sub] = path.split('.');
-  const f = m.fields.find(x => x.key === head);
-  const col = sub ? f?.group?.find(g => g.key === sub)?.col : f?.col;
+  const col = fieldOf(m, path)?.col;
   if (!col) throw new Error(`${m.name}: no column for "${path}"`);
   return `${table}.${col}`;
 }
@@ -115,12 +121,28 @@ function filterOf(rule, col, server) {
     };
   }
   if (rule.custom) return server.custom[rule.custom];
+  if (rule.is) return { apply: (b, v) => b.whereRaw('lower(trim(??)) = ?', [col(rule.is), String(v).trim().toLowerCase()]) };
+  if (rule.via) {
+    // The rule on the record this one points at, as a subquery on its table.
+    const m = MODELS[rule.of];
+    const inner = filterOf(rule.rule, path => columnOf(m, path), server);
+    return {
+      prepare: inner.prepare,
+      apply: (b, v, p) => b.whereIn(col(rule.via), sub => { sub.select(`${m.table}.id`).from(m.table); inner.apply(sub, v, p); }),
+    };
+  }
   throw new Error(`Unknown filter rule ${JSON.stringify(rule)}`);
 }
 
 function extraOf(key, e) {
   const m = MODELS[e.of];
   const col = f => columnOf(m, f);
+  if (e.from && e.pick) {
+    // Only the picked columns, read as the record would read them.
+    const picks = e.pick.map(path => ({ path, ...fieldOf(m, path) }));
+    if (picks.some(p => !p.col)) throw new Error(`${m.name}: no column for a field in ${JSON.stringify(e.pick)}`);
+    return { key, from: e.from, table: m.table, picks };
+  }
   if (e.from) return { key, from: e.from, table: m.table, fieldCol: col(e.field) };
   return {
     key, table: m.table, model: m, by: e.by, byCol: col(e.by), sumCol: e.sum ? col(e.sum) : null, pick: e.pick,
@@ -130,11 +152,14 @@ function extraOf(key, e) {
 }
 
 function serverSpec(key) {
-  const shared = SHARED.LISTS[key], server = SERVER[key], model = MODELS[key];
+  const shared = SHARED.LISTS[key], server = SERVER[key], model = MODELS[shared.of || key];
   const col = path => columnOf(model, path, server.columns, server.table);
+  // A word in the record this one points at: its id among those whose columns match.
+  const searchOf = f => (typeof f === 'string' ? col(f)
+    : { via: col(f.via), table: MODELS[f.of].table, cols: f.fields.map(g => columnOf(MODELS[f.of], g)) });
   return {
-    area: shared.area, table: server.table, model, scope: server.scope,
-    search: (shared.search || []).map(col),
+    key, area: shared.area, readers: shared.readers || {}, table: server.table, model, scope: server.scope, download: shared.download,
+    search: (shared.search || []).map(searchOf),
     filters: Object.fromEntries(Object.entries(shared.filters || {}).map(([k, rule]) => [k, filterOf(rule, col, server)])),
     sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, col(f)])),
     sort: shared.sort,

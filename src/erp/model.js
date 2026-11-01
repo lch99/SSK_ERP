@@ -2,6 +2,8 @@
 // labels for every status. Pages read from this instead of searching arrays.
 import * as P from '../../shared/payout.js'
 import { readyLeft } from '../../shared/lists.js'
+// Payment labels: the server writes them in Excel downloads too.
+export { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS } from '../../shared/labels.js'
 
 const r2 = n => Math.round(n * 100) / 100
 const sum = (xs, f) => r2((xs || []).reduce((s, x) => s + Number(f(x) || 0), 0))
@@ -15,13 +17,6 @@ export const DEAL_STATUS = {
   partial: { label: 'Closed Partial', tone: 'violet', help: 'Part of the money is in and closed (paid out); the rest is still to come.' },
   closed: { label: 'Closed Full', tone: 'green', help: 'All the money is in and closed. The payouts are made.' },
   cancelled: { label: 'Abort/Cancel', tone: 'red', help: 'The deal fell through. Money received is refunded through Payments out.' },
-}
-export const MONEY_IN_STATUS = {
-  draft: { label: 'Draft', tone: 'gray', help: 'Recorded, not checked yet.' },
-  pending: { label: 'Pending', tone: 'amber', help: 'Waiting for accounts to check it against the bank statement.' },
-  cleared: { label: 'Clear', tone: 'green', help: 'Checked against the bank. Counts as cleared cash for closing the case.' },
-  returned: { label: 'Return', tone: 'red', help: 'The bank returned it (e.g. a bounced cheque). It does not count.' },
-  invalid: { label: 'Invalid', tone: 'red', help: 'Rejected (e.g. wrong amount or reference). It does not count.' },
 }
 // Close-case lines: New → Pending Queries → Ready (approved; paid lines stay Ready).
 export const PAYOUT_STATUS = {
@@ -102,9 +97,6 @@ export const AREA_STATUS = {
   1: { label: 'Disabled', tone: 'gray', help: 'Switched off: not offered for new listings.' },
   2: { label: 'Pending', tone: 'amber', help: 'Requested by an agent. Waiting for an admin.' },
 }
-export const PURPOSES = { deposit: 'Cash Deposit', commission: 'Balance Commission', rental: 'Balance Rent', other: 'Others' }
-export const METHODS = { online: 'Online Transfer', cheque: 'Cheque', cash: 'Cash' }
-export const CASH_METHODS = { cashtocompany: 'Cash to Company', cashbankin: 'Cash Bank In' }
 export const PARTY = {
   sale: { buyer: 'Purchaser', owner: 'Vendor' },
   rental: { buyer: 'Tenant', owner: 'Landlord' },

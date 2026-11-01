@@ -36,12 +36,13 @@ async function viewerOf(req) {
 
 const refuse = (res, error) => res.status(403).json({ error, errors: [error] });
 
-// Needs `level` in `area` (e.g. view on deals) to go on.
+// Needs `level` in `area` (e.g. view on deals) to go on; with several areas, in any of them.
 const needs = (area, level = 'view') => async (req, res, next) => {
   try {
     const v = await viewerOf(req);
-    if (AC.allows(v.policy, v.role, area, level)) return next();
-    refuse(res, `${AC.roleOf(v.role)?.label || v.role} has no ${AC.LEVEL_LABEL[level].toLowerCase()} access to ${AC.AREAS.find(a => a.key === area)?.label || area}.`);
+    const areas = [].concat(area);
+    if (areas.some(a => AC.allows(v.policy, v.role, a, level))) return next();
+    refuse(res, `${AC.roleOf(v.role)?.label || v.role} has no ${AC.LEVEL_LABEL[level].toLowerCase()} access to ${AC.AREAS.find(a => a.key === areas[0])?.label || areas[0]}.`);
   } catch (err) { next(err); }
 };
 

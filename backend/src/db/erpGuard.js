@@ -6,7 +6,8 @@
 //   changedIds(before, after)      — which records an action changed, for the audit log
 const AC = require('../../../shared/access.js');
 const L = require('../../../shared/listings.js');
-const { AGENT_TYPES } = require('../../../shared/lists.js');
+const SL = require('../../../shared/lists.js');
+const { AGENT_TYPES } = SL;
 
 // Kinds of record limited by reach (visibleData), and the access area each belongs to.
 const AREA_OF = {
@@ -66,8 +67,7 @@ function forViewer(data, v) {
   for (const kind of DROPPED_WITHOUT_ACCESS) if (!sees(v, AREA_OF[kind])) out[kind] = [];
   if (!sees(v, 'deals')) {
     // The E-Forms stay (pages link to them) without the parties' details.
-    const blank = { name: '', ic: '', phone: '', address: '', email: '' };
-    out.deals = out.deals.map(d => ({ ...d, buyer: blank, owner: blank, otherBuyers: [], otherOwners: [], referral: null, coBroke: d.coBroke && { agency: d.coBroke.agency } }));
+    out.deals = out.deals.map(SL.withoutParties);
     if (out.v1) out.v1 = { eforms: [], overrides: [] };
   }
   return out;

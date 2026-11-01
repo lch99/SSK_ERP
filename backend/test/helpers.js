@@ -33,7 +33,8 @@ async function migrate() {
   return db.migrate.latest();
 }
 
-// The API on a spare port. call('GET', '/erp/deals?size=5') → { status, body }.
+// The API on a spare port. call('GET', '/erp/deals?size=5') → { status, body };
+// raw(method, path) → the fetch Response itself (a file download).
 async function startApi() {
   const app = require('../src/app');
   const server = app.listen(0, '127.0.0.1');
@@ -43,7 +44,8 @@ async function startApi() {
     const res = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: res.status, body: await res.json().catch(() => null) };
   };
-  return { base, call, close: () => new Promise(r => server.close(r)) };
+  const raw = (method, path) => fetch(base + path, { method });
+  return { base, call, raw, close: () => new Promise(r => server.close(r)) };
 }
 
 // `want` with every key of `have` that `want` has (records may carry more fields than the demo's).

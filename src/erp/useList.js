@@ -1,8 +1,25 @@
-import { useEffect, useState } from 'react'
-import { DEMO, getListPage } from '../api.js'
-import { LISTS, MAX_SIZE, listPage, recordsOf } from '../../shared/lists.js'
+import { useCallback, useEffect, useState } from 'react'
+import { DEMO, getListPage, getListRecord, downloadListFile } from '../api.js'
+import { LISTS, MAX_SIZE, listPage, listAll, recordsOf, downloadRows } from '../../shared/lists.js'
+import { makeXlsx, XLSX_TYPE } from '../../shared/xlsx.js'
+import { download } from '../setup/sheet.js'
 import { useErp } from './ErpContext.jsx'
 import { useAccess } from './access.jsx'
+
+// What every read of a list adds to the page's own params, and where the demo
+// finds the records. `branch: false` leaves the top bar's branch out (a check
+// across everything the viewer may see, such as the same slip recorded twice).
+function source(erp, access, key, { branch = true } = {}) {
+  const spec = LISTS[key]
+  const all = (access?.scope || 'all') === 'all'
+  // The top bar's branch, for someone who sees every branch (the demo's records are limited to it already).
+  const extra = { ...(!DEMO && branch && all && erp.branchId != null && spec.filters?.branchId ? { branchId: erp.branchId } : {}) }
+  // "View the ERP as": the server limits the list to that role and person (the demo's records are limited already).
+  if (!DEMO && access?.viewing) Object.assign(extra, { as: access.who.role, asStaff: access.who.staffId ?? '' })
+  const records = () => recordsOf(branch || !all ? erp.scoped : erp.m.data, key)
+  const ctx = { data: erp.m?.data, today: erp.m?.today, setup: erp.setup }
+  return { spec, extra, records, ctx }
+}
 
 // One list a page at a time, as shared/lists.js describes it: from the server
 // (/api/erp/<list>), or in the demo from the records in this browser, run the
@@ -10,25 +27,21 @@ import { useAccess } from './access.jsx'
 // the next page (without its counts: the first page has them). Rows carry their
 // extras as `$` (an E-Form's cleared cash…). After a change to the records (an
 // action) it reads again, as many rows as were shown; also when the top bar's
-// branch, or the person the Superadmin views the ERP as, changes.
-export function useList(key, params, { pageSize = 20 } = {}) {
+// branch, or the person the Superadmin views the ERP as, changes. `branch:
+// false` leaves the top bar's branch out (one E-Form's payments). `searching`:
+// what was typed hasn't been asked yet (the server waits until typing stops).
+export function useList(key, params, { pageSize = 20, branch = true } = {}) {
   const erp = useErp()
   const access = useAccess()
-  const spec = LISTS[key]
-  // The top bar's branch, for someone who sees every branch (the demo's records are limited to it already).
-  const branch = !DEMO && (access?.scope || 'all') === 'all' && erp.branchId != null && spec.filters?.branchId ? { branchId: erp.branchId } : {}
-  // "View the ERP as": the server limits the list to that role and person (the demo's records are limited already).
-  const viewAs = !DEMO && access?.viewing ? { as: access.who.role, asStaff: access.who.staffId ?? '' } : {}
+  const { spec, extra, records, ctx } = source(erp, access, key, { branch })
   const typed = useDebounced(params.q || '', DEMO ? 0 : 250)
-  const wanted = { ...params, q: typed, ...branch, ...viewAs }
+  const wanted = { ...params, q: typed, ...extra }
   const sig = JSON.stringify(wanted)
   const [out, setOut] = useState({ sig: null, rows: [], total: 0, counts: {}, loading: true, error: null })
 
   const load = (page, size, counts = true) => {
     const p = { ...wanted, page, size, ...(counts ? {} : { counts: '0' }) }
-    return DEMO
-      ? Promise.resolve(listPage(recordsOf(erp.scoped, key), spec, p, { data: erp.m.data, today: erp.m.today, setup: erp.setup }))
-      : getListPage(key, p)
+    return DEMO ? Promise.resolve(listPage(records(), spec, p, ctx)) : getListPage(key, p)
   }
 
   useEffect(() => {
@@ -51,7 +64,58 @@ export function useList(key, params, { pageSize = 20 } = {}) {
       e => setOut(o => ({ ...o, loading: false, error: e.message })))
   }
 
-  return { rows: out.rows, total: out.total, counts: out.counts, loading: out.loading, error: out.error, more }
+  return { rows: out.rows, total: out.total, counts: out.counts, loading: out.loading, error: out.error, more, searching: typed !== (params.q || '') }
+}
+
+// One record of a list with the list's extras (GET /api/erp/<list>/<id>):
+// { record, loading }; record is null while it loads or when the viewer may not
+// see it. Read again after a change to the records. The top bar's branch
+// doesn't hide a record opened by its address.
+export function useRecord(key, id) {
+  const erp = useErp()
+  const access = useAccess()
+  const { spec, extra, records, ctx } = source(erp, access, key, { branch: false })
+  const [out, setOut] = useState({ id: null, record: null, loading: false })
+  useEffect(() => {
+    if (!erp.m || id == null) return undefined
+    let live = true
+    setOut(o => ({ ...o, loading: true }))
+    const read = DEMO
+      ? Promise.resolve((rec => (rec ? listPage([rec], spec, { counts: '0' }, ctx).rows[0] : null))(records().find(r => r.id === id)))
+      : getListRecord(key, id, extra).catch(e => (e.status === 404 ? null : Promise.reject(e)))
+    read.then(record => { if (live) setOut({ id, record, loading: false }) }, () => { if (live) setOut({ id, record: null, loading: false }) })
+    return () => { live = false }
+  }, [key, id, erp.m, erp.scoped]) // eslint-disable-line react-hooks/exhaustive-deps
+  return id == null ? { record: null, loading: false } : { record: out.id === id ? out.record : null, loading: out.id !== id || out.loading }
+}
+
+// A list read once, when it's needed (a check before saving, a picker's
+// search): read(key, params, { branch }) → { rows, total, counts }.
+export function useListReader() {
+  const erp = useErp()
+  const access = useAccess()
+  return useCallback((key, params, opts) => {
+    const { spec, extra, records, ctx } = source(erp, access, key, opts)
+    const p = { ...params, ...extra }
+    return DEMO ? Promise.resolve(listPage(records(), spec, p, ctx)) : getListPage(key, p)
+  }, [erp, access])
+}
+
+// Download every row of a list that matches `params` as Excel: built by the
+// server from the same filters, or in the demo from the records here.
+export function useListDownload(key) {
+  const erp = useErp()
+  const access = useAccess()
+  return useCallback(async params => {
+    const { spec, extra, records, ctx } = source(erp, access, key)
+    if (!DEMO) {
+      const { bytes, filename } = await downloadListFile(key, { ...params, ...extra })
+      return download(bytes, filename, XLSX_TYPE)
+    }
+    const d = spec.download
+    const { rows } = listAll(records(), spec, params, ctx)
+    download(makeXlsx([{ name: d.sheet, rows: downloadRows(spec, rows), widths: d.widths }]), `${d.file}-${erp.m.today}.xlsx`, XLSX_TYPE)
+  }, [erp, access, key])
 }
 
 // `value`, once it has stopped changing for `ms` (typing in a search box).

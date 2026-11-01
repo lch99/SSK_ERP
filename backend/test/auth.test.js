@@ -184,3 +184,28 @@ test('a staff member\'s account carries their account type and branch, so the pa
   assert.equal(me.branchId, salesAgent.branchId);
   assert.equal(AC.roleForUser(me), AC.roleForType(salesAgent.type));
 });
+
+test('a role with payments but no E-Form access reads E-Forms to record payments on, without the parties', async () => {
+  const boss = await signInAs('boss2', null, 'superadmin');
+  const policy = AC.defaultPolicy();
+  policy['sale-marketing'].levels.moneyIn = 'edit';
+  assert.equal(policy['sale-marketing'].levels.deals, 'none');
+  assert.equal((await boss('PUT', '/access', { policy })).status, 200);
+  const mk = data.staff.find(s => s.type === 'sale-marketing');
+  const call = as((await api.call('POST', '/auth/login', { username: 'marketing1', password: PASSWORD })).body.token);
+  const list = await call('GET', '/erp/deals?size=200');
+  assert.equal(list.status, 200);
+  assert.equal(list.body.total, data.deals.filter(d => d.branchId === mk.branchId).length);
+  assert.ok(list.body.rows.length > 0);
+  for (const d of list.body.rows) {
+    assert.equal(d.buyer.name, '');
+    assert.equal(d.owner.ic, '');
+    assert.ok(d.$ && typeof d.$.cleared === 'number', 'the cash still comes with it');
+  }
+  const one = await call('GET', `/erp/deals/${list.body.rows[0].id}`);
+  assert.equal(one.status, 200);
+  assert.equal(one.body.owner.phone, '');
+  // The E-Form's own history stays with E-Form access.
+  assert.equal((await call('GET', `/erp/deals/${list.body.rows[0].id}/history`)).status, 403);
+  assert.equal((await boss('PUT', '/access', { policy: AC.defaultPolicy() })).status, 200);
+});

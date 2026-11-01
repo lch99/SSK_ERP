@@ -6,7 +6,7 @@
 //
 // spec: {
 //   table, model,                      — the table and its records.js model
-//   search: [columns],                 — every word typed must match one of them
+//   search: [column | { via, table, cols }],   — every word typed must match one of them (or of the record it points at)
 //   filters: { key: { apply(query, value, prepared), prepare?(q, value) } },
 //   sorts: { key: column }, sort: '-date',        — '-' = newest / biggest first
 //   counts: { key: { col } | { set } | { only, sum } },   (see shared/lists.js)
@@ -47,15 +47,21 @@ function parseSort(param, spec) {
   return out;
 }
 
-// The page's rows' extras: Map(id → { key: value }).
+// The page's rows' extras: Map(id → { key: value }). A `from` starting with '$.'
+// reads an extra worked out before it (defs keep their order).
 async function extrasFor(q, defs, records) {
   const out = new Map(records.map(r => [r.id, {}]));
   const ids = records.map(r => r.id);
   for (const e of defs) {
     if (e.from) {
-      const want = [...new Set(records.map(r => get(r, e.from)).filter(x => x != null))];
-      const found = new Map(want.length ? (await q(e.table).whereIn('id', want).select('id', { v: e.fieldCol })).map(x => [x.id, x.v]) : []);
-      for (const r of records) out.get(r.id)[e.key] = found.get(get(r, e.from)) ?? null;
+      const at = r => get({ ...r, $: out.get(r.id) }, e.from);
+      const want = [...new Set(records.map(at).filter(x => x != null))];
+      let found;
+      if (e.picks) {
+        const linked = want.length ? await q(e.table).whereIn('id', want).select('id', ...e.picks.map(p => p.col)) : [];
+        found = new Map(linked.map(x => [x.id, Object.fromEntries(e.picks.map(p => [p.path, p.kind.read(x[p.col]) ?? null]))]));
+      } else found = new Map(want.length ? (await q(e.table).whereIn('id', want).select('id', { v: e.fieldCol })).map(x => [x.id, x.v]) : []);
+      for (const r of records) out.get(r.id)[e.key] = found.get(at(r)) ?? null;
       continue;
     }
     const linked = b => {
@@ -77,27 +83,40 @@ async function extrasFor(q, defs, records) {
   return out;
 }
 
-// ctx: { today } (what dated counts are worked out from; today by default).
-async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
-  const ctx = { today: localToday(), ...given };
+// The search, filters and reach of one request, as a where clause: where(query,
+// filters to leave out, filters to set instead) (the counts use the last two).
+async function whereOf(q, spec, params, scope) {
   const words = String(params.q || '').trim().split(/\s+/).filter(Boolean).slice(0, 6);
   const active = Object.entries(spec.filters || {}).filter(([k]) => params[k] !== undefined && params[k] !== '');
   // Teams, Setup and the like are worked out once, before the query.
   const prepared = {};
   const prepare = async (k, v) => (spec.filters[k].prepare ? spec.filters[k].prepare(q, v) : null);
   for (const [k] of active) prepared[k] = await prepare(k, params[k]);
+  const like = (x, c, w) => x.orWhereRaw("?? like ? escape '!'", [c, w]);
 
   const where = (b, except = [], set = null) => {
     scope(b);
     for (const w of words) {
-      const like = `%${escapeLike(w)}%`;
-      b.where(x => { for (const c of spec.search || []) x.orWhereRaw("?? like ? escape '!'", [c, like]); });
+      const pattern = `%${escapeLike(w)}%`;
+      b.where(x => {
+        for (const c of spec.search || []) {
+          if (typeof c === 'string') like(x, c, pattern);
+          else x.orWhereIn(c.via, sub => sub.select(`${c.table}.id`).from(c.table).where(y => { for (const col of c.cols) like(y, col, pattern); }));
+        }
+      });
     }
     for (const [k, f] of active) if (!except.includes(k) && !(set && k in set)) f.apply(b, params[k], prepared[k]);
     for (const [k, [v, p]] of Object.entries(set || {})) spec.filters[k].apply(b, v, p);
     return b;
   };
   const prepareSet = async set => Object.fromEntries(await Promise.all(Object.entries(set).map(async ([k, v]) => [k, [v, await prepare(k, v)]])));
+  return { where, active, prepareSet };
+}
+
+// ctx: { today } (what dated counts are worked out from; today by default).
+async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
+  const ctx = { today: localToday(), ...given };
+  const { where, active, prepareSet } = await whereOf(q, spec, params, scope);
 
   const size = Math.min(MAX_SIZE, Math.max(1, Number.parseInt(params.size, 10) || DEFAULT_SIZE));
   const page = Math.max(1, Number.parseInt(params.page, 10) || 1);
@@ -132,4 +151,26 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
   return { rows: records, total: Number(n), counts, page, size };
 }
 
-module.exports = { listPage, rawRows, escapeLike, teamIds };
+// Every matching record, sorted, with its extras (an Excel download), read in
+// chunks. Refused above `max` rows: the person narrows the filters instead.
+const CHUNK = 1000;
+async function listAll(q, spec, params = {}, scope = () => {}, { max = 50000 } = {}) {
+  const { where } = await whereOf(q, spec, params, scope);
+  const { n } = await where(q(spec.table)).count({ n: '*' }).first();
+  if (Number(n) > max) {
+    throw Object.assign(new Error(`That is ${Number(n).toLocaleString('en-MY')} rows. Narrow the search or filters to ${max.toLocaleString('en-MY')} or fewer and download again.`), { status: 400 });
+  }
+  const order = parseSort(params.sort, spec);
+  const out = [];
+  for (let at = 0; at < Number(n); at += CHUNK) {
+    const records = await toRecords(q, spec.model, await where(q(spec.table)).select(`${spec.table}.*`).orderBy(order).limit(CHUNK).offset(at));
+    if (spec.extras) {
+      const ex = await extrasFor(q, spec.extras, records);
+      for (const r of records) r.$ = ex.get(r.id);
+    }
+    out.push(...records);
+  }
+  return { rows: out, total: Number(n) };
+}
+
+module.exports = { listPage, listAll, extrasFor, rawRows, escapeLike, teamIds };

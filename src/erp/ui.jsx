@@ -506,8 +506,10 @@ const splitCount = s => { const m = /^(.*?)\s*\((\d[\d,]*)\)$/.exec(String(s)); 
 // `plain` (in forms) turns the filter colouring off.
 // `prefix={false}` drops the "Label: " in front of a set filter where space is tight.
 // Long lists (thousands of staff) draw the first SHOW_FIRST options; typing narrows them.
+// `onSearch` (a list on the server, e.g. E-Forms): what is typed goes to the
+// parent, which passes back the matching options; `more` = matches not listed.
 const SHOW_FIRST = 150
-export function Select({ value, onChange, options, label, small: compact = false, block = false, plain = false, prefix = true }) {
+export function Select({ value, onChange, options, label, small: compact = false, block = false, plain = false, prefix = true, onSearch, more = 0, loading = false }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [at, setAt] = useState(0)
@@ -517,13 +519,16 @@ export function Select({ value, onChange, options, label, small: compact = false
   const v = String(value ?? '')
   const current = options.find(o => String(o.value) === v) || options[0]
   const active = !plain && options[0]?.value === '' && v !== ''
-  const searchable = options.length > 8
+  const searchable = !!onSearch || options.length > 8
   const shown = useMemo(() => {
     const w = q.trim().toLowerCase()
+    // Searching the server: its matches, without the empty choice.
+    if (onSearch) return w ? options.filter(o => o.value !== '') : options
     return w ? options.filter(o => String(o.label).toLowerCase().includes(w)) : options
-  }, [q, options])
+  }, [q, options, onSearch])
+  const typeQ = text => { setQ(text); setAt(0); onSearch?.(text) }
 
-  const show = () => { setQ(''); setAt(Math.max(0, options.findIndex(o => String(o.value) === v))); setOpen(true) }
+  const show = () => { typeQ(''); setAt(Math.max(0, options.findIndex(o => String(o.value) === v))); setOpen(true) }
   const hide = (focus = true) => { setOpen(false); if (focus) trigger.current?.focus({ preventScroll: true }) }
   // The change event lets a surrounding FormField drop its "Required" mark.
   const pick = o => { if (String(o.value) !== v) { onChange(String(o.value)); trigger.current?.dispatchEvent(new Event('change', { bubbles: true })) } hide() }
@@ -536,7 +541,8 @@ export function Select({ value, onChange, options, label, small: compact = false
     else if (e.key === 'ArrowUp') { e.preventDefault(); setAt(i => Math.max(0, i - 1)) }
     else if (e.key === 'Home' && !searchable) { e.preventDefault(); setAt(0) }
     else if (e.key === 'End' && !searchable) { e.preventDefault(); setAt(shown.length - 1) }
-    else if (e.key === 'Enter') { e.preventDefault(); if (shown[at]) pick(shown[at]) }
+    // While the server is still looking, Enter would pick from the last search's results.
+    else if (e.key === 'Enter') { e.preventDefault(); if (shown[at] && !(onSearch && loading)) pick(shown[at]) }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hide() }
     else if (e.key === 'Tab') { e.preventDefault(); hide() }
     else if (!searchable && e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
@@ -547,6 +553,8 @@ export function Select({ value, onChange, options, label, small: compact = false
     }
   }
   const [curLabel, curCount] = splitCount(current?.label ?? '')
+  // Options not drawn: past the first SHOW_FIRST, and (searching the server) matches not sent.
+  const hidden = shown.length - Math.min(shown.length, Math.max(SHOW_FIRST, at + 1)) + more
   return (
     <span onClick={e => e.stopPropagation()} style={{ display: block ? 'grid' : 'inline-grid', maxWidth: '100%', minWidth: 0 }}>
       <button ref={trigger} type="button" aria-haspopup="listbox" aria-expanded={open} aria-label={label ? `${label}: ${current?.label ?? ''}` : undefined}
@@ -568,14 +576,14 @@ export function Select({ value, onChange, options, label, small: compact = false
           {searchable && (
             <div style={{ position: 'relative', padding: '2px 2px 6px', flexShrink: 0 }}>
               <span style={{ position: 'absolute', left: 11, top: 11, color: C.muted, display: 'inline-flex' }}><Icon name="search" size={15} /></span>
-              <input ref={search} value={q} onChange={e => { setQ(e.target.value); setAt(0) }} placeholder={`Search ${options.length - (options[0]?.value === '' ? 1 : 0)}…`}
+              <input ref={search} value={q} onChange={e => typeQ(e.target.value)} placeholder={onSearch ? 'Search…' : `Search ${options.length - (options[0]?.value === '' ? 1 : 0)}…`}
                 aria-label={`Search ${label || 'options'}`} aria-controls="ssk-listbox" aria-activedescendant={shown[at] ? `ssk-opt-${at}` : undefined}
                 style={{ ...inp, width: '100%', padding: '7px 10px 7px 32px', fontSize: 13.5, boxShadow: 'none', background: '#f9fafb' }} />
             </div>
           )}
           <div ref={list} id="ssk-listbox" role="listbox" tabIndex={-1} aria-label={label} aria-activedescendant={!searchable && shown[at] ? `ssk-opt-${at}` : undefined}
             style={{ overflowY: 'auto', outline: 'none', flex: '1 1 auto', minHeight: 0 }}>
-            {!shown.length && <div style={{ padding: '14px 10px', color: C.muted, fontSize: 13, textAlign: 'center' }}>Nothing matches “{q}”</div>}
+            {!shown.length && <div style={{ padding: '14px 10px', color: C.muted, fontSize: 13, textAlign: 'center' }}>{loading ? 'Searching…' : `Nothing matches “${q}”`}</div>}
             {shown.slice(0, Math.max(SHOW_FIRST, at + 1)).map((o, i) => {
               const sel = String(o.value) === v, on = i === at
               const [text, count] = splitCount(o.label)
@@ -592,8 +600,8 @@ export function Select({ value, onChange, options, label, small: compact = false
                 </div>
               )
             })}
-            {shown.length > Math.max(SHOW_FIRST, at + 1) && (
-              <div style={{ padding: '8px 10px 6px', fontSize: 12, color: C.muted }}>{(shown.length - Math.max(SHOW_FIRST, at + 1)).toLocaleString('en-MY')} more. Type to narrow the list.</div>
+            {hidden > 0 && (
+              <div style={{ padding: '8px 10px 6px', fontSize: 12, color: C.muted }}>{hidden.toLocaleString('en-MY')} more. Type to narrow the list.</div>
             )}
           </div>
         </div>, document.body)}

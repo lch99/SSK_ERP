@@ -6,7 +6,8 @@
 //   GET /org/trail/:id            the uplines above someone, top first
 //   GET /deals/:id/history        the E-Form update tracker for one E-Form
 //   GET /:list?q=&sort=&page=&size=&<filters>   { rows, total, counts, page, size }
-//   GET /:list/:id                one record
+//   GET /:list/download?q=&sort=&<filters>      every matching row as an Excel file (lists with a `download`)
+//   GET /:list/:id                one record, with the list's extras
 // Stage one (db/erpState.js, db/erpGuard.js), until the pages move to the lists above:
 //   GET /state                    the records this person may see, as the demo store gives them (after the time rules)
 //   POST /actions/:name {args}    one action (shared/erpActions.js; its rule in shared/access.js ACTIONS),
@@ -20,7 +21,7 @@ const J = require('../../../shared/projects.js');
 const { requireAuth } = require('../middleware/auth');
 const { viewerOf, needs } = require('../middleware/access');
 const { LISTS, scopeFor } = require('../db/lists');
-const { listPage, rawRows } = require('../db/list');
+const { listPage, listAll, extrasFor, rawRows } = require('../db/list');
 const { MODELS, toRecords, KINDS, parseJson } = require('../db/records');
 const { loadSetup } = require('../db/setupStore');
 const { loadState, saveChanges } = require('../db/erpState');
@@ -28,6 +29,12 @@ const G = require('../db/erpGuard');
 const { audit } = require('../db/audit');
 const { isInUse } = require('../db/errors');
 const { localToday } = require('../db/days');
+const zlib = require('node:zlib');
+const { promisify } = require('node:util');
+const { downloadRows } = require('../../../shared/lists.js');
+const { xlsxParts, zip, XLSX_TYPE } = require('../../../shared/xlsx.js');
+
+const deflateRaw = promisify(zlib.deflateRaw);
 
 const router = express.Router();
 router.use(requireAuth);
@@ -174,7 +181,10 @@ async function oneRecord(spec, viewer, id) {
   const b = db(spec.table).where(`${spec.table}.id`, id);
   scopeFor(spec, viewer)(b);
   const row = await b.select(`${spec.table}.*`).first();
-  return row ? (await toRecords(db, spec.model, [row]))[0] : null;
+  if (!row) return null;
+  const [rec] = await toRecords(db, spec.model, [row]);
+  if (spec.extras) rec.$ = (await extrasFor(db, spec.extras, [rec])).get(rec.id);
+  return rec;
 }
 
 router.get('/deals/:id/history', needs('deals'), wrap(async (req, res) => {
@@ -190,26 +200,55 @@ const listOf = (req, res) => {
   if (!spec) notFound(res);
   return spec;
 };
+// A list's own area may read it, and so may its `readers` (shared/lists.js),
+// each record with what that reader may not see taken out.
+const areasOf = spec => [spec.area, ...Object.keys(spec.readers)];
+const asReader = (spec, v) => (AC.allows(v.policy, v.role, spec.area, 'view') ? r => r
+  : Object.entries(spec.readers).find(([area]) => AC.allows(v.policy, v.role, area, 'view'))?.[1] || (r => r));
 
 router.get('/:list', wrap(async (req, res, next) => {
   const spec = listOf(req, res);
   if (!spec) return;
-  needs(spec.area)(req, res, async () => {
+  needs(areasOf(spec))(req, res, async () => {
     try {
       const v = await viewerOf(req);
-      res.json(await listPage(db, spec, { ...req.query }, scopeFor(spec, v)));
+      const page = await listPage(db, spec, { ...req.query }, scopeFor(spec, v));
+      res.json({ ...page, rows: page.rows.map(asReader(spec, v)) });
     } catch (err) { next(err); }
+  });
+}));
+
+router.get('/:list/download', wrap(async (req, res, next) => {
+  const spec = listOf(req, res);
+  if (!spec) return;
+  if (!spec.download) return notFound(res);
+  needs(areasOf(spec))(req, res, async () => {
+    try {
+      const v = await viewerOf(req);
+      // One transaction: the rows are read in chunks from one snapshot, so a save meanwhile can't shift them.
+      const { rows } = await db.transaction(trx => listAll(trx, spec, { ...req.query }, scopeFor(spec, v)));
+      const d = spec.download;
+      // Compressed off the main thread (zlib's pool), so a big file doesn't hold up everyone else.
+      const parts = xlsxParts([{ name: d.sheet, rows: downloadRows(spec, rows.map(asReader(spec, v))), widths: d.widths }]);
+      const file = zip(await Promise.all(parts.map(async f => ({ ...f, body: await deflateRaw(f.data), crc: zlib.crc32(f.data) }))));
+      res.set({ 'Content-Type': XLSX_TYPE, 'Content-Disposition': `attachment; filename="${d.file}-${localToday()}.xlsx"` });
+      res.send(Buffer.from(file));
+    } catch (err) {
+      if (err.status === 400) return refused(res, 400, err);
+      next(err);
+    }
   });
 }));
 
 router.get('/:list/:id', wrap(async (req, res, next) => {
   const spec = listOf(req, res);
   if (!spec) return;
-  needs(spec.area)(req, res, async () => {
+  needs(areasOf(spec))(req, res, async () => {
     try {
       const id = idOf(req.params.id);
-      const rec = id == null ? null : await oneRecord(spec, await viewerOf(req), id);
-      return rec ? res.json(rec) : notFound(res);
+      const v = await viewerOf(req);
+      const rec = id == null ? null : await oneRecord(spec, v, id);
+      return rec ? res.json(asReader(spec, v)(rec)) : notFound(res);
     } catch (err) { next(err); }
   });
 }));

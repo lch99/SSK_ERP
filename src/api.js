@@ -27,7 +27,9 @@ export function setToken(token) {
 // Fired when the server says the session is no longer valid; App shows sign-in.
 export const SIGNED_OUT_EVENT = 'ssk:signed-out'
 
-async function request(path, { method = 'GET', body } = {}) {
+// The API's reply to `path`, signed in; a refusal or an unreachable server is
+// thrown as an Error with `status` and `errors` (a 401 also signs the page out).
+async function send(path, { method = 'GET', body } = {}) {
   const headers = { 'Content-Type': 'application/json' }
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
@@ -37,17 +39,16 @@ async function request(path, { method = 'GET', body } = {}) {
   } catch {
     throw Object.assign(new Error('Cannot reach the server. Is the backend running?'), { status: 0, errors: ['Cannot reach the server. Is the backend running?'] })
   }
+  if (res.ok) return res
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    if (res.status === 401 && token) {
-      setToken('')
-      window.dispatchEvent(new CustomEvent(SIGNED_OUT_EVENT, { detail: data.error }))
-    }
-    const msg = data.error || `Request failed (${res.status})`
-    throw Object.assign(new Error(msg), { status: res.status, errors: data.errors || [msg] })
+  if (res.status === 401 && token) {
+    setToken('')
+    window.dispatchEvent(new CustomEvent(SIGNED_OUT_EVENT, { detail: data.error }))
   }
-  return data
+  const msg = data.error || `Request failed (${res.status})`
+  throw Object.assign(new Error(msg), { status: res.status, errors: data.errors || [msg] })
 }
+const request = async (path, opts) => (await send(path, opts)).json().catch(() => ({}))
 
 // Auth
 export const authStatus = () => (DEMO ? Promise.resolve({ authDisabled: true, needsFirstUser: false }) : request('/auth/status'))
@@ -109,8 +110,16 @@ export const getErp = () => (DEMO ? erp.getErp() : request('/erp/state'))
 export const resetErp = () => (DEMO ? erp.resetErp() : Promise.reject(new Error('The sample records can only be reset in the demo.')))
 // One page of a list (shared/lists.js) from the server: { rows, total, counts, page, size }.
 // Pages use useList (src/erp/useList.js), which runs the same list in the demo.
-export const getListPage = (list, params) =>
-  request(`/erp/${list}?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null).map(([k, v]) => [k, String(v)]))}`)
+const listQuery = params => new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null).map(([k, v]) => [k, String(v)]))
+export const getListPage = (list, params) => request(`/erp/${list}?${listQuery(params)}`)
+// One record of a list, with the list's extras.
+export const getListRecord = (list, id, params = {}) => request(`/erp/${list}/${id}?${listQuery(params)}`)
+// Every row of a list that matches `params`, as the Excel file the server builds: { bytes, filename }.
+export async function downloadListFile(list, params) {
+  const res = await send(`/erp/${list}/download?${listQuery(params)}`)
+  const filename = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || `${list}.xlsx`
+  return { bytes: new Uint8Array(await res.arrayBuffer()), filename }
+}
 const act = name => (...args) => (DEMO ? erp[name](...args) : request(`/erp/actions/${name}`, { method: 'POST', body: { args } }))
 export const approvePayouts = act('approvePayouts')
 export const queryPayouts = act('queryPayouts')

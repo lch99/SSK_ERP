@@ -7,14 +7,18 @@
 // demo runs it on the records in this browser (listPage below). Both give the
 // same rows, total, counts and extras (backend/test/listParity.test.js).
 //
+// search: [field | { via: field, of: kind, fields: [fields] }]   a word may be in the record or in the one it points at
+// of: kind                       the records of another kind (the SST account pages through closes)
 // filters: { key: rule } — the page sends ?key=value
 //   { eq: field | [fields] }     one value or several, comma-separated ('none' = empty); with several fields any may match
+//   { is: field }                the same text, whatever the case (a payment's reference)
 //   { from: field } { to: field } at least / at most (dates 'YYYY-MM-DD' or numbers); an empty field never matches
 //   { yes: field }               'true' / '1', or 'false' / '0'
 //   { notNull: field }           'true': has a value; 'false': has none
 //   { oneOf: field, sets: { name: [values] | { not: [values] } } }   e.g. kind=agent
 //   { team: [fields], self }     everyone under that person (and them, unless self: false); any field may match
 //   { custom: name }             CUSTOM below here, and the same rule in SQL on the server
+//   { via: field, of: kind, rule }   the record this one points at passes `rule` (a payment's E-Form is in that branch)
 // sorts:  { key: field }; ?sort=-key is newest / biggest first; then by id, the same way.
 // counts: 'field'                { value: n } for each value, leaving out the filter of the same name
 //         { set: { key: value } | ctx => …, ignores? }   n with those filters set as well
@@ -23,7 +27,12 @@
 //         { sum: field, of: kind, by: field, where?: { field: [values] }, not?: { field: [values] } } → a number
 //         { pick: [fields], of: kind, by: field }   the records of that kind that point at this one, by id
 //         { field, of: kind, from: field }          one field of the record this one points at
+//         { pick: [fields], of: kind, from: field }  some of its fields ({ … } or null)
+//         `from` may start with '$.' to go on from an extra worked out above it (the agent on a payment's E-Form)
+// download: { file, sheet, widths?, columns: [[label, field | row => value]] }   the Excel download (downloadRows)
+// readers: { area: record => record }   other areas that may read the list too, with what they may not see taken out
 import { teamOf } from './access.js'
+import { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS } from './labels.js'
 
 export const DEFAULT_SIZE = 50
 export const MAX_SIZE = 200
@@ -31,6 +40,9 @@ export const AGENT_TYPES = ['staff', 'sale-staff']
 
 export const addDays = (day, n) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10)
 const monthStart = day => `${day.slice(0, 8)}01`
+const monthEnd = day => addDays(`${Number(day.slice(5, 7)) === 12 ? Number(day.slice(0, 4)) + 1 : day.slice(0, 4)}-${String(Number(day.slice(5, 7)) % 12 + 1).padStart(2, '0')}-01`, -1)
+// A payment's or close's E-Form, for filters and searches through it.
+const viaDeal = rule => ({ via: 'dealId', of: 'deals', rule })
 
 // How much cleared cash on an E-Form can close now: what has cleared (up to the
 // bill) less what is closed, once all of it has cleared or Setup pays as money
@@ -40,6 +52,13 @@ export function readyLeft(deal, { cleared, closed }, setup) {
   const got = Math.min(cleared, deal.money.billed)
   const left = Math.round((got - closed) * 100) / 100
   return left > 0 && (got >= deal.money.billed || setup?.approvals?.payWhen === 'received') ? left : 0
+}
+
+// An E-Form for someone without E-Form access (they record payments on it):
+// the parties' details are left out. The server's whole-state read does the same.
+export function withoutParties(d) {
+  const blank = { name: '', ic: '', phone: '', address: '', email: '' }
+  return { ...d, buyer: blank, owner: blank, otherBuyers: [], otherOwners: [], referral: null, coBroke: d.coBroke && { agency: d.coBroke.agency } }
 }
 
 const DEAL_CASH = {
@@ -94,7 +113,7 @@ export const LISTS = {
   },
 
   deals: {
-    area: 'deals',
+    area: 'deals', readers: { moneyIn: withoutParties },
     search: ['code', 'buyer.name', 'owner.name', 'property.title', 'property.address'],
     filters: {
       status: { eq: 'status' }, type: { eq: 'type' }, branchId: { eq: 'branchId' }, agentId: { eq: 'agentId' }, holderId: { eq: 'holderId' },
@@ -120,16 +139,56 @@ export const LISTS = {
       ...DEAL_CASH,
       received: { sum: 'amount', of: 'moneyIn', by: 'dealId', not: { status: ['invalid', 'returned'] } },
       outs: { pick: ['id', 'type', 'voucherNo', 'amount', 'status'], of: 'moneyOut', by: 'dealId' },
+      // Any close at all locks its cleared payments (shared/erpActions.js usedOnClose).
+      closeIds: { pick: ['id'], of: 'closes', by: 'dealId' },
     },
   },
 
   moneyIn: {
     area: 'moneyIn',
-    search: ['code', 'payer', 'ref'],
-    filters: { status: { eq: 'status' }, dealId: { eq: 'dealId' }, method: { eq: 'method' }, purpose: { eq: 'purpose' }, from: { from: 'date' }, to: { to: 'date' } },
-    sorts: { date: 'date', amount: 'amount', bankOn: 'bankOn', code: 'code' },
+    search: ['code', 'payer', 'ref', 'remark', { via: 'dealId', of: 'deals', fields: ['code'] }],
+    filters: {
+      status: { eq: 'status' }, dealId: { eq: 'dealId' }, method: { eq: 'method' }, purpose: { eq: 'purpose' },
+      // The E-Form's branch (the top bar's branch) and its sales agent.
+      branchId: viaDeal({ eq: 'branchId' }), agentId: viaDeal({ eq: 'agentId' }),
+      from: { from: 'date' }, to: { to: 'date' }, clearedFrom: { from: 'clearsOn' }, clearedTo: { to: 'clearsOn' },
+      // The same slip recorded twice: the same reference or cheque, or the same amount banked in on the same day.
+      ref: { is: 'ref' }, amount: { eq: 'amount' }, bankOn: { eq: 'bankOn' },
+    },
+    sorts: { date: 'date', amount: 'amount', bankOn: 'bankOn', code: 'code', status: 'status', recorded: 'id' },
     sort: '-date',
-    counts: { status: 'status' },
+    counts: {
+      status: 'status',
+      // Draft and Pending: still to check against the bank statement.
+      toCheck: { only: () => ({ status: 'draft,pending' }), sum: 'amount', keep: ['branchId'] },
+      clearedThisMonth: { only: ctx => ({ status: 'cleared', clearedFrom: monthStart(ctx.today), clearedTo: monthEnd(ctx.today) }), sum: 'amount', keep: ['branchId'] },
+    },
+    extras: {
+      deal: { pick: ['code', 'type', 'agentId'], of: 'deals', from: 'dealId' },
+      agent: { pick: ['short', 'name'], of: 'staff', from: '$.deal.agentId' },
+    },
+    download: {
+      file: 'payments-in', sheet: 'Payments in', widths: [14, 22, 12, 22, 14, 16, 16, 18, 13, 30, 10, 24, 22],
+      columns: [
+        ['ID', 'code'], ['Staff', t => t.$.agent?.short || t.$.agent?.name || ''], ['Date', 'date'], ['Form ID', '$.deal.code'], ['Amount', 'amount'],
+        ['Method', t => METHODS[t.method]], ['Cash Method', t => CASH_METHODS[t.cashMethod]], ['Purpose', t => PURPOSES[t.purpose]], ['Bank-In Date', 'bankOn'],
+        ['Remark', 'remark'], ['Status', t => MONEY_IN_STATUS[t.status]?.label], ['Reason', 'reason'], ['Reference', 'ref'],
+      ],
+    },
+  },
+
+  // The SST account: the SST on each closed claim.
+  sst: {
+    area: 'moneyIn', of: 'closes',
+    search: [{ via: 'dealId', of: 'deals', fields: ['code'] }],
+    filters: { branchId: viaDeal({ eq: 'branchId' }), dealId: { eq: 'dealId' }, from: { from: 'date' }, to: { to: 'date' }, sstFrom: { from: 'sst' } },
+    sorts: { date: 'date', sst: 'sst' },
+    sort: '-date',
+    counts: {
+      month: { only: ctx => ({ sstFrom: '0.01', from: monthStart(ctx.today), to: monthEnd(ctx.today) }), sum: 'sst', keep: ['branchId'] },
+      year: { only: ctx => ({ sstFrom: '0.01', from: `${ctx.today.slice(0, 4)}-01-01`, to: `${ctx.today.slice(0, 4)}-12-31` }), sum: 'sst', keep: ['branchId'] },
+    },
+    extras: { dealCode: { field: 'code', of: 'deals', from: 'dealId' } },
   },
 
   closes: {
@@ -237,7 +296,14 @@ export const LISTS = {
 }
 
 // The records a list pages through, in the demo store's data.
-export const recordsOf = (data, key) => (key === 'v1Eforms' ? data.v1?.eforms : key === 'v1Overrides' ? data.v1?.overrides : data[key]) || []
+export const recordsOf = (data, key) => (key === 'v1Eforms' ? data.v1?.eforms : key === 'v1Overrides' ? data.v1?.overrides : data[LISTS[key]?.of || key]) || []
+
+// A list's Excel download, as rows of cells: the header, then one row per record
+// (a JS number stays a number, so Excel adds it up). The server and the demo both use it.
+export function downloadRows(spec, rows) {
+  const cols = spec.download.columns
+  return [cols.map(c => c[0]), ...rows.map(r => cols.map(([, v]) => (typeof v === 'function' ? v(r) : get(r, v)) ?? ''))]
+}
 
 // ── The demo's engine: a description run on records in this browser ─────────
 const get = (r, path) => path.split('.').reduce((v, k) => (v == null ? v : v[k]), r)
@@ -280,6 +346,8 @@ function test(rule, r, v, ctx) {
     return (rule.self !== false || r.id !== id) && rule.team.some(f => ids.has(get(r, f)))
   }
   if (rule.custom) return CUSTOM[rule.custom](r, v, ctx)
+  if (rule.is) return String(get(r, rule.is) ?? '').trim().toLowerCase() === String(v).trim().toLowerCase()
+  if (rule.via) { const x = ctx.byId(rule.of).get(get(r, rule.via)); return !!x && test(rule.rule, x, v, ctx) }
   return true
 }
 
@@ -290,7 +358,10 @@ function extrasOf(defs, rows, data) {
   for (const [key, e] of Object.entries(defs)) {
     if (e.from) {
       const byId = new Map((data[e.of] || []).map(x => [x.id, x]))
-      for (const r of rows) out.get(r.id)[key] = byId.get(get(r, e.from))?.[e.field] ?? null
+      for (const r of rows) {
+        const x = byId.get(get({ ...r, $: out.get(r.id) }, e.from))
+        out.get(r.id)[key] = e.pick ? (x ? Object.fromEntries(e.pick.map(f => [f, get(x, f) ?? null])) : null) : x?.[e.field] ?? null
+      }
       continue
     }
     const linked = new Map()
@@ -319,17 +390,28 @@ function compare(a, b) {
 // server gives it: { rows, total, counts, page, size }. ctx: { data (every
 // record, for extras and teams), today, setup }. counts=0 leaves the counts out
 // (a later page: the first one had them).
-export function listPage(records, spec, params = {}, ctx = {}) {
-  // Teams and E-Form cash are worked out once per call, not once per record.
-  const teams = new Map()
+export const listPage = (records, spec, params = {}, ctx = {}) => run(records, spec, params, ctx, false)
+// Every matching record, sorted, with extras (an Excel download): { rows, total }.
+export const listAll = (records, spec, params = {}, ctx = {}) => run(records, spec, { ...params, counts: '0' }, ctx, true)
+
+function run(records, spec, params, ctx, all) {
+  // Teams, E-Form cash and lookups by id are worked out once per call, not once per record.
+  const teams = new Map(), byKind = new Map()
   let cashByDeal = null
   const c = {
     ...ctx,
     team: id => { if (!teams.has(id)) teams.set(id, ctx.team ? ctx.team(id) : teamOf(id, ctx.data?.staff || [])); return teams.get(id) },
     cash: () => (cashByDeal ||= extrasOf(DEAL_CASH, ctx.data?.deals || [], ctx.data || {})),
+    byId: kind => { if (!byKind.has(kind)) byKind.set(kind, new Map((ctx.data?.[kind] || []).map(x => [x.id, x]))); return byKind.get(kind) },
   }
   const words = String(params.q || '').trim().toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6)
-  const found = r => words.every(w => (spec.search || []).some(f => String(get(r, f) ?? '').toLowerCase().includes(w)))
+  // The texts a word may be in: the record's own, and those of the records it points at.
+  const texts = r => (spec.search || []).flatMap(f => {
+    if (typeof f === 'string') return [get(r, f)]
+    const x = c.byId(f.of).get(get(r, f.via))
+    return x ? f.fields.map(g => get(x, g)) : []
+  }).map(v => String(v ?? '').toLowerCase())
+  const found = r => { if (!words.length) return true; const t = texts(r); return words.every(w => t.some(x => x.includes(w))) }
   const active = Object.entries(spec.filters || {}).filter(([k]) => params[k] !== undefined && params[k] !== '')
   const pass = (r, except = [], extra = {}) => found(r) &&
     active.every(([k, rule]) => except.includes(k) || k in extra || test(rule, r, params[k], c)) &&
@@ -347,7 +429,7 @@ export function listPage(records, spec, params = {}, ctx = {}) {
 
   const size = Math.min(MAX_SIZE, Math.max(1, Number.parseInt(params.size, 10) || DEFAULT_SIZE))
   const page = Math.max(1, Number.parseInt(params.page, 10) || 1)
-  const rows = ordered.slice((page - 1) * size, page * size)
+  const rows = all ? ordered : ordered.slice((page - 1) * size, page * size)
 
   const counts = {}
   for (const [key, def] of Object.entries(params.counts === '0' ? {} : spec.counts || {})) {

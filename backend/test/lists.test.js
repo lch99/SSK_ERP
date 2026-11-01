@@ -4,9 +4,10 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { db, migrate, startApi } = require('./helpers');
 const AC = require('../../shared/access.js');
+const SL = require('../../shared/lists.js');
 const { seedDemo } = require('../src/db/demoSeed');
 const { LISTS, scopeFor } = require('../src/db/lists');
-const { listPage } = require('../src/db/list');
+const { listPage, listAll } = require('../src/db/list');
 const { teamIds } = require('../src/middleware/access');
 
 let api, data;
@@ -21,7 +22,6 @@ async function allIds(spec, viewer, params = {}) {
     if (page * 200 >= r.total) return ids.sort((a, b) => a - b);
   }
 }
-const demoKey = key => ({ v1Eforms: d => d.v1.eforms, v1Overrides: d => d.v1.overrides })[key] || (d => d[key]);
 
 test('a branch viewer and a team viewer see what the demo shows them, in every list', async () => {
   const leader = data.staff.find(s => s.role && s.uplineId == null && data.staff.some(x => x.uplineId === s.id));
@@ -32,8 +32,10 @@ test('a branch viewer and a team viewer see what the demo shows them, in every l
   for (const v of viewers) {
     const shown = AC.visibleData(data, { staffId: v.staffId, branchId: v.branchId }, v.scope);
     for (const [key, spec] of Object.entries(LISTS)) {
-      const want = (demoKey(key)(shown) || []).map(x => x.id).sort((a, b) => a - b);
+      const want = SL.recordsOf(shown, key).map(x => x.id).sort((a, b) => a - b);
       assert.deepEqual(await allIds(spec, v), want, `${key}, ${v.scope}`);
+      // An Excel download holds the same rows, never more.
+      if (spec.download) assert.deepEqual((await listAll(db, spec, {}, scopeFor(spec, v))).rows.map(x => x.id).sort((a, b) => a - b), want, `${key} download, ${v.scope}`);
     }
   }
 });
