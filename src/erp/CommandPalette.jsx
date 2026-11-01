@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { C } from '../styles.js'
-import { getProjects } from '../demo/projectsApi.js'
+import { projectsOf } from '../api.js'
 import { DEAL_STATUS } from './model.js'
 import { go, Pill } from './ui.jsx'
 import Icon from './Icon.jsx'
@@ -69,7 +69,7 @@ export default function CommandPalette({ open, onClose, leaves, erp }) {
         tag: DEAL_STATUS[d.status], to: `deals/${d.id}` }))
     const staff = (access.can('staff') ? reach.staff : []).filter(s => hit(`${s.name} ${s.short || ''} ${s.code || ''}`)).slice(0, 5)
       .map(s => ({ key: `s-${s.id}`, group: 'Staff', icon: 'staff', title: s.name, sub: `${s.code || ''} · ${m.branchName(s.branchId)}`, to: `staff/${s.id}` }))
-    const projects = (access.can('projects') ? getProjects(m.data, erp.setup).projects : []).filter(p => hit(`${p.name} ${p.developer} ${p.location}`)).slice(0, 4)
+    const projects = (access.can('projects') ? projectsOf(m.data, erp.setup) : []).filter(p => hit(`${p.name} ${p.developer} ${p.location}`)).slice(0, 4)
       .map(p => ({ key: `j-${p.id}`, group: 'Projects', icon: 'project', title: p.name, sub: `${p.developer} · ${p.location}`, to: `projects/${p.id}` }))
     return [...pages.slice(0, 5), ...deals, ...staff, ...projects]
   }, [open, q, leaves, erp, access]) // eslint-disable-line react-hooks/exhaustive-deps

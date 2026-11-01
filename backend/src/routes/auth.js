@@ -7,6 +7,8 @@ const db = require('../db/connection');
 const { audit } = require('../db/audit');
 const { requireAuth, toReqUser, SECRET, AUTH_DISABLED } = require('../middleware/auth');
 const { validateUser, validatePassword } = require('../../../shared/roles.js');
+const { tidyProfile, checkProfile } = require('../../../shared/profile.js');
+const { parseJson } = require('../db/records');
 
 const router = express.Router();
 const EXPIRES = process.env.JWT_EXPIRES_IN || '8h';
@@ -83,16 +85,54 @@ router.post('/login', loginLimiter, async (req, res, next) => {
 
 router.get('/me', requireAuth, (req, res) => res.json({ user: req.user }));
 
+// My profile (shared/profile.js): kept with the account (users.profile, and the
+// name in users.name); with sign-in off there is no account, so one settings entry.
+const SIGN_IN_OFF_PROFILE = 'profile:sign-in-off';
+const when = v => (v == null ? null : String(v));
+
+async function readProfile(user) {
+  if (user.id == null) {
+    const row = await db('settings').where('key', SIGN_IN_OFF_PROFILE).first();
+    const saved = row ? parseJson(row.value) : {};
+    return { ...tidyProfile({ name: user.name, ...saved }), hasPassword: false, passwordChangedAt: null, updatedAt: saved.updatedAt || null };
+  }
+  const u = await db('users').where('id', user.id).first();
+  return { ...tidyProfile({ ...parseJson(u.profile), name: u.name }), hasPassword: true, passwordChangedAt: when(u.password_changed_at), updatedAt: when(u.profile_saved_at) };
+}
+
+router.get('/profile', requireAuth, async (req, res, next) => {
+  try { res.json(await readProfile(req.user)); } catch (err) { next(err); }
+});
+
+router.put('/profile', requireAuth, async (req, res, next) => {
+  try {
+    const problems = Object.values(checkProfile(req.body || {}));
+    if (problems.length) return res.status(400).json({ error: problems[0], errors: problems });
+    const p = tidyProfile(req.body);
+    if (req.user.id == null) {
+      await db('settings').insert({ key: SIGN_IN_OFF_PROFILE, value: JSON.stringify({ ...p, updatedAt: new Date().toISOString() }), updated_at: db.fn.now() })
+        .onConflict('key').merge();
+    } else {
+      const { name, ...rest } = p;
+      await db('users').where('id', req.user.id).update({ name, profile: JSON.stringify(rest), profile_saved_at: db.fn.now() });
+      // Which details were filled in, never the details themselves (or the photo).
+      await audit(req, { action: 'update_profile', entity: 'user', entityId: req.user.id, detail: { filled: Object.keys(rest).filter(k => rest[k]) } });
+    }
+    res.json(await readProfile(req.user));
+  } catch (err) { next(err); }
+});
+
 // Change own password. Signs out other sessions; returns a fresh token for this one.
 router.post('/password', requireAuth, async (req, res, next) => {
   try {
+    if (req.user.id == null) return res.status(400).json({ error: 'Sign-in is off on this server, so there is no password to change.' });
     const u = await db('users').where('id', req.user.id).first();
     if (!(await bcrypt.compare(String(req.body?.current || ''), u.password_hash))) {
       return res.status(400).json({ error: 'Your current password is wrong.' });
     }
     const err = validatePassword(req.body?.password);
     if (err) return res.status(400).json({ error: err });
-    await db('users').where('id', u.id).update({ password_hash: await bcrypt.hash(req.body.password, 12), token_version: Number(u.token_version) + 1 });
+    await db('users').where('id', u.id).update({ password_hash: await bcrypt.hash(req.body.password, 12), token_version: Number(u.token_version) + 1, password_changed_at: db.fn.now() });
     await audit(req, { action: 'change_password', entity: 'user', entityId: u.id });
     res.json(issue(await db('users').where('id', u.id).first()));
   } catch (err) { next(err); }

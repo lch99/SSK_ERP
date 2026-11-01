@@ -5,6 +5,7 @@
 const db = require('./connection');
 const S = require('../../../shared/setupState.js');
 const { makeErpSample } = require('../../../src/demo/erpSample.js');
+const { seedProjects } = require('../../../src/demo/projectsApi.js');
 const { MODELS, childRows } = require('./records');
 const { replaceState } = require('./setupStore');
 const { localToday } = require('./days');
@@ -34,7 +35,8 @@ async function seedDemo({ asOf = localToday() } = {}) {
   const data = makeErpSample(setup, asOf);
   data.v1Eforms = data.v1.eforms;
   data.v1Overrides = data.v1.overrides;
-  data.projects = [];
+  // The demo keeps projects in a store of their own, made the same way from the project E-Forms.
+  data.projects = seedProjects(data.deals, setup, asOf);
 
   await db.transaction(async trx => {
     for (const key of ORDER) {

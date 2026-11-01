@@ -3,7 +3,7 @@ import * as local from './demo/localApi.js'
 import * as erp from './demo/erpApi.js'
 import * as profile from './demo/profileApi.js'
 import * as access from './demo/accessApi.js'
-import { tidyProfile } from '../shared/profile.js'
+import * as projects from './demo/projectsApi.js'
 
 // Demo mode (the default for now): no server or database — Setup runs in the
 // browser and saves to localStorage. Set VITE_USE_SERVER=true to use the API.
@@ -69,12 +69,12 @@ export async function changePassword(current, password) {
 }
 export const signOut = () => setToken('')
 
-// My profile (avatar menu). The demo keeps it in this browser; the server has
-// no /auth/profile route yet, so there only the name (from /auth/me) shows.
-// PROFILE_EVENT fires after a save, so the top bar picks up a new name or photo.
+// My profile (avatar menu). The demo keeps it in this browser; the server keeps
+// it with the sign-in account. PROFILE_EVENT fires after a save, so the top bar
+// picks up a new name or photo.
 export const PROFILE_EVENT = 'ssk:profile'
 const profileSaved = p => { window.dispatchEvent(new Event(PROFILE_EVENT)); return p }
-export const getMyProfile = () => (DEMO ? profile.getProfile() : request('/auth/me').then(r => ({ ...tidyProfile(r.user), hasPassword: true })))
+export const getMyProfile = () => (DEMO ? profile.getProfile() : request('/auth/profile'))
 export const saveMyProfile = body => (DEMO ? profile.saveProfile(body) : request('/auth/profile', { method: 'PUT', body })).then(profileSaved)
 export const changeMyPassword = (current, password) => (DEMO ? profile.changePassword(current, password) : changePassword(current, password)).then(profileSaved)
 
@@ -177,3 +177,13 @@ export const returnListings = act('returnListings')
 export const scheduleDowntime = act('scheduleDowntime')
 export const cancelDowntime = act('cancelDowntime')
 export const endDowntime = act('endDowntime')
+
+// Projects. The demo keeps them in this browser, made from the sample's project
+// E-Forms (src/demo/projectsApi.js); the server keeps them with the other
+// records. Saving gives back what was saved; then reload the ERP (useProjects).
+export const projectsOf = (data, setup) => (DEMO ? projects.getProjects(data, setup).projects : data?.projects || [])
+const projectAct = (name, inBrowser) => (...args) => (DEMO ? Promise.resolve().then(() => inBrowser(...args))
+  : request(`/erp/actions/${name}`, { method: 'POST', body: { args } }).then(r => r.result))
+export const saveProject = projectAct('saveProject', projects.saveProject)
+export const saveIncentive = projectAct('saveIncentive', projects.saveIncentive)
+export const deleteIncentive = projectAct('deleteIncentive', projects.deleteIncentive)

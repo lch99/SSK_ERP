@@ -138,6 +138,7 @@ export const ACTIONS = {
   recheckHandlers: need('listings', 'full'), recheckBuildingLeads: need('listings', 'full'), markOutdated: need('listings', 'full'),
   returnListings: need('staff', 'edit'), sendNotice: need('staff', 'edit'),
   scheduleDowntime: need('technical', 'full'), endDowntime: need('technical', 'full'), cancelDowntime: need('technical', 'full'),
+  saveProject: need('projects', 'edit'), saveIncentive: need('projects', 'edit'), deleteIncentive: need('projects', 'edit'),
   // Everyone reads their own notifications.
   readNotices: { area: null },
 }

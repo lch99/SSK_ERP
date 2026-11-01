@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { C, btn, btnPrimary } from '../../styles.js'
 import * as P from '../../../shared/payout.js'
 import * as J from '../../../shared/projects.js'
-import { getProjects, deleteIncentive } from '../../demo/projectsApi.js'
+import { DEMO, projectsOf, deleteIncentive } from '../../api.js'
 import { useErp } from '../ErpContext.jsx'
 import { DEAL_STATUS, sum } from '../model.js'
 import { Page, Card, Stat, Pill, Progress, DataTable, Status, Link, Empty, Notice, cols, go, mono, small, tabular } from '../ui.jsx'
@@ -23,10 +23,11 @@ const ORDER = { active: 0, upcoming: 1, ended: 2 }
 const byStatus = today => (a, b) => ORDER[J.incentiveStatus(a, today)] - ORDER[J.incentiveStatus(b, today)] || b.from.localeCompare(a.from)
 
 export function useProjects() {
-  const { m, setup } = useErp()
-  const [state, setState] = useState(() => getProjects(m?.data, setup))
-  useEffect(() => { setState(getProjects(m?.data, setup)) }, [m, setup])
-  return { projects: state.projects, reload: () => setState(getProjects(m?.data, setup)) }
+  const { m, setup, reload: reloadErp } = useErp()
+  // The demo's projects are a store of their own: read it again after a change.
+  const [changes, setChanges] = useState(0)
+  const projects = useMemo(() => projectsOf(m?.data, setup), [m, setup, changes]) // eslint-disable-line react-hooks/exhaustive-deps
+  return { projects, reload: () => (DEMO ? setChanges(n => n + 1) : reloadErp()) }
 }
 
 export default function Projects({ parts }) {
@@ -142,7 +143,7 @@ function ProjectPage({ project: p, reload }) {
               <IncentiveCard key={i.id} inc={i} project={p} onEdit={edit ? () => setEditing(i) : null}
                 onDelete={edit && (async () => {
                   if (!(await fb.confirm({ title: `Delete “${i.name}”?`, body: 'The incentive and its progress are removed from this project. Deals are not changed.', confirmLabel: 'Delete incentive', danger: true }))) return
-                  deleteIncentive(p.id, i.id); reload(); fb.toast(`“${i.name}” deleted`)
+                  if (await fb.run(() => deleteIncentive(p.id, i.id), `“${i.name}” deleted`)) reload()
                 })} />
             ))}
           </div>

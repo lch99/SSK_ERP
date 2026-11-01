@@ -146,7 +146,7 @@ const MODELS = {
   }),
 
   projects: model('projects', 'projects', {
-    id: 'id', name: 'name', developer: 'developer:text', location: 'location:text', category: 'category:text', units: 'units',
+    id: 'id', name: 'name', developer: 'developer:text', location: 'location:text', category: 'category:text', units: 'units:num',
     priceFrom: 'price_from:num', devCommissionPct: 'dev_commission_pct:num', launchedOn: 'launched_on:date', status: 'status',
     payout: 'payout:json', incentives: 'incentives:json[]',
   }),

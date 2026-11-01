@@ -8,7 +8,7 @@ import { Card, Pill, Link, Progress, cols, go, tabular } from '../ui.jsx'
 import { CARD } from '../help.js'
 import { StackedBars } from '../charts.jsx'
 import { Hero, AreaTrend, DealMix, Leaderboard, ActivityFeed, BranchRace, CountUp, rise } from './dashboardWidgets.jsx'
-import { getProjects } from '../../demo/projectsApi.js'
+import { projectsOf } from '../../api.js'
 import { FlowBar } from '../flow.jsx'
 import * as J from '../../../shared/projects.js'
 import { rm, date, monthLabel, monthName, lastMonths, daysFrom, num } from '../format.js'
@@ -111,7 +111,7 @@ function CompanyDashboard({ me }) {
     value: sum(m.data.deals.filter(x => x.branchId === b.id && x.date.startsWith(ym) && x.status !== 'cancelled' && x.status !== 'draft'), x => x.fee) }))
 
   // Developer incentives running now, across projects.
-  const running = getProjects(m.data, setup).projects.flatMap(p => p.incentives.map(i => ({ p, i })))
+  const running = projectsOf(m.data, setup).flatMap(p => p.incentives.map(i => ({ p, i })))
     .filter(({ i }) => J.incentiveStatus(i, today) === 'active')
     .map(({ p, i }) => ({ p, i, r: J.incentiveProgress(i, p, m.data.deals, today) })).slice(0, 4)
 

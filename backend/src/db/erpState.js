@@ -12,7 +12,7 @@ const { localToday } = require('./days');
 const { erpBlockers } = require('../../../src/demo/erpSample.js');
 
 // Parents before children, so every row a record points at is already there.
-const KINDS = ['propertyTypes', 'staff', 'titles', 'areas', 'listings', 'enquiries', 'vendorRequests', 'deals', 'customers',
+const KINDS = ['propertyTypes', 'staff', 'titles', 'areas', 'projects', 'listings', 'enquiries', 'vendorRequests', 'deals', 'customers',
   'moneyIn', 'archives', 'closes', 'requests', 'payouts', 'moneyOut', 'videos', 'viewings', 'notices', 'downtime'];
 const RUNS_KEY = 'erp:runs';
 // The order the demo store keeps them in (a few pages show them as they come); the rest by id.

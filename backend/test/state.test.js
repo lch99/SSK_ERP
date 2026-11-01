@@ -6,6 +6,7 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { db, migrate, startApi, pick, tidy } = require('./helpers');
 const erp = require('../../src/demo/erpApi.js');
+const projects = require('../../src/demo/projectsApi.js');
 const { seedDemo } = require('../src/db/demoSeed');
 const { KINDS } = require('../src/db/erpState');
 
@@ -122,6 +123,36 @@ test('every kind of action saves what the demo saves', async () => {
   d = await both('addDeal', { type: 'rental', agentId: agent.id, price: 2000, fee: 2000, date: today, submit: false, buyer: party('Tenant'), owner: party('Landlord') });
   d = await both('deleteDeal', d.deals.at(-1).id);
   await both('deletePropertyType', d.propertyTypes.at(-1).id);
+});
+
+// Projects: the demo's own store's changes (src/demo/projectsApi.js), on the server's records.
+async function bothProjects(name, change, ...args) {
+  const mem = structuredClone(state.data);
+  const s = { projects: mem.projects, nextId: Math.max(0, ...mem.projects.flatMap(p => [p.id, ...p.incentives.map(i => i.id)])) + 1 };
+  const want = change(s);
+  mem.projects = s.projects;
+  const r = await api.call('POST', `/erp/actions/${name}`, { args });
+  assert.equal(r.status, 200, `${name}: ${r.body?.error}`);
+  sameData(r.body.data, mem, name);
+  if (want !== undefined) assert.deepEqual(tidy(pick(r.body.result, want)), tidy(want), `${name}: result`);
+  state = r.body;
+  return r.body.result;
+}
+
+test('projects and their incentives save as the demo saves them', async () => {
+  const tiers = state.setup.tiers;
+  assert.ok(state.data.projects.length > 0, 'the sample has projects');
+  const draft = { id: null, name: 'Test Launch', developer: 'Dev Co', location: 'Cheras', category: 'Condominium', units: '', priceFrom: '',
+    devCommissionPct: 3, payout: { mode: 'boost', boostPct: 2 } };
+  const p = await bothProjects('saveProject', s => projects.saveProjectIn(s, draft, tiers), draft);
+  await bothProjects('saveProject', s => projects.saveProjectIn(s, { ...p, units: 200 }, tiers), { ...p, units: 200 });
+  const inc = { name: 'Launch bonus', from: today, to: today, kind: 'perUnit', counts: 'company', perUnit: 300, paidTo: 'agents', agentPct: '' };
+  const i = await bothProjects('saveIncentive', s => projects.saveIncentiveIn(s, p.id, inc), p.id, inc);
+  await bothProjects('deleteIncentive', s => projects.deleteIncentiveIn(s, p.id, i.id), p.id, i.id);
+  // The same name twice is refused, and nothing is saved.
+  const r = await api.call('POST', '/erp/actions/saveProject', { args: [{ ...draft }] });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /already a project called/);
 });
 
 test('a refused action changes nothing and says why', async () => {

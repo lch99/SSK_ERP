@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { C, btn, btnPrimary, inp } from '../../styles.js'
 import * as P from '../../../shared/payout.js'
 import * as J from '../../../shared/projects.js'
-import { saveProject, saveIncentive } from '../../demo/projectsApi.js'
+import { saveProject, saveIncentive } from '../../api.js'
 import { useErp } from '../ErpContext.jsx'
 import { Page, Card, Drawer, FormField, field, cols, go, small } from '../ui.jsx'
 import { Choice } from '../../setup/ui.jsx'
@@ -52,7 +52,7 @@ export function ProjectForm({ project, onSaved }) {
       ],
     })
     if (!ok) return
-    try { onSaved(saveProject(p, setup.tiers)) } catch (e) { setErrors(e.errors || [e.message]); window.scrollTo(0, 0) }
+    try { onSaved(await saveProject(p, setup.tiers)) } catch (e) { setErrors(e.errors || [e.message]); window.scrollTo(0, 0) }
   }
 
   return (
@@ -124,8 +124,8 @@ export function IncentiveDrawer({ open, incentive, project, onClose, onSaved }) 
   const set = (k, v) => setD({ ...d, [k]: v })
   const setStep = (i, k, v) => set('steps', d.steps.map((s, j) => (j === i ? { ...s, [k]: v } : s)))
 
-  function save() {
-    try { saveIncentive(project.id, d); onSaved() } catch (e) { setErrors(e.errors || [e.message]) }
+  async function save() {
+    try { await saveIncentive(project.id, d); onSaved() } catch (e) { setErrors(e.errors || [e.message]) }
   }
 
   return (

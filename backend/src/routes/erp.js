@@ -10,10 +10,12 @@
 // Stage one (db/erpState.js), until the pages move to the lists above:
 //   GET /state                    every record, as the demo store gives them (after the time rules)
 //   POST /actions/:name {args}    one of the demo's actions (shared/access.js ACTIONS), saved; then /state
+//                                 and, for a project action, `result` (what was saved)
 const express = require('express');
 const db = require('../db/connection');
 const AC = require('../../../shared/access.js');
 const erp = require('../../../src/demo/erpApi.js');
+const projects = require('../../../src/demo/projectsApi.js');
 const { requireAuth } = require('../middleware/auth');
 const { viewerOf, needs, teamIds } = require('../middleware/access');
 const { LISTS, scopeFor } = require('../db/lists');
@@ -50,18 +52,36 @@ router.get('/state', wrap(async (req, res) => {
 // Actions that name who is doing them: someone signed in as a staff record always acts as themselves.
 const ACTOR_ARG = { claimPay: 0, stackPay: 0, readNotices: 1, toggleFavourite: 2, confirmViewing: 1, cancelViewing: 2, addViewingRemark: 2, revealOwner: 1 };
 
+// Projects: the demo keeps them in a store of their own (src/demo/projectsApi.js);
+// here they are records like the rest, and the same changes run on them.
+function onProjects(state, change) {
+  const all = state.data.projects;
+  const s = { projects: all, nextId: Math.max(0, ...all.flatMap(p => [p.id, ...(p.incentives || []).map(i => i.id)])) + 1 };
+  const result = change(s);
+  state.data.projects = s.projects;
+  return result;
+}
+const PROJECT_ACTIONS = {
+  saveProject: (state, project) => onProjects(state, s => projects.saveProjectIn(s, project, state.setup.tiers)),
+  saveIncentive: (state, projectId, incentive) => onProjects(state, s => projects.saveIncentiveIn(s, projectId, incentive)),
+  deleteIncentive: (state, projectId, incentiveId) => onProjects(state, s => projects.deleteIncentiveIn(s, projectId, incentiveId)),
+};
+
 router.post('/actions/:name', wrap(async (req, res) => {
   const { name } = req.params;
-  if (!Object.hasOwn(AC.ACTIONS, name) || typeof erp[name] !== 'function') return notFound(res);
+  const forProjects = Object.hasOwn(PROJECT_ACTIONS, name);
+  if (!Object.hasOwn(AC.ACTIONS, name) || (!forProjects && typeof erp[name] !== 'function')) return notFound(res);
   const v = await viewerOf(req);
   const why = AC.refusal(v.policy, v.role, name);
   if (why) return res.status(403).json({ error: why, errors: [why] });
   const args = Array.isArray(req.body?.args) ? [...req.body.args] : [];
   if (Object.hasOwn(ACTOR_ARG, name) && v.staffId != null) args[ACTOR_ARG[name]] = v.staffId;
-  let refused = null;
+  let refused = null, result;
   await changeState(async state => {
     try {
-      await erp.runOn(state, () => erp[name](...args));
+      if (!state.data) throw Object.assign(new Error(state.blockers[0]), { status: 400 });
+      if (forProjects) result = PROJECT_ACTIONS[name](state, ...args);
+      else await erp.runOn(state, () => erp[name](...args));
     } catch (err) {
       if (err.status !== 400) throw err;
       refused = err;
@@ -70,7 +90,7 @@ router.post('/actions/:name', wrap(async (req, res) => {
   });
   if (refused) return res.status(400).json({ error: refused.message, errors: refused.errors || [refused.message] });
   // Read back from the tables, so the page shows what was saved.
-  res.json(await loadState(db));
+  res.json({ ...(await loadState(db)), ...(forProjects ? { result } : {}) });
 }));
 
 router.get('/meta', wrap(async (req, res) => {

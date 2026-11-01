@@ -85,11 +85,15 @@ export function getProjects(erpData, setup) {
   }
   return structuredClone(s)
 }
+// The sample's projects, for the server's demo data (backend/src/db/demoSeed.js).
+export const seedProjects = (deals, setup, today) => seed(deals, setup, today).projects
 
-const fail = errors => { throw Object.assign(new Error(errors[0]), { errors }) }
+const fail = errors => { throw Object.assign(new Error(errors[0]), { errors, status: 400 }) }
+const projectOf = (s, id) => s.projects.find(x => x.id === id) || fail(['That project no longer exists.'])
 
-export function saveProject(project, tiers = []) {
-  const s = load()
+// The changes, on a store { nextId, projects }: this browser's below, or the
+// server's, made from the records it read (backend/src/routes/erp.js).
+export function saveProjectIn(s, project, tiers = []) {
   const p = {
     ...project,
     name: String(project.name || '').trim(), developer: String(project.developer || '').trim(),
@@ -106,25 +110,26 @@ export function saveProject(project, tiers = []) {
     p.status ||= 'selling'
     s.projects.push(p)
   } else s.projects = s.projects.map(x => (x.id === p.id ? { ...x, ...p } : x))
-  store(s)
   return structuredClone(p)
 }
 
-export function saveIncentive(projectId, incentive) {
-  const s = load()
+export function saveIncentiveIn(s, projectId, incentive) {
   const inc = { ...incentive, name: String(incentive.name || '').trim(),
     steps: (incentive.steps || []).filter(x => x.units !== '' || x.amount !== '').map(x => ({ units: Number(x.units), amount: Number(x.amount) })) }
   const errors = J.validateIncentive(inc)
   if (errors.length) fail(errors)
-  const p = s.projects.find(x => x.id === projectId)
+  const p = projectOf(s, projectId)
   if (inc.id == null) { inc.id = s.nextId++; p.incentives.push(inc) } else p.incentives = p.incentives.map(x => (x.id === inc.id ? inc : x))
-  store(s)
   return structuredClone(inc)
 }
 
-export function deleteIncentive(projectId, incentiveId) {
-  const s = load()
-  const p = s.projects.find(x => x.id === projectId)
+export function deleteIncentiveIn(s, projectId, incentiveId) {
+  const p = projectOf(s, projectId)
   p.incentives = p.incentives.filter(x => x.id !== incentiveId)
-  store(s)
 }
+
+// This browser's store.
+const inStore = fn => { const s = load(); const out = fn(s); store(s); return out }
+export const saveProject = (project, tiers) => inStore(s => saveProjectIn(s, project, tiers))
+export const saveIncentive = (projectId, incentive) => inStore(s => saveIncentiveIn(s, projectId, incentive))
+export const deleteIncentive = (projectId, incentiveId) => inStore(s => deleteIncentiveIn(s, projectId, incentiveId))
