@@ -23,6 +23,9 @@ import { VendorRequests, Enquiries, Titles, Areas } from './pages/Property.jsx'
 import Viewings from './pages/Viewings.jsx'
 import Rules from './pages/Rules.jsx'
 import { NoticeBell, Notifications } from './notices.jsx'
+import Technical from './pages/Technical.jsx'
+import { WhatsNew, WhatsNewPopup } from './WhatsNew.jsx'
+import { DowntimeBanner, BackSoon, useDowntime } from './maintenance.jsx'
 import Deals from './pages/Deals.jsx'
 import Reports from './pages/Reports.jsx'
 import MoneyIn from './pages/MoneyIn.jsx'
@@ -46,7 +49,7 @@ const System = ({ parts }) => (parts[1] === 'rules' ? <Rules /> : <SystemSetting
 
 const PAGES = {
   dashboard: Dashboard, customers: Customers, listings: Listings, 'listing-new': ListingNew, 'listing-roles': Listings,
-  'vendor-requests': VendorRequests, appointments: Viewings, enquiries: Enquiries, notifications: Notifications, titles: Titles, areas: Areas,
+  'vendor-requests': VendorRequests, appointments: Viewings, enquiries: Enquiries, notifications: Notifications, 'whats-new': WhatsNew, technical: Technical, titles: Titles, areas: Areas,
   deals: Deals, projects: Projects, commission: Commission, reports: Reports, 'money-in': MoneyIn, payouts: Payouts, 'money-out': MoneyOut,
   staff: Staff, invoices: Invoices, salary: Salary, 'my-pay': MyPay, videos: Videos, settings: Profile, system: System, 'org-chart': OrgChart, 'old-records': OldRecords, access: Access,
 }
@@ -111,6 +114,8 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
   const active = person && !isAgent(person) && leaves.some(l => l.path === 'staff/office') ? 'staff/office' : activePath(route, leaves)
   // A page the role does not open, or a record outside its reach, shows why instead.
   const blocked = !!key && (!access.opens(route.join('/')) || outOfReach(route, erp, access.scope))
+  // While planned downtime closes the ERP, people see "back soon" instead of any page.
+  const { closed } = useDowntime()
 
   // New page (or a new record page) starts at the top; drawers keep the scroll.
   const detail = ['deals', 'staff', 'reports', 'salary', 'listing-roles', 'videos', 'invoices'].includes(parts[0]) ? parts.slice(0, 3).join('/') : parts.slice(0, 2).join('/')
@@ -184,9 +189,13 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <TopBar wide={wide} me={me} profile={profile} authDisabled={authDisabled} erp={erp} onMenu={() => setMenuOpen(true)} onSignOut={onSignOut} onChangePassword={() => setPw(true)}
           onFind={() => setFinder(true)} onHelp={() => setHelp(true)} rail={railOn} onRail={() => setRail(!rail)} />
+        <DowntimeBanner />
         {palette}{shortcuts}
         <ChangePasswordModal open={pw} onClose={() => setPw(false)} profile={profile} />
+        {/* After an update: what's new since this person's last visit, once. */}
+        {key && erp.m && <WhatsNewPopup show={!closed && !blocked} />}
         {!key ? <PageSkeleton wide={wide} />
+          : closed ? <main id="ssk-main" tabIndex={-1} style={{ flex: '1 0 auto', padding: '0 16px' }}><ViewAsBar m={erp.m} /><BackSoon /></main>
           // A plain block, so pages centred with margin: auto still fill the width.
           : Own && !blocked ? <div id="ssk-main" tabIndex={-1} style={{ minWidth: 0, flex: '1 0 auto' }}><Own me={me} /></div>
             : (

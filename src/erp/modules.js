@@ -24,6 +24,7 @@ export const MODULES = [
   { key: 'home', label: 'Home', icon: 'home', home: 'dashboard', items: [
     { label: 'Dashboard', path: 'dashboard' },
     { label: 'Notifications', path: 'notifications' },
+    { label: 'What\'s new', was: 'Release notes / Updates', path: 'whats-new' },
     { label: 'My profile', path: 'settings' },
   ] },
   { key: 'listings', label: 'Listings', icon: 'building', home: 'listings', items: [
@@ -114,6 +115,10 @@ export const MODULES = [
     { label: 'Add office staff', was: 'Add New Agent/Staff', path: 'staff/new/office' },
     { label: 'Roles & access', was: 'Access & Permissions / Account Type', path: 'access' },
     { label: 'Sign-in accounts', was: 'Users', path: 'users', perm: 'users.manage', needsSignIn: true },
+    // The technical team (JonTech): planned downtime and the release history.
+    { section: 'Technical', was: 'Maintenance mode' },
+    { label: 'Planned downtime', was: 'Maintenance / Schedule downtime', path: 'technical/downtime' },
+    { label: 'Releases', was: 'Release notes / Version history', path: 'technical/releases' },
   ] },
 ]
 
@@ -124,7 +129,7 @@ export const ACCESS_GROUPS = [
   { label: 'Commission', areas: ['deals', 'payouts', 'salary'] },
   { label: 'Accounts', areas: ['moneyIn', 'moneyOut', 'invoices'] },
   { label: 'Agents & users', areas: ['staff', 'videos'] },
-  { label: 'Reports & system', areas: ['reports', 'system'] },
+  { label: 'Reports & system', areas: ['reports', 'system', 'technical'] },
 ]
 
 export const isPage = i => !!i.path

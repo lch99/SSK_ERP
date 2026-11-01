@@ -221,6 +221,7 @@ export const noticeFor = (n, who, branchId) => n.to === 'all' || n.to === who ||
 export const NOTICE_CAT = {
   viewing: { label: 'Viewings', tone: 'blue' }, listing: { label: 'Listings', tone: 'violet' }, good: { label: 'Good news', tone: 'green' },
   bad: { label: 'Heads-up', tone: 'amber' }, commission: { label: 'Commission', tone: 'brand' }, office: { label: 'Office', tone: 'gray' }, notice: { label: 'Notice', tone: 'red' },
+  system: { label: 'Maintenance', tone: 'amber' },
 }
 
 // ── Staff clock: what the current system does to accounts by itself ──

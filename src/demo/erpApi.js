@@ -6,6 +6,7 @@ import { setupView } from './localApi.js'
 import * as P from '../../shared/payout.js'
 import { UPLOADS } from '../../shared/files.js'
 import * as L from '../../shared/listings.js'
+import * as M from '../../shared/maintenance.js'
 import { makeErpSample, setupSignature, erpBlockers, nextPayDate, payoutApprovers, payoutForClose, localToday, docNames, ERP_VERSION } from './erpSample.js'
 
 const KEY = 'ssk-demo-erp-v1'
@@ -58,7 +59,7 @@ function change(fn) {
   return reply(state)
 }
 const newId = data => Math.max(0, ...['staff', 'listings', 'customers', 'deals', 'moneyIn', 'closes', 'payouts', 'requests', 'archives', 'moneyOut',
-  'vendorRequests', 'enquiries', 'titles', 'areas', 'videos', 'propertyTypes', 'viewings', 'notices'].flatMap(k => (data[k] || []).map(x => x.id))) + 1
+  'vendorRequests', 'enquiries', 'titles', 'areas', 'videos', 'propertyTypes', 'viewings', 'notices', 'downtime'].flatMap(k => (data[k] || []).map(x => x.id))) + 1
 const log = (data, today, dealId, field, before, after, by = 'admin') => data.audit.unshift({ at: `${today} ${now()}`, by, dealId, field, before, after })
 
 // ── Closed Case: line status New / Pending Queries / Ready ──
@@ -1056,7 +1057,7 @@ function recheckLeads(data, title, today, ranking = L.buildingRanking(title.id, 
 function runClock(data, setup) {
   const today = localToday(), at = stamp(today)
   let changed = false
-  data.viewings ||= []; data.notices ||= []; data.favourites ||= {}
+  data.viewings ||= []; data.notices ||= []; data.favourites ||= {}; data.downtime ||= []
   for (const v of data.viewings) {
     const s = L.viewingClock(v, at)
     if (s !== v.status) { v.status = s; changed = true }
@@ -1227,4 +1228,30 @@ export const returnListings = staffId => change((data, setup, today) => {
   if (!list.length) return 'None of their listings are waiting to come back.'
   for (const l of list) { l.holderId = staffId; l.phLog.push({ on: today, staffId, from: 'returned' }) }
   ;(data.runs ||= {}).returned = { at: stamp(today), staffId, changed: list.length }
+})
+
+// ── Planned downtime (System → Technical): rules in shared/maintenance.js ──
+// Each window is announced to everyone when planned, cancelled or ended early.
+// `start`/`end` arrive as 'YYYY-MM-DDTHH:MM' (a datetime-local box) or with a space.
+const stampOf = v => String(v || '').replace('T', ' ').slice(0, 16)
+export const scheduleDowntime = body => change((data, setup, today) => {
+  const b = body || {}
+  const w = { id: newId(data), start: stampOf(b.start), end: stampOf(b.end), message: str(b.message), closes: b.closes !== false,
+    by: viewer(b.by), created: stamp(today), cancelled: false, endedAt: null }
+  const why = M.checkWindow(w, stamp(today), data.downtime)
+  if (why) return why
+  data.downtime.push(w)
+  notify(data, 'all', 'system', `Planned maintenance: ${M.whenText(w)}. ${w.closes ? 'The ERP will be offline then; please finish your work before it starts. ' : ''}${w.message}`, null, today)
+})
+export const cancelDowntime = id => change((data, setup, today) => {
+  const w = data.downtime.find(x => x.id === id)
+  if (!w || M.statusOf(w, stamp(today)) !== 'scheduled') return 'Only downtime that has not started can be cancelled.'
+  w.cancelled = true
+  notify(data, 'all', 'system', `The maintenance planned for ${M.whenText(w)} is cancelled. The ERP stays open as usual.`, null, today)
+})
+export const endDowntime = id => change((data, setup, today) => {
+  const w = data.downtime.find(x => x.id === id)
+  if (!w || M.statusOf(w, stamp(today)) !== 'live') return 'Only downtime in progress can be ended.'
+  w.endedAt = stamp(today)
+  notify(data, 'all', 'system', 'Maintenance is finished: the ERP is open again.', null, today)
 })

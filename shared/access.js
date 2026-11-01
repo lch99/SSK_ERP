@@ -40,29 +40,32 @@ export const AREAS = [
   { key: 'videos', label: 'Training videos', edit: 'Add and update videos', full: 'Delete videos' },
   { key: 'reports', label: 'Reports', edit: 'Same as View', full: 'Verify landlords' },
   { key: 'system', label: 'System settings', edit: 'Same as View', full: 'Change company details and property types' },
+  { key: 'technical', label: 'Technical', edit: 'Same as View', full: 'Plan, end and cancel downtime' },
 ]
 export const AREA_KEYS = AREAS.map(a => a.key)
 
 const row = (...levels) => Object.fromEntries(AREA_KEYS.map((k, i) => [k, levels[i]]))
-//                         cust    list    deals   proj    in      payout  out     salary  invoice staff   videos  reports system
-const FULL = row('full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full')
+//                         cust    list    deals   proj    in      payout  out     salary  invoice staff   videos  reports system  tech
+const FULL = row('full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full')
 
 // Roles. `type` is the staff account type it matches (null: not a staff type).
 export const ROLES = [
   { key: 'superadmin', label: 'Superadmin', type: null, locked: true, desc: 'The owner. Everything, in every branch, plus Setup and Roles & access.',
     scope: 'all', levels: FULL },
   { key: 'admin-staff', label: 'Admin (Level 2)', type: 'admin-staff', desc: 'Senior office admin: runs the whole office, including approvals.',
-    scope: 'all', levels: row('full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'view') },
+    scope: 'all', levels: row('full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'view', 'none') },
   { key: 'admin-staff2', label: 'Admin (Level 1)', type: 'admin-staff2', desc: 'Branch admin: keys in the day-to-day work but cannot approve or pay.',
-    scope: 'branch', levels: row('edit', 'edit', 'edit', 'view', 'edit', 'view', 'edit', 'view', 'edit', 'edit', 'view', 'view', 'none') },
+    scope: 'branch', levels: row('edit', 'edit', 'edit', 'view', 'edit', 'view', 'edit', 'view', 'edit', 'edit', 'view', 'view', 'none', 'none') },
   { key: 'account', label: 'Accounting', type: 'account', desc: 'Money in and out, payouts and salary for every branch.',
-    scope: 'all', levels: row('none', 'none', 'view', 'view', 'full', 'full', 'full', 'full', 'full', 'view', 'view', 'full', 'none') },
+    scope: 'all', levels: row('none', 'none', 'view', 'view', 'full', 'full', 'full', 'full', 'full', 'view', 'view', 'full', 'none', 'none') },
   { key: 'staff', label: 'Agent', type: 'staff', desc: 'Sells: their own customers, listings and E-Forms, and their downline\'s. Records the payments on them; Accounts clears them.',
-    scope: 'team', levels: row('edit', 'edit', 'edit', 'view', 'edit', 'view', 'edit', 'edit', 'none', 'view', 'view', 'view', 'none') },
+    scope: 'team', levels: row('edit', 'edit', 'edit', 'view', 'edit', 'view', 'edit', 'edit', 'none', 'view', 'view', 'view', 'none', 'none') },
   { key: 'sale-staff', label: 'Sales staff', type: 'sale-staff', desc: 'Sales support: customers, listings and E-Forms, no money.',
-    scope: 'team', levels: row('edit', 'edit', 'edit', 'view', 'none', 'none', 'none', 'edit', 'none', 'view', 'view', 'none', 'none') },
+    scope: 'team', levels: row('edit', 'edit', 'edit', 'view', 'none', 'none', 'none', 'edit', 'none', 'view', 'view', 'none', 'none', 'none') },
+  { key: 'tech', label: 'Technical team', type: null, desc: 'The people who look after the ERP itself (JonTech): planned downtime and releases. They see no client records unless given more here.',
+    scope: 'team', levels: row('none', 'none', 'none', 'none', 'none', 'none', 'none', 'none', 'none', 'none', 'none', 'none', 'view', 'full') },
   { key: 'sale-marketing', label: 'Marketing', type: 'sale-marketing', desc: 'Leads and listings for the branch, nothing else.',
-    scope: 'branch', levels: row('edit', 'view', 'none', 'view', 'none', 'none', 'none', 'none', 'none', 'none', 'view', 'none', 'none') },
+    scope: 'branch', levels: row('edit', 'view', 'none', 'view', 'none', 'none', 'none', 'none', 'none', 'none', 'view', 'none', 'none', 'none') },
 ]
 export const ROLE_KEYS = ROLES.map(r => r.key)
 export const roleOf = key => ROLES.find(r => r.key === key)
@@ -134,6 +137,7 @@ export const ACTIONS = {
   toggleFavourite: need('listings', 'view'), revealOwner: need('listings', 'view'),
   recheckHandlers: need('listings', 'full'), recheckBuildingLeads: need('listings', 'full'), markOutdated: need('listings', 'full'),
   returnListings: need('staff', 'edit'), sendNotice: need('staff', 'edit'),
+  scheduleDowntime: need('technical', 'full'), endDowntime: need('technical', 'full'), cancelDowntime: need('technical', 'full'),
   // Everyone reads their own notifications.
   readNotices: { area: null },
 }
@@ -162,7 +166,7 @@ const PATHS = [
   ['salary', 'salary'], ['my-pay', 'salary'], ['salary/request', 'salary', 'edit'], ['salary/incentives', 'salary', 'edit'], ['salary/creator', 'salary', 'edit'],
   ['invoices', 'invoices'],
   ['staff', 'staff'], ['staff/new', 'staff', 'edit'], ['org-chart', 'staff'],
-  ['videos', 'videos'], ['reports', 'reports'], ['system', 'system'], ['system/rules', 'listings'],
+  ['videos', 'videos'], ['reports', 'reports'], ['system', 'system'], ['system/rules', 'listings'], ['technical', 'technical'],
 ]
 export function pathNeeds(path) {
   const p = String(path).replace(/^\/+/, '')

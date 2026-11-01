@@ -169,3 +169,7 @@ export const recheckHandlers = () => erp.recheckHandlers()
 export const recheckBuildingLeads = () => erp.recheckBuildingLeads()
 export const markOutdated = () => erp.markOutdated()
 export const returnListings = staffId => erp.returnListings(staffId)
+// Planned downtime (System → Technical; demo store, not on the server yet).
+export const scheduleDowntime = body => erp.scheduleDowntime(body)
+export const cancelDowntime = id => erp.cancelDowntime(id)
+export const endDowntime = id => erp.endDowntime(id)
