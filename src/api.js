@@ -4,7 +4,6 @@ import * as erp from './demo/erpApi.js'
 import * as profile from './demo/profileApi.js'
 import * as access from './demo/accessApi.js'
 import { tidyProfile } from '../shared/profile.js'
-import { defaultPolicy } from '../shared/access.js'
 
 // Demo mode (the default for now): no server or database — Setup runs in the
 // browser and saves to localStorage. Set VITE_USE_SERVER=true to use the API.
@@ -12,6 +11,11 @@ export const DEMO = import.meta.env.VITE_USE_SERVER !== 'true'
 const DEMO_USER = { id: null, username: 'demo', name: 'Demo', role: 'superadmin', branchId: null }
 
 const TOKEN_KEY = 'ssk-token'
+// Where the API is. Blank (the default): the same site, under /api (Vite's
+// proxy in development, or a reverse proxy in front of both). Set VITE_API_URL
+// (e.g. https://api.subsaleking.com) when the API runs on its own server; the
+// API then needs this site in its CORS_ORIGIN.
+const API_URL = String(import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
 export function getToken() {
   try { return localStorage.getItem(TOKEN_KEY) || '' } catch { return '' }
@@ -29,7 +33,7 @@ async function request(path, { method = 'GET', body } = {}) {
   if (token) headers.Authorization = `Bearer ${token}`
   let res
   try {
-    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+    res = await fetch(`${API_URL}/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
   } catch {
     throw Object.assign(new Error('Cannot reach the server. Is the backend running?'), { status: 0, errors: ['Cannot reach the server. Is the backend running?'] })
   }
@@ -74,20 +78,18 @@ export const getMyProfile = () => (DEMO ? profile.getProfile() : request('/auth/
 export const saveMyProfile = body => (DEMO ? profile.saveProfile(body) : request('/auth/profile', { method: 'PUT', body })).then(profileSaved)
 export const changeMyPassword = (current, password) => (DEMO ? profile.changePassword(current, password) : changePassword(current, password)).then(profileSaved)
 
-// Roles & access (what each role may do). The demo keeps it in this browser;
-// the server has no /access route yet, so there the recommended policy applies.
-export const getAccess = () => (DEMO ? access.getAccess() : Promise.resolve({ policy: defaultPolicy() }))
+// Roles & access (what each role may do). The demo keeps it in this browser.
+export const getAccess = () => (DEMO ? access.getAccess() : request('/access'))
 export const saveAccessPolicy = policy => (DEMO ? access.savePolicy(policy) : request('/access', { method: 'PUT', body: { policy } }))
 
 // Setup
 export const getSetup = () => (DEMO ? local.getSetup() : request('/setup'))
-// `step` may be a list of [step, body] pairs (one wizard page). The demo saves
-// them all or nothing; the server takes them one by one.
-export async function saveSetup(step, body) {
+// `step` may be a list of [step, body] pairs (one wizard page), saved all or nothing.
+export function saveSetup(step, body) {
   if (DEMO) return local.saveSetup(step, body)
-  let out
-  for (const [k, b] of Array.isArray(step) ? step : [[step, body]]) out = await request(`/setup/${k}`, { method: 'PUT', body: b })
-  return out
+  return Array.isArray(step)
+    ? request('/setup/steps', { method: 'POST', body: { steps: step } })
+    : request(`/setup/${step}`, { method: 'PUT', body })
 }
 export const getBranches = () => (DEMO ? local.getBranches() : request('/branches'))
 export const loadSampleSetup = () => local.loadSample()

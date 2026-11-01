@@ -14,9 +14,9 @@ const AUTH_DISABLED = process.env.AUTH_DISABLED === 'true';
 if (AUTH_DISABLED && process.env.NODE_ENV === 'production') {
   throw new Error('AUTH_DISABLED cannot be used with NODE_ENV=production');
 }
-const DEMO_USER = { id: null, username: 'demo', name: 'Demo', role: 'superadmin', branchId: null };
+const DEMO_USER = { id: null, username: 'demo', name: 'Demo', role: 'superadmin', branchId: null, staffId: null };
 
-const toReqUser = u => ({ id: u.id, username: u.username, name: u.name, role: u.role, branchId: u.branch_id });
+const toReqUser = u => ({ id: u.id, username: u.username, name: u.name, role: u.role, branchId: u.branch_id, staffId: u.staff_id ?? null });
 
 async function requireAuth(req, res, next) {
   if (AUTH_DISABLED) { req.user = DEMO_USER; return next(); }

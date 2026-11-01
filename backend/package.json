@@ -13,7 +13,11 @@
     "migrate:rollback": "knex migrate:rollback",
     "migrate:status": "knex migrate:status",
     "demo-data": "node src/scripts/demoData.js",
-    "reset-db": "knex migrate:rollback --all && knex migrate:latest"
+    "reset-db": "knex migrate:rollback --all && knex migrate:latest",
+    "test": "node --test \"test/*.test.js\"",
+    "legacy:inspect": "node src/legacy/inspect.js",
+    "legacy:import": "node src/legacy/import.js",
+    "legacy:verify": "node src/legacy/verify.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
