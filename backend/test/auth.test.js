@@ -175,3 +175,12 @@ test('"View the ERP as" narrows a list for the Superadmin, and widens nothing fo
   const peek = await call('GET', '/erp/deals?as=superadmin&size=200');
   assert.equal(peek.body.total, data.deals.filter(d => mineOnly.has(d.agentId) || mineOnly.has(d.holderId)).length);
 });
+
+test('a staff member\'s account carries their account type and branch, so the page gives them their role', async () => {
+  const salesAgent = await free(s => s.type === 'sale-staff') || await free(s => s.type === 'staff');
+  const call = await signInAs('typed1', salesAgent.id, 'admin');
+  const me = (await call('GET', '/auth/me')).body.user;
+  assert.equal(me.type, salesAgent.type);
+  assert.equal(me.branchId, salesAgent.branchId);
+  assert.equal(AC.roleForUser(me), AC.roleForType(salesAgent.type));
+});

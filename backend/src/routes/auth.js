@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const db = require('../db/connection');
 const { audit } = require('../db/audit');
-const { requireAuth, toReqUser, SECRET, AUTH_DISABLED } = require('../middleware/auth');
+const { requireAuth, toReqUser, staffOf, SECRET, AUTH_DISABLED } = require('../middleware/auth');
 const { validateUser, validatePassword } = require('../../../shared/roles.js');
 const { tidyProfile, checkProfile } = require('../../../shared/profile.js');
 const { parseJson } = require('../db/records');
@@ -20,9 +20,9 @@ const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Too many sign-in attempts. Try again in a few minutes.' } });
 
-const issue = u => ({
+const issue = async u => ({
   token: jwt.sign({ id: u.id, v: u.token_version }, SECRET, { expiresIn: EXPIRES }),
-  user: toReqUser(u),
+  user: toReqUser(u, await staffOf(u)),
 });
 
 // Whether the very first account still has to be created.
@@ -51,7 +51,7 @@ router.post('/first-user', loginLimiter, async (req, res, next) => {
       return u;
     });
     if (!user) return res.status(409).json({ error: 'An account already exists. Please sign in.' });
-    res.json(issue(user));
+    res.json(await issue(user));
   } catch (err) { next(err); }
 });
 
@@ -79,7 +79,7 @@ router.post('/login', loginLimiter, async (req, res, next) => {
       return res.status(401).json({ error: `Wrong username or password. ${left} attempt${left === 1 ? '' : 's'} left before the account locks.` });
     }
     await db('users').where('id', u.id).update({ login_attempts: 0, last_login_at: db.fn.now() });
-    res.json(issue(u));
+    res.json(await issue(u));
   } catch (err) { next(err); }
 });
 
@@ -134,7 +134,7 @@ router.post('/password', requireAuth, async (req, res, next) => {
     if (err) return res.status(400).json({ error: err });
     await db('users').where('id', u.id).update({ password_hash: await bcrypt.hash(req.body.password, 12), token_version: Number(u.token_version) + 1, password_changed_at: db.fn.now() });
     await audit(req, { action: 'change_password', entity: 'user', entityId: u.id });
-    res.json(issue(await db('users').where('id', u.id).first()));
+    res.json(await issue(await db('users').where('id', u.id).first()));
   } catch (err) { next(err); }
 });
 

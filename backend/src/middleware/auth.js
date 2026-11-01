@@ -16,7 +16,12 @@ if (AUTH_DISABLED && process.env.NODE_ENV === 'production') {
 }
 const DEMO_USER = { id: null, username: 'demo', name: 'Demo', role: 'superadmin', branchId: null, staffId: null };
 
-const toReqUser = u => ({ id: u.id, username: u.username, name: u.name, role: u.role, branchId: u.branch_id, staffId: u.staff_id ?? null });
+// The signed-in account, with the staff record it belongs to, if any: that
+// record's account type decides its role in the ERP (shared/access.js
+// roleForUser, as middleware/access.js does), and its branch is the account's.
+const toReqUser = (u, staff = null) => ({ id: u.id, username: u.username, name: u.name, role: u.role, branchId: staff?.branch_id ?? u.branch_id,
+  staffId: u.staff_id ?? null, type: staff?.type ?? null });
+const staffOf = u => (u.staff_id ? db('staff').where('id', u.staff_id).first('type', 'branch_id') : null);
 
 async function requireAuth(req, res, next) {
   if (AUTH_DISABLED) { req.user = DEMO_USER; return next(); }
@@ -34,7 +39,7 @@ async function requireAuth(req, res, next) {
     if (!u || !u.is_active || Number(u.token_version) !== Number(payload.v)) {
       return res.status(401).json({ error: 'Please sign in again.' });
     }
-    req.user = toReqUser(u);
+    req.user = toReqUser(u, await staffOf(u));
     next();
   } catch (err) {
     next(err);
@@ -44,4 +49,4 @@ async function requireAuth(req, res, next) {
 const requirePerm = perm => (req, res, next) =>
   (can(req.user, perm) ? next() : res.status(403).json({ error: "Your account doesn't have access to this." }));
 
-module.exports = { requireAuth, requirePerm, toReqUser, SECRET, AUTH_DISABLED };
+module.exports = { requireAuth, requirePerm, toReqUser, staffOf, SECRET, AUTH_DISABLED };

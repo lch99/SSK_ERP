@@ -12,6 +12,9 @@ import Icon from './Icon.jsx'
 // check what they would see; that lasts until the page is reloaded.
 const Ctx = createContext(null)
 export const useAccess = () => useContext(Ctx)
+// A signed-in account's role in the ERP, by name: its staff record's account type
+// when it belongs to one (e.g. Agent), else its sign-in role.
+export const roleLabel = me => A.roleOf(A.roleForUser(me))?.label || ''
 // (area, level) → may the viewer? Everything is open outside the ERP shell.
 export const useCan = () => useAccess()?.can || (() => true)
 // For menus: (item, area, level) → the item, greyed out with the reason when

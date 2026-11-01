@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { C, btn, btnPrimary } from '../../styles.js'
-import { roleMeta, PASSWORD_MIN } from '../../../shared/roles.js'
+import { PASSWORD_MIN } from '../../../shared/roles.js'
 import { PROFILE_FIELDS, checkProfile } from '../../../shared/profile.js'
 import { DEMO, PROFILE_EVENT, getMyProfile, saveMyProfile, changeMyPassword } from '../../api.js'
 import { useErp } from '../ErpContext.jsx'
+import { roleLabel } from '../access.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { Page, Card, Modal, Notice, FormField, FileInput, Select, Avatar, TextArea, small, field } from '../ui.jsx'
 import { PAGE, CARD } from '../help.js'
@@ -116,7 +117,7 @@ function Details({ me, saved }) {
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 17, overflowWrap: 'anywhere' }}>{d.name || 'No name yet'}</div>
             <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
-              {DEMO ? 'demo' : me.username} · <span style={{ color: C.primaryDark, fontWeight: 600 }}>{roleMeta(me.role).label}</span>{branch && ` · ${branch}`}
+              {DEMO ? 'demo' : me.username} · <span style={{ color: C.primaryDark, fontWeight: 600 }}>{roleLabel(me)}</span>{branch && ` · ${branch}`}
             </div>
           </div>
         </div>

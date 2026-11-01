@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { can, roleMeta } from '../../shared/roles.js'
+import { can } from '../../shared/roles.js'
 import { C, btn, btnPrimary } from '../styles.js'
 import LogoMark from '../brand/Logo.jsx'
 import Footer from '../brand/Footer.jsx'
@@ -41,7 +41,7 @@ import OldRecords from './pages/OldRecords.jsx'
 import Profile, { ChangePasswordModal, useProfile } from './pages/Profile.jsx'
 import CommandPalette, { useCommandKey, isMac, kbd, rememberVisit } from './CommandPalette.jsx'
 import Access from './pages/Access.jsx'
-import { AccessProvider, NoAccess, ViewAsBar, outOfReach, useAccess } from './access.jsx'
+import { AccessProvider, NoAccess, ViewAsBar, outOfReach, roleLabel, useAccess } from './access.jsx'
 
 // Pages by the first part of the address (#/<page>/…). `own` pages bring their own layout.
 // System → Settings, and System → Automatic rules at #/system/rules.
@@ -498,7 +498,7 @@ function UserMenu({ wide, me, profile, authDisabled, onSignOut, onChangePassword
   }
   const name = profile?.name || (authDisabled ? 'Demo user' : me.name)
   const photo = profile?.photo
-  const role = roleMeta(me.role).label
+  const role = roleLabel(me)
   const item = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', fontSize: 13.5, color: C.text, textDecoration: 'none', borderRadius: 8,
     background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: C.font, fontWeight: 500 }
   const ic = n => <span style={{ color: C.muted, display: 'inline-flex' }}><Icon name={n} size={16} /></span>
