@@ -14,6 +14,8 @@ function legacyDb() {
       host: process.env.LEGACY_DB_HOST || 'localhost', port: Number(process.env.LEGACY_DB_PORT) || 3306,
       user: process.env.LEGACY_DB_USER || 'root', password: process.env.LEGACY_DB_PASSWORD || '', database: process.env.LEGACY_DB_NAME,
       dateStrings: true, decimalNumbers: true, charset: 'utf8mb4',
+      // JSON columns as their text, kept in legacy_rows as they were.
+      typeCast: (field, next) => (field.type === 'JSON' ? field.string('utf8') : next()),
     },
     pool: { min: 0, max: 2 },
   });

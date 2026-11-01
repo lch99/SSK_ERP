@@ -27,6 +27,9 @@ const mysql = {
     // shifted by the server's time zone; DECIMAL money comes back as numbers.
     dateStrings: true,
     decimalNumbers: true,
+    // JSON columns come back as their text, as on SQLite (db/records.js parses
+    // them), so a JSON string value is never taken for the JSON itself.
+    typeCast: (field, next) => (field.type === 'JSON' ? field.string('utf8') : next()),
   },
   pool: { min: 0, max: 10 },
   migrations,

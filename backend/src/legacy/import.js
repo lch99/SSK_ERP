@@ -16,6 +16,7 @@
 const M = require('./mapping');
 const { tableNames } = require('./inspect');
 const { loadState } = require('../db/setupStore');
+const { parseJson } = require('../db/records');
 const { verify } = require('./verify');
 
 const PAGE = 1000;
@@ -156,7 +157,7 @@ async function prepareTarget(db, { replace, force }) {
     for (const t of GUARDED) {
       const imported = new Set((await db('legacy_rows').where('target_table', t).select('target_id')).map(r => String(r.target_id)));
       const rows = await db(t).select(t === 'staff' ? ['id', 'more'] : ['id']);
-      const n = rows.filter(r => !imported.has(String(r.id)) && !(t === 'staff' && String(r.more || '').includes('"placeholder":true'))).length;
+      const n = rows.filter(r => !imported.has(String(r.id)) && !(t === 'staff' && parseJson(r.more)?.placeholder)).length;
       if (n) made.push(`${n.toLocaleString('en-US')} ${t}`);
     }
     if (made.length) {

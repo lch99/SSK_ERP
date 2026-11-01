@@ -51,7 +51,8 @@ async function verify({ legacy, db, report = null }) {
   // 2. Records and money.
   if (has('new_staff')) {
     const [n] = await one(legacy('new_staff').count({ n: '*' }));
-    const [m] = await one(db('staff').where(q => q.whereNull('more').orWhere('more', 'not like', '%"placeholder":true%')).count({ n: '*' }));
+    // Not the "Unknown" stand-ins (MySQL writes JSON with spaces, so not a text match).
+    const [m] = await one(db('staff').whereRaw("json_extract(more, '$.placeholder') is null").count({ n: '*' }));
     add('People', 'staff (every account, those who left included)', n, m);
   }
   if (has('db_property')) {
