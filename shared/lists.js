@@ -17,12 +17,13 @@
 //   { notNull: field }           'true': has a value; 'false': has none
 //   { oneOf: field, sets: { name: [values] | { not: [values] } } }   e.g. kind=agent
 //   { team: [fields], self }     everyone under that person (and them, unless self: false); any field may match
-//   { custom: name }             CUSTOM below here, and the same rule in SQL on the server
+//   { custom: name, values? }    CUSTOM below here, and the same rule in SQL on the server (values: what it takes, when not true / false)
 //   { via: field, of: kind, rule }   the record this one points at passes `rule` (a payment's E-Form is in that branch)
 // sorts:  { key: field }; ?sort=-key is newest / biggest first; then by id, the same way.
 // counts: 'field'                { value: n } for each value, leaving out the filter of the same name
 //         { set: { key: value } | ctx => …, ignores? }   n with those filters set as well
-//         { only: ctx => { key: value }, sum: field, keep? }   { n, sum } over these filters alone (and of the page's, those it keeps)
+//         { only: ctx => { key: value }, sum: field, keep?, distinct? }   { n, sum } over these filters alone (and of the page's, those it keeps);
+//                                with distinct: field, also how many different values it has ({ n, sum, distinct })
 // extras (on each row as `$`):
 //         { sum: field, of: kind, by: field, where?: { field: [values] }, not?: { field: [values] } } → a number
 //         { pick: [fields], of: kind, by: field }   the records of that kind that point at this one, by id
@@ -199,14 +200,35 @@ export const LISTS = {
     sort: '-date',
   },
 
+  // Payout lines (Closed Case): one per person paid on each close.
   payouts: {
     area: 'payouts',
-    search: ['code'],
+    search: ['code', { via: 'dealId', of: 'deals', fields: ['code'] }, { via: 'staffId', of: 'staff', fields: ['name', 'short'] }],
     filters: { status: { eq: 'status' }, staffId: { eq: 'staffId' }, dealId: { eq: 'dealId' }, closeId: { eq: 'closeId' }, side: { eq: 'side' }, role: { eq: 'role' },
-      requestId: { eq: 'requestId' }, archiveId: { eq: 'archiveId' }, stacked: { yes: 'stacked' }, from: { from: 'date' }, to: { to: 'date' } },
-    sorts: { date: 'date', amount: 'amount', code: 'code' },
+      requestId: { eq: 'requestId' }, archiveId: { eq: 'archiveId' }, stacked: { yes: 'stacked' }, from: { from: 'date' }, to: { to: 'date' },
+      // In a weekly archive; in a salary / incentive request.
+      archived: { notNull: 'archiveId' }, requested: { notNull: 'requestId' },
+      // The E-Form's branch (the top bar's), and a branch manager's whole team (on the agent who sold it).
+      branchId: viaDeal({ eq: 'branchId' }), agentTeam: viaDeal({ team: ['agentId'] }),
+      // The close it came from: full, partial or balance (closeType in src/erp/model.js).
+      closeType: { custom: 'closeType', values: ['full', 'partial', 'balance'] },
+    },
+    sorts: { date: 'date', amount: 'amount', code: 'code', status: 'status', close: 'closeId' },
     sort: '-date',
-    counts: { status: 'status' },
+    counts: {
+      status: 'status',
+      // New and Pending Queries: waiting for approval, on how many closes.
+      waiting: { only: () => ({ status: 'new,queried', archived: 'false' }), sum: 'amount', distinct: 'closeId', keep: ['branchId'] },
+      // Ready, salary not requested yet, for how many people.
+      ready: { only: () => ({ status: 'approved', requested: 'false', archived: 'false' }), sum: 'amount', distinct: 'staffId', keep: ['branchId'] },
+      // What the next weekly archive takes (shared/erpActions.js archiveCases): every branch.
+      due: { only: () => ({ status: 'approved,paid', requested: 'true', archived: 'false' }), sum: 'amount' },
+    },
+    extras: {
+      close: { pick: ['date', 'claim', 'net', 'full', 'partNo'], of: 'closes', from: 'closeId' },
+      deal: { pick: ['code', 'type', 'price', 'branchId', 'agentId', 'property.title', 'money.billed'], of: 'deals', from: 'dealId' },
+      requestStatus: { field: 'status', of: 'requests', from: 'requestId' },
+    },
   },
 
   requests: {
@@ -320,8 +342,12 @@ const r2 = n => Math.round(n * 100) / 100
 // Counts key booleans as the tables store them (0 / 1).
 const countKey = v => (typeof v === 'boolean' ? String(Number(v)) : v == null ? '' : String(v))
 
+// A close: 'full', 'partial' (part of the claim) or 'balance' (the rest, after a partial).
+export const closeKind = c => (!c.full ? 'partial' : c.partNo > 1 ? 'balance' : 'full')
+
 const CUSTOM = {
   readyToClose: (r, v, ctx) => truthy(v) === (readyLeft(r, ctx.cash().get(r.id), ctx.setup) > 0),
+  closeType: (r, v, ctx) => { const c = ctx.byId('closes').get(r.closeId); return !!c && closeKind(c) === v },
 }
 
 function test(rule, r, v, ctx) {
@@ -440,7 +466,8 @@ function run(records, spec, params, ctx, all) {
       // Its own filters, and of the page's only those it keeps (the chosen branch).
       const set = { ...Object.fromEntries(active.filter(([k]) => (def.keep || []).includes(k)).map(([k]) => [k, params[k]])), ...def.only(c) }
       const hits = records.filter(r => Object.entries(set).every(([k, v]) => test(spec.filters[k], r, v, c)))
-      counts[key] = { n: hits.length, sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)) }
+      counts[key] = { n: hits.length, sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)),
+        ...(def.distinct && { distinct: new Set(hits.map(r => get(r, def.distinct))).size }) }
     } else {
       const set = typeof def.set === 'function' ? def.set(c) : def.set
       counts[key] = records.filter(r => pass(r, def.ignores || [], set)).length

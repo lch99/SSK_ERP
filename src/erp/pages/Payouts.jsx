@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { payoutApprovers } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { PAYOUT_STATUS, SALARY_STATUS, closeType, group, sum } from '../model.js'
+import { useList } from '../useList.js'
+import { PAYOUT_STATUS, SALARY_STATUS, closeType, sum } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Who, Link, Empty, Notice, Modal, FormField, SelectionBar, TextArea, cols, Stat, mono, tabular, small } from '../ui.jsx'
 import { COLUMN, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
@@ -12,169 +13,199 @@ import { rm, pct, date, amt } from '../format.js'
 import { useCan } from '../access.jsx'
 
 // Closed Case: one line per person per closed claim (CASE-…), New → Pending Queries → Ready,
-// then requested for salary and archived weekly.
+// then requested for salary and archived weekly. A page at a time (useList).
 export default function Payouts({ parts }) {
-  return <CaseList archived={parts[1] === 'archived'} />
+  return parts[1] === 'archived' ? <Archived /> : <CaseList />
 }
 
-const TYPES = ['Full Close', 'Partial Close', 'Balance Close']
+const TYPES = [['full', 'Full Close'], ['partial', 'Partial Close'], ['balance', 'Balance Close']]
+const WAITING = 'new,queried'
+// The Status filter's Ready takes paid lines too.
+const STATUSES = { ready: 'approved,paid' }
+// What the next weekly archive takes (archiveCases): Ready lines whose salary is requested.
+const DUE = { status: 'approved,paid', requested: 'true', archived: 'false' }
+const salaryStatus = p => (!p.requestId ? 'none' : p.$.requestStatus === 'clear' ? 'paid' : 'requested')
+const lines = n => `${n} line${n === 1 ? '' : 's'}`
 
-function CaseList({ archived }) {
+// The weekly archives, newest first; one is shown at a time.
+function Archived() {
+  const archives = useList('archives', { sort: '-date' }, { pageSize: 200 })
+  const [arc, setArc] = useState(null)
+  const archive = archives.rows.find(a => a.id === arc) || archives.rows[0] || null
+  return <CaseList archive={archive} archives={archives} onArchive={setArc} />
+}
+
+// `archives` given: the archived lines of `archive`; otherwise the lines not archived yet.
+function CaseList({ archive, archives, onArchive }) {
+  const archived = !!archives
   const erp = useErp()
-  const { m, scoped: d } = erp
+  const { scoped: d } = erp
   const can = useCan()
-  // Approvers start on "Approve by case" when something is waiting.
-  const [view, setView] = useState(() => (!archived && can('payouts', 'edit') && d.payouts.some(p => !p.archiveId && (p.status === 'new' || p.status === 'queried')) ? 'cases' : 'list'))
+  const fb = useFeedback()
+  const [view, setView] = useState(null)
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('')
   const [salary, setSalary] = useState('')
   const [type, setType] = useState('')
   const [side, setSide] = useState('')
   const [bm, setBm] = useState('')
-  const [arc, setArc] = useState(() => String(m.data.archives.at(-1)?.id || ''))
-  const [picked, setPicked] = useState(new Set())
+  const [sort, setSort] = useState('-date')
+  const [picked, setPicked] = useState(() => new Set())
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState('')
-  const [error, setError] = useState(null)
   const tops = d.staff.filter(s => s.role && s.uplineId == null)
 
-  const lines = useMemo(() => d.payouts.filter(p => (archived ? p.archiveId === Number(arc) : !p.archiveId)), [d.payouts, archived, arc])
-  const match = useMemo(() => {
-    const words = q.trim().toLowerCase()
-    return lines.filter(p => {
-      const deal = m.deals[p.dealId]
-      return (!status || (status === 'ready' ? p.status === 'approved' || p.status === 'paid' : p.status === status)) &&
-        (!salary || (salary === '1' ? !!p.requestId : !p.requestId)) && (!type || closeType(m.closes[p.closeId]) === type) &&
-        (!side || p.side === side) && (!bm || m.branchManagerOf(deal.agentId)?.id === Number(bm)) &&
-        (!words || [p.code, deal.code, m.staff[p.staffId].name, m.staff[p.staffId].short].join(' ').toLowerCase().includes(words))
-    })
-  }, [lines, status, salary, type, side, bm, q, m])
-  const eligible = d.payouts.filter(p => !p.archiveId && p.requestId && (p.status === 'approved' || p.status === 'paid'))
-  const waiting = lines.filter(p => p.status === 'new' || p.status === 'queried')
-  const ready = lines.filter(p => p.status === 'approved' && !p.requestId)
-
-  const fb = useFeedback()
-  const run = async (done, fn, ...args) => {
-    setError(null)
-    if (await fb.run(() => fn(...args), done)) { setPicked(new Set()); setAsking(false); setReason('') }
+  const params = {
+    q, sort, status: STATUSES[status] || status, requested: salary && (salary === '1' ? 'true' : 'false'), closeType: type, side, agentTeam: bm,
+    // No archive yet (or none at all): nothing.
+    ...(archived ? { archiveId: String(archive?.id ?? 0) } : { archived: 'false' }),
   }
-  const archive = async () => {
-    const ok = await fb.confirm({ title: `Create archive of ${eligible.length} cases?`,
-      body: <>Every Ready case line whose salary is requested ({eligible.length} lines, {rm(sum(eligible, p => p.amount))}) moves to <b>Archived Case</b>. This is done once a week.</>,
-      confirmLabel: 'Create archive' })
-    if (ok) run(`Archive created · ${eligible.length} cases moved to Archived Case`, erp.archiveCases)
+  // A tick is for a row on screen: another search or filter starts a new selection.
+  const filterSig = JSON.stringify([q, status, salary, type, side, bm, archive?.id])
+  const [pickedFor, setPickedFor] = useState(filterSig)
+  if (pickedFor !== filterSig) { setPickedFor(filterSig); setPicked(new Set()) }
+  const list = useList('payouts', params, { pageSize: 25 })
+  const waiting = list.counts.waiting
+  const ready = list.counts.ready || { n: 0, sum: 0, distinct: 0 }
+  // Approvers start on "Approve by case" when something is waiting.
+  if (view == null && waiting) setView(!archived && can('payouts', 'edit') && waiting.n > 0 ? 'cases' : 'list')
+  const shown = archived ? 'list' : view ?? (can('payouts', 'edit') ? 'cases' : 'list')
+
+  const run = async (done, fn, ...args) => {
+    if (await fb.run(() => fn(...args), done)) { setPicked(new Set()); setAsking(false); setReason('') }
   }
   // Unarchive: the week's lines go back to the Close Case List.
   const unarchive = async () => {
-    const a = m.archives[Number(arc)]
-    if (!a) return
-    const ok = await fb.confirm({ title: `Unarchive ${a.code}?`, confirmLabel: 'Unarchive',
-      body: <>Its {a.count} case lines go back to <b>Payouts to approve</b> (as Ready, salary requested). Landlord checks not done yet are dropped.</> })
-    if (ok && await fb.run(() => erp.unarchive(a.id), `${a.code} unarchived`)) setArc(String(m.data.archives.filter(x => x.id !== a.id).at(-1)?.id || ''))
+    const ok = await fb.confirm({ title: `Unarchive ${archive.code}?`, confirmLabel: 'Unarchive',
+      body: <>Its {archive.count} case lines go back to <b>Payouts to approve</b> (as Ready, salary requested). Landlord checks not done yet are dropped.</> })
+    if (ok && await fb.run(() => erp.unarchive(archive.id), `${archive.code} unarchived`)) onArchive(null)
   }
-  const pickedLines = match.filter(p => picked.has(p.id))
+  const pickedLines = list.rows.filter(p => picked.has(p.id))
   const filters = [status, salary, type, side, bm].filter(Boolean).length
   const clear = () => { setQ(''); setStatus(''); setSalary(''); setType(''); setSide(''); setBm('') }
   const columns = [
-    { key: 'code', label: 'Case ID · Date · Type', sort: p => p.id, render: p => (
+    { key: 'code', label: 'Case ID · Date · Type', sortKey: 'date', render: p => (
       <span style={{ whiteSpace: 'nowrap' }}><b style={mono}>{p.code}</b>
         <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(p.date)} · {p.time}</span>
-        <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{closeType(m.closes[p.closeId])}</span></span>
+        <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{p.$.close && closeType(p.$.close)}</span></span>
     ) },
-    { key: 'staff', label: 'Staff · Role · %', sort: p => m.staffName(p.staffId), render: p => (
-      <span style={{ display: 'block', minWidth: 190 }}><Who name={m.staffName(p.staffId)} sub={`${m.commType(p)} · ${pct(p.pct)}`} size={24} to={`staff/${p.staffId}`} /></span>
+    { key: 'staff', label: 'Staff · Role · %', render: p => (
+      <span style={{ display: 'block', minWidth: 190 }}><Who name={erp.m.staffName(p.staffId)} sub={`${erp.m.commType(p)} · ${pct(p.pct)}`} size={24} to={`staff/${p.staffId}`} /></span>
     ) },
-    { key: 'form', label: 'Form ID · Sell/Rent · Cash (x / y)', help: COLUMN.payoutForm, sort: p => m.deals[p.dealId].code, render: p => {
-      const c = m.closes[p.closeId], deal = m.deals[p.dealId]
-      return (
-        <span style={{ whiteSpace: 'nowrap' }}><Link to={`deals/${p.dealId}`} style={mono}>{deal.code}</Link>
-          <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm(deal.price)}</span>
-          <span style={{ display: 'block', fontSize: 12, color: C.muted, ...tabular }}>{amt(c.claim)} / {amt(deal.money.billed)}</span></span>
-      )
-    } },
-    { key: 'payout', label: 'Payout · Net Comm.', help: COLUMN.payoutAmount, align: 'right', sort: p => p.amount, render: p => <span style={{ whiteSpace: 'nowrap' }}><b>{rm(p.amount)}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>of {rm(p.base)}</span></span> },
-    { key: 'status', label: 'Status', sort: p => p.status, render: p => <Status of={PAYOUT_STATUS} value={p.status} /> },
-    { key: 'salary', label: 'Salary Status', help: COLUMN.salaryStatus, render: p => <Status of={SALARY_STATUS} value={m.salaryStatus(p)} /> },
+    { key: 'form', label: 'Form ID · Sell/Rent · Cash (x / y)', help: COLUMN.payoutForm, render: p => (
+      <span style={{ whiteSpace: 'nowrap' }}><Link to={`deals/${p.dealId}`} style={mono}>{p.$.deal?.code}</Link>
+        <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm(p.$.deal?.price)}</span>
+        <span style={{ display: 'block', fontSize: 12, color: C.muted, ...tabular }}>{amt(p.$.close?.claim)} / {amt(p.$.deal?.['money.billed'])}</span></span>
+    ) },
+    { key: 'payout', label: 'Payout · Net Comm.', help: COLUMN.payoutAmount, align: 'right', sortKey: 'amount', render: p => <span style={{ whiteSpace: 'nowrap' }}><b>{rm(p.amount)}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>of {rm(p.base)}</span></span> },
+    { key: 'status', label: 'Status', sortKey: 'status', render: p => <Status of={PAYOUT_STATUS} value={p.status} /> },
+    { key: 'salary', label: 'Salary Status', help: COLUMN.salaryStatus, render: p => <Status of={SALARY_STATUS} value={salaryStatus(p)} /> },
   ]
 
   return (
     <Page title={archived ? 'Archived payouts' : 'Payouts to approve'} help={archived ? PAGE.archived : PAGE.payouts}
       sub={archived ? 'Weekly archives of Ready, paid case lines.' : <>One line per person paid on each closed case, worked out from Setup. Set them Ready to approve. Ready lines are requested for salary under <Link to="salary/request">Salary</Link>.</>}
-      actions={!can('payouts', 'full') ? null : !archived ? <button key="archive" style={{ ...btnPrimary, opacity: eligible.length ? 1 : 0.5 }} disabled={!eligible.length} onClick={archive}
-        title={eligible.length ? undefined : 'Nothing to archive: no Ready line has its salary requested yet'}>Create Archive ({eligible.length} Cases)</button>
-        : arc && <button key="unarchive" style={btn} onClick={unarchive}>Unarchive this week</button>}>
+      actions={!can('payouts', 'full') ? null : !archived ? <ArchiveButton key="archive" run={run} />
+        : archive && <button key="unarchive" style={btn} onClick={unarchive}>Unarchive this week</button>}>
       {!archived && <FlowBar here="approve" />}
       {!archived && (
         <div style={{ ...cols(220, 14), marginBottom: 16 }}>
-          <Stat icon="payouts" tone="amber" label="New and Pending Queries" value={rm(sum(waiting, p => p.amount))} sub={`${waiting.length} line${waiting.length === 1 ? '' : 's'} on ${new Set(waiting.map(p => p.closeId)).size} close${new Set(waiting.map(p => p.closeId)).size === 1 ? '' : 's'}`} onClick={() => { setView('list'); setStatus(status === 'new' ? '' : 'new'); setSalary('') }} on={status === 'new'} />
-          <Stat icon="check" tone="blue" label="Ready, salary not requested" value={rm(sum(ready, p => p.amount))} sub={`${new Set(ready.map(p => p.staffId)).size} people`} onClick={() => { setView('list'); const on = status === 'ready' && salary === '0'; setStatus(on ? '' : 'ready'); setSalary(on ? '' : '0') }} on={status === 'ready' && salary === '0'} />
+          <Stat icon="payouts" tone="amber" label="New and Pending Queries" value={rm(waiting?.sum || 0)} sub={`${lines(waiting?.n || 0)} on ${waiting?.distinct || 0} close${waiting?.distinct === 1 ? '' : 's'}`}
+            onClick={() => { setView('list'); setStatus(status === 'new' ? '' : 'new'); setSalary('') }} on={status === 'new'} />
+          <Stat icon="check" tone="blue" label="Ready, salary not requested" value={rm(ready.sum)} sub={`${ready.distinct} ${ready.distinct === 1 ? 'person' : 'people'}`}
+            onClick={() => { setView('list'); const on = status === 'ready' && salary === '0'; setStatus(on ? '' : 'ready'); setSalary(on ? '' : '0') }} on={status === 'ready' && salary === '0'} />
         </div>
       )}
       <Card pad={16}>
-        {!archived && <Tabs value={view} onChange={setView} tabs={[{ key: 'cases', label: 'Approve by case', count: new Set(waiting.map(p => p.closeId)).size }, { key: 'list', label: 'All payout lines', count: match.length }]} />}
-        {error && <Notice tone="red">{error}</Notice>}
-        {view === 'cases' && !archived ? <ApprovalList lines={waiting} erp={erp} /> : (
+        {!archived && <Tabs value={shown} onChange={setView} tabs={[{ key: 'cases', label: 'Approve by case', count: waiting?.distinct || 0 }, { key: 'list', label: 'All payout lines', count: list.total }]} />}
+        {list.error && <Notice tone="red">{list.error}</Notice>}
+        {shown === 'cases' ? <ApprovalList erp={erp} closes={waiting?.distinct || 0} /> : (
           <>
             <Toolbar fold onClear={clear}>
-              {archived && <Select label="Archive" value={arc} onChange={setArc} options={[...m.data.archives].reverse().map(a => ({ value: String(a.id), label: `${a.code} (${a.count} Cases)` }))} />}
+              {archived && <Select label="Archive" value={String(archive?.id ?? '')} onChange={v => onArchive(Number(v))}
+                options={archives.rows.length ? archives.rows.map(a => ({ value: String(a.id), label: `${a.code} (${a.count} Cases)` })) : [{ value: '', label: archives.loading ? 'Loading…' : 'No archives yet' }]} />}
               <SearchBox value={q} onChange={setQ} placeholder="Case ID, form or staff" />
               <Select label="Branch manager" value={bm} onChange={setBm} options={[{ value: '', label: 'All branch managers' }, ...tops.map(s => ({ value: String(s.id), label: `B.M (${s.short})` }))]} />
               <Select label="Status" value={status} onChange={setStatus} options={[['', 'All statuses'], ['new', 'New'], ['queried', 'Pending Queries'], ['ready', 'Ready']].map(([value, label]) => ({ value, label }))} />
               <Select label="Salary" value={salary} onChange={setSalary} options={[['', 'Salary: all'], ['0', 'Not Requested'], ['1', 'Requested']].map(([value, label]) => ({ value, label }))} />
-              <Select label="Type" value={type} onChange={setType} options={[{ value: '', label: 'All types' }, ...TYPES.map(t => ({ value: t, label: t }))]} />
+              <Select label="Type" value={type} onChange={setType} options={[{ value: '', label: 'All types' }, ...TYPES.map(([value, label]) => ({ value, label }))]} />
               <Select label="Claim category" value={side} onChange={setSide} options={[['', 'Sales and Product'], ['sales', 'Sales'], ['listing', 'Product']].map(([value, label]) => ({ value, label }))} />
             </Toolbar>
-            <DataTable columns={columns} rows={match} defaultSort={{ key: 'code', dir: 'desc' }} pageSize={25} narrowAt={1000} empty="No case lines here"
-              onClear={filters || q ? clear : undefined}
+            <DataTable columns={columns} rows={list.rows} pageSize={25} narrowAt={1000}
+              paged={{ total: list.total, sort, onSort: setSort, onMore: list.more, loading: list.loading }}
+              empty={list.loading ? 'Loading…' : 'No case lines here'} onClear={filters || q ? clear : undefined}
               selection={archived || !can('payouts', 'edit') ? null : { selected: picked, onChange: setPicked, can: p => p.status === 'new' || p.status === 'queried' }} />
-            <SelectionBar count={picked.size} summary={rm(sum(pickedLines, p => p.amount))} onClear={() => setPicked(new Set())}>
+            <SelectionBar count={pickedLines.length} summary={rm(sum(pickedLines, p => p.amount))} onClear={() => setPicked(new Set())}>
               <button style={small} onClick={() => setAsking(true)}>Pending Queries…</button>
               {can('payouts', 'full') && <button style={{ ...small, ...btnPrimary, fontSize: 13, padding: '5px 12px' }}
-                onClick={() => run(`${picked.size} case line${picked.size === 1 ? '' : 's'} set to Ready`, erp.approvePayouts, [...picked])}>Set Ready</button>}
+                onClick={() => run(`${lines(pickedLines.length)} set to Ready`, erp.approvePayouts, pickedLines.map(p => p.id))}>Set Ready</button>}
             </SelectionBar>
           </>
         )}
       </Card>
-      <Modal open={asking} onClose={() => setAsking(false)} title={`Pending Queries · ${picked.size} lines`}
+      <Modal open={asking} onClose={() => setAsking(false)} title={`Pending Queries · ${lines(pickedLines.length)}`}
         footer={<><button style={btn} onClick={() => setAsking(false)}>Cancel</button>
           <button style={{ ...btnPrimary, opacity: reason.trim() ? 1 : 0.5 }} disabled={!reason.trim()}
-            onClick={() => run(`${picked.size} line${picked.size === 1 ? '' : 's'} moved to Pending Queries`, erp.queryPayouts, [...picked], reason)}>Save</button></>}>
+            onClick={() => run(`${lines(pickedLines.length)} moved to Pending Queries`, erp.queryPayouts, pickedLines.map(p => p.id), reason)}>Save</button></>}>
         <FormField label="What needs checking?" required><TextArea autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. SPA stamping receipt not uploaded" /></FormField>
       </Modal>
     </Page>
   )
 }
 
+// Create Archive: every branch's Ready lines whose salary is requested.
+function ArchiveButton({ run }) {
+  const erp = useErp()
+  const fb = useFeedback()
+  const due = useList('payouts', DUE, { branch: false, pageSize: 1 }).counts.due || { n: 0, sum: 0 }
+  const archive = async () => {
+    const ok = await fb.confirm({ title: `Create archive of ${due.n} cases?`,
+      body: <>Every Ready case line whose salary is requested ({lines(due.n)}, {rm(due.sum)}) moves to <b>Archived Case</b>. This is done once a week.</>,
+      confirmLabel: 'Create archive' })
+    if (ok) run(`Archive created · ${due.n} cases moved to Archived Case`, erp.archiveCases)
+  }
+  return (
+    <button style={{ ...btnPrimary, opacity: due.n ? 1 : 0.5 }} disabled={!due.n} onClick={archive}
+      title={due.n ? undefined : 'Nothing to archive: no Ready line has its salary requested yet'}>Create Archive ({due.n} Cases)</button>
+  )
+}
+
 // Approvers see one card per close: the case, everyone it pays, and the buttons.
-function ApprovalList({ lines, erp }) {
+// The waiting lines come close by close, oldest first; a close cut off at the
+// end of a page waits for "Show more", so a card always has all its lines.
+function ApprovalList({ erp, closes: count }) {
   const { m, setup } = erp
   const can = useCan()
   const approver = can('payouts', 'full')
+  const list = useList('payouts', { status: WAITING, archived: 'false', sort: 'close' }, { pageSize: 200 })
   const [asking, setAsking] = useState(null)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(null)
   const fb = useFeedback()
-  const closes = Object.entries(group(lines, 'closeId')).map(([cid, ls]) => ({ close: m.closes[cid], lines: ls }))
-    .sort((a, b) => a.close.date.localeCompare(b.close.date))
-  if (!closes.length) return <Empty title="Nothing waiting" text="Every case line here is Ready." />
+  const closes = []
+  for (const l of list.rows) {
+    if (closes.at(-1)?.close.id !== l.closeId) closes.push({ close: { id: l.closeId, ...l.$.close }, deal: { id: l.dealId, ...l.$.deal }, lines: [] })
+    closes.at(-1).lines.push(l)
+  }
+  const all = list.rows.length >= list.total
+  if (!all && closes.length > 1) closes.pop()
+  if (list.error) return <Notice tone="red">{list.error}</Notice>
+  if (!closes.length) return list.loading ? <Empty title="Loading…" text="" /> : <Empty title="Nothing waiting" text="Every case line here is Ready." />
 
   const run = async (done, fn, ...args) => {
-    setBusy(true); setError(null)
+    setBusy(true)
     if (await fb.run(() => fn(...args), done)) { setAsking(null); setReason('') }
     setBusy(false)
   }
   return (
     <div>
-      {error && <Notice tone="red">{error}</Notice>}
       <div style={{ display: 'grid', gap: 12 }}>
-        {closes.map(({ close, lines: ls }) => {
-          const deal = m.deals[close.dealId]
+        {closes.map(({ close, deal, lines: ls }) => {
           const total = sum(ls, l => l.amount)
           const needs = payoutApprovers(setup, deal.branchId, total)
           const queried = ls.find(l => l.query)
           // Flag (not block) an approver who is also paid on this close.
-          const paidNames = new Set(ls.flatMap(l => [m.staff[l.staffId].name, m.staff[l.staffId].short]))
+          const paidNames = new Set(ls.flatMap(l => [m.staff[l.staffId]?.name, m.staff[l.staffId]?.short]))
           const selfPaid = needs.filter(n => paidNames.has(n))
           return (
             <div key={close.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, background: '#fff' }}>
@@ -184,7 +215,7 @@ function ApprovalList({ lines, erp }) {
                     <Link to={`deals/${deal.id}`} style={mono}>{deal.code}</Link>
                     <span style={{ fontSize: 12.5, color: C.muted }}>{P.DEAL_TYPE_LABELS[deal.type]} · {m.branchName(deal.branchId)} · {closeType(close)}</span>
                   </div>
-                  <div style={{ fontWeight: 600, marginTop: 2 }}>{deal.property.title}</div>
+                  <div style={{ fontWeight: 600, marginTop: 2 }}>{deal['property.title']}</div>
                   <div style={{ fontSize: 12.5, color: C.muted }}>Closed {date(close.date)} · claim {rm(close.claim)} · net comm. {rm(close.net)}</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
@@ -228,6 +259,12 @@ function ApprovalList({ lines, erp }) {
           )
         })}
       </div>
+      {!all && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 12, fontSize: 13, color: C.muted }}>
+          <span style={tabular}>Showing {closes.length} of {count} closes</span>
+          <button style={small} disabled={list.loading} onClick={list.more}>{list.loading ? 'Loading…' : 'Show more'}</button>
+        </div>
+      )}
     </div>
   )
 }

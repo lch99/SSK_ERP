@@ -51,7 +51,23 @@ const SERVER = {
   moneyIn: { table: 'money_in', scope: { branch: viaDeal, team: viaDeal } },
   closes: { table: 'closes', scope: { branch: viaDeal, team: viaDeal } },
   sst: { table: 'closes', scope: { branch: viaDeal, team: viaDeal } },
-  payouts: { table: 'payout_lines', scope: { branch: viaDeal, team: (b, v) => b.whereIn('staff_id', v.team) } },
+  payouts: {
+    table: 'payout_lines', scope: { branch: viaDeal, team: (b, v) => b.whereIn('staff_id', v.team) },
+    custom: {
+      // shared/lists.js closeKind(): partial = not full; balance = full after a partial (part 2 on); full = the rest.
+      closeType: {
+        apply: (b, v) => {
+          const kind = {
+            partial: x => x.where(y => y.whereNull('closes.full').orWhere('closes.full', 0)),
+            balance: x => x.where('closes.full', 1).where('closes.part_no', '>', 1),
+            full: x => x.where('closes.full', 1).where(y => y.whereNull('closes.part_no').orWhere('closes.part_no', '<=', 1)),
+          }[v];
+          if (!kind) return b.whereRaw('1 = 0');
+          return b.whereIn('payout_lines.close_id', sub => kind(sub.select('closes.id').from('closes')));
+        },
+      },
+    },
+  },
   requests: { table: 'pay_requests', scope: byStaff },
   archives: { table: 'archives' },
   moneyOut: { table: 'money_out', scope: { branch: viaDeal, team: viaDeal }, columns: { 'payee.name': 'payee_name' } },
@@ -164,7 +180,7 @@ function serverSpec(key) {
     sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, col(f)])),
     sort: shared.sort,
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
-      typeof c === 'string' ? { col: col(c) } : c.only ? { only: c.only, sum: col(c.sum), keep: c.keep || [] } : c])),
+      typeof c === 'string' ? { col: col(c) } : c.only ? { only: c.only, sum: col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct) } : c])),
     extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => extraOf(k, e)) : null,
   };
 }

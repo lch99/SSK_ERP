@@ -29,7 +29,8 @@ function valuesFor(rule, records) {
   const seen = f => [...new Set(records.map(r => get(r, f)).filter(v => v != null && v !== ''))];
   if (rule.eq) { const vals = seen([].concat(rule.eq)[0]); return [vals[0], vals.slice(0, 2).join(','), 'none'].filter(v => v !== undefined && v !== ''); }
   if (rule.from || rule.to) { const vals = seen(rule.from || rule.to).sort(); return vals.length ? [vals[Math.floor(vals.length / 2)]] : []; }
-  if (rule.yes || rule.notNull || rule.custom) return ['true', 'false'];
+  if (rule.custom) return rule.values || ['true', 'false'];
+  if (rule.yes || rule.notNull) return ['true', 'false'];
   // The same text in another case still matches.
   if (rule.is) { const vals = seen(rule.is).map(String); return vals.length ? [vals[0], vals[0].toUpperCase()] : []; }
   if (rule.via) return valuesFor(rule.rule, L.recordsOf(state.data, rule.of));
@@ -115,8 +116,20 @@ test('an Excel download has the rows the demo would write, for the same filters'
 });
 
 test('ready to close: open E-Forms whose cleared cash can be closed now', async () => {
-  const ctx = { data: state.data, today: localToday(), setup: state.setup };
-  const want = L.listPage(state.data.deals, L.LISTS.deals, { ready: 'true', size: 200 }, ctx);
-  assert.ok(want.total > 0, 'the sample has E-Forms ready to close');
+  // The sample is made up afresh for each day, and some days have none: then the rest of one open bill clears.
+  const ready = data => L.listPage(data.deals, L.LISTS.deals, { ready: 'true', size: 200 }, { data, today: localToday(), setup: state.setup });
+  let data = state.data;
+  if (!ready(data).total) {
+    const open = L.listPage(data.deals, L.LISTS.deals, { status: 'submitted', size: 200 }, { data, today: localToday(), setup: state.setup }).rows
+      .find(d => d.$.closed === 0);
+    const id = Math.max(...data.moneyIn.map(t => t.id)) + 1;
+    await db('money_in').insert({ id, code: `TRAN#${id}`, deal_id: open.id, date: localToday(), bank_on: localToday(), clears_on: localToday(),
+      amount: Math.round((open.money.billed - open.$.cleared) * 100) / 100 + 1, method: 'online', purpose: 'commission', status: 'cleared' });
+    data = (await api.call('GET', '/erp/state')).body.data;
+  }
+  const want = ready(data);
+  assert.ok(want.total > 0, 'an E-Form is ready to close');
   for (const d of want.rows) assert.ok(L.readyLeft(d, d.$, state.setup) > 0, d.code);
+  const got = await api.call('GET', '/erp/deals?ready=true&size=200');
+  assert.deepEqual(got.body.rows.map(x => x.id), want.rows.map(x => x.id));
 });
