@@ -119,6 +119,8 @@ const LISTINGS = {
     areaManager: { custom: 'areaManagerOf' },
     titleHandler: { via: 'titleId', of: 'titles', rule: { eq: 'handlerId' } },
     fromOwner: { custom: 'fromOwnerRequest', values: ['true', 'false'] },
+    // Free for an E-Form: none on it yet, this E-Form's own (its id), or one that was aborted.
+    freeFor: { custom: 'freeForDeal', values: ['0', '1'] },
   },
   sorts: { created: 'created', updated: 'updated', price: 'askPrice', priceUpdated: 'priceUpdated', photosOn: 'photosOn', code: 'code', views: 'views',
     title: 'title', followUp: { last: 'followUps', field: 'date' } },
@@ -549,6 +551,7 @@ const CUSTOM = {
   favouriteOf: (r, v, ctx) => (ctx.data?.favourites?.[personId(v)]?.listings || []).includes(r.id),
   // The nearest upline holding the second-most-senior level (an area manager) of the listing's holder.
   areaManagerOf: (r, v, ctx) => ctx.once('areaManagers', () => areaManagers(ctx.data?.staff || [], ctx.setup)).get(r.holderId) === personId(v),
+  freeForDeal: (r, v, ctx) => r.dealId == null || same(r.dealId, valueOf(v)) || ctx.byId('deals').get(r.dealId)?.status === 'cancelled',
   fromOwnerRequest: (r, v, ctx) => ctx.once('fromOwner', () => new Set((ctx.data?.vendorRequests || []).map(x => x.listingId).filter(x => x != null))).has(r.id) === truthy(v),
   viewsListing: (r, v) => personId(v) != null && (r.listingIds || []).includes(personId(v)),
   waitingFor: (r, v) => personId(v) != null && ((r.handlerId === personId(v) && ['new', 'rescheduled'].includes(r.status)) || (r.requestedBy === personId(v) && r.status === 'review')),

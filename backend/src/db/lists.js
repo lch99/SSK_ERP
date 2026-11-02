@@ -110,6 +110,10 @@ const LISTING_RULES = {
     },
     apply: (b, v, ids) => (ids.length ? b.whereIn('listings.holder_id', ids) : b.whereRaw('1 = 0')),
   },
+  freeForDeal: {
+    apply: (b, v) => b.where(x => x.whereNull('listings.deal_id').orWhere('listings.deal_id', personId(v) ?? -1)
+      .orWhereIn('listings.deal_id', sub => sub.select('id').from('deals').where('status', 'cancelled'))),
+  },
   fromOwnerRequest: {
     apply: (b, v) => b[truthy(v) ? 'whereIn' : 'whereNotIn']('listings.id', sub => sub.select('listing_id').from('vendor_requests').whereNotNull('listing_id')),
   },

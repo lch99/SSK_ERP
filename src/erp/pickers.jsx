@@ -45,3 +45,15 @@ export function TitlePicker({ value, onChange, area, not, placeholder = 'Select 
     options={[{ value: '', label: placeholder }, ...rows.map(t => ({ value: String(t.id), label: `${t.name} (${t.area})` }))]}
     more={Math.max(0, list.total - list.rows.length)} loading={list.loading || list.searching} />
 }
+
+// A listing on the market in the whole agency, free for this E-Form (`dealId`; none on it yet, or
+// aborted), by code, title or holder. `chosen`: the listing picked, which stays in the list.
+export function ListingPicker({ value, onChange, type, dealId, chosen }) {
+  const { m } = useErp()
+  const [q, setQ] = useState('')
+  const list = useList('agency', { q, type, status: 'active', freeFor: dealId || 0, sort: '-created', counts: '0' }, { branch: false, pageSize: 30 })
+  const rows = chosen && !q.trim() && !list.rows.some(x => x.id === chosen.id) ? [chosen, ...list.rows] : list.rows
+  return <Select block plain label="Listing" value={value} onChange={v => onChange(v, rows.find(x => String(x.id) === v) || null)} onSearch={setQ}
+    options={[{ value: '', label: 'Select the listing' }, ...rows.map(l => ({ value: String(l.id), label: `${l.code} · ${l.title}, ${l.area} · RM ${Number(l.askPrice || 0).toLocaleString('en-MY')} · ${m.staffName(l.holderId)}` }))]}
+    more={Math.max(0, list.total - list.rows.length)} loading={list.loading || list.searching} />
+}

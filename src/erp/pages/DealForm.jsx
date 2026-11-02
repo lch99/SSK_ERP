@@ -3,11 +3,13 @@ import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { docNames } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
+import { useRecord } from '../useList.js'
+import { ListingPicker } from '../pickers.jsx'
 import { PARTY, DEAL_STATUS, isAgent, r2 } from '../model.js'
 import { Page, Card, Segmented, Select, Notice, FormField, FileInput, TextArea, Status, go, field, mono, tabular } from '../ui.jsx'
 import { CARD, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
-import { rm, rm0, pct, date, maskIc } from '../format.js'
+import { rm, pct, date, maskIc } from '../format.js'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
 import { BANKS } from './options.js'
 import { useCan } from '../access.jsx'
@@ -31,15 +33,26 @@ function fromDeal(d) {
   }
 }
 
+// The E-Form being changed (with its cash and listing code), and the listing it
+// starts from (#/deals/new?listing=<id>, through the Whole agency), read first.
 export default function DealForm({ id }) {
+  const query = new URLSearchParams(window.location.hash.split('?')[1] || '')
+  const { record: deal, loading } = useRecord('deals', id || null)
+  const { record: listing, loading: listingLoading } = useRecord('agency', Number(id ? deal?.listingId : query.get('listing')) || null)
+  if ((id && loading) || listingLoading) return <Page title="Loading…" back={{ to: 'deals', label: 'All E-Forms' }} />
+  if (id && !deal) return <Page title="E-Form not found" back={{ to: 'deals', label: 'All E-Forms' }}><Notice tone="red">This E-Form no longer exists, or it is not one you can see.</Notice></Page>
+  return <Form key={id || 'new'} id={id} deal={deal} startListing={listing} query={query} />
+}
+
+function Form({ id, deal, startListing, query }) {
   const erp = useErp()
   const can = useCan()
   const { m, setup } = erp
   const fb = useFeedback()
   const review = useReview()
-  const deal = id ? m.deals[id] : null
   const enabled = P.DEAL_TYPES.filter(t => setup.dealTypes[t]?.enabled)
-  const query = new URLSearchParams(window.location.hash.split('?')[1] || '')
+  // The listing picked (a record from the Whole agency list), for its holders, address and code.
+  const [listing, setListing] = useState(startListing)
   const [f, setF] = useState(() => {
     if (deal) return fromDeal(deal)
     const type = enabled.includes(query.get('type')) ? query.get('type') : enabled[0]
@@ -47,13 +60,11 @@ export default function DealForm({ id }) {
     const start = { type, date: m.today, listingId: '', agentId: '', holderId: '', price: '', feePct: String(rate), fee: '', buyer: blankParty(), owner: blankParty(),
       otherBuyers: [], otherOwners: [], coBroke: null, referral: null, rental: { months: 12, deposit: 2, utility: 0.5, advance: 1, taFee: 0 },
       property: { title: '', address: '', category: 'Condominium' }, remark: '', files: {} }
-    const l = m.listings[Number(query.get('listing'))]
-    return l ? pickListing(start, l) : start
+    return startListing ? pickListing(start, startListing) : start
   })
   const [errors, setErrors] = useState(null)
   const [busy, setBusy] = useState(false)
-  if (id && !deal) return <Page title="E-Form not found" back={{ to: 'deals', label: 'All E-Forms' }}><Notice tone="red">This E-Form no longer exists.</Notice></Page>
-  const locked = deal && (m.closesByDeal[deal.id] || []).length > 0
+  const locked = deal && deal.$.closeIds.length > 0
   const party = PARTY[f.type]
   const dt = setup.dealTypes
 
@@ -69,13 +80,12 @@ export default function DealForm({ id }) {
   const setPrice = v => setF(s => ({ ...s, price: v, fee: v && s.feePct !== '' ? String(r2(Number(v) * Number(s.feePct) / 100)) : s.fee }))
   const setPct = v => setF(s => ({ ...s, feePct: v, fee: s.price && v !== '' ? String(r2(Number(s.price) * Number(v) / 100)) : s.fee }))
   const setFee = v => setF(s => ({ ...s, fee: v, feePct: s.price && v !== '' ? String(r2(Number(v) / Number(s.price) * 100)) : s.feePct }))
-  const setType = t => setF(s => ({ ...s, type: t, listingId: '', holderId: '', feePct: String(dt[t]?.defaultRate ?? s.feePct), fee: s.price ? String(r2(Number(s.price) * Number(dt[t]?.defaultRate ?? 0) / 100)) : '' }))
+  const setType = t => { setListing(null); setF(s => ({ ...s, type: t, listingId: '', holderId: '', feePct: String(dt[t]?.defaultRate ?? s.feePct), fee: s.price ? String(r2(Number(s.price) * Number(dt[t]?.defaultRate ?? 0) / 100)) : '' })) }
 
-  const listing = f.listingId ? m.listings[Number(f.listingId)] : null
-  const listings = m.data.listings.filter(l => l.type === f.type && (l.id === Number(f.listingId) || (l.status === 'active' && (!l.dealId || l.dealId === deal?.id || m.deals[l.dealId]?.status === 'cancelled'))))
-    .sort((a, b) => b.id - a.id)
   const agents = m.data.staff.filter(s => (isAgent(s) && s.status === 'active') || String(s.id) === f.agentId).sort((a, b) => a.short.localeCompare(b.short))
-  const holders = listing ? [...new Set([listing.holderId, ...(listing.share?.coPh || []).map(c => c.staffId)])].map(sid => m.staff[sid]).filter(Boolean) : []
+  // The listing's holder and co-product handlers (or, when the listing can't be opened, the E-Form's own).
+  const holders = (listing ? [...new Set([listing.holderId, ...(listing.share?.coPh || []).map(c => c.staffId)])] : f.holderId ? [Number(f.holderId)] : [])
+    .map(sid => m.staff[sid]).filter(Boolean)
   const agent = m.staff[Number(f.agentId)]
   const bm = agent && m.branchManagerOf(agent.id), am = agent && m.areaManagerOf(agent.id)
   const money = P.dealMoney({ fee: Number(f.fee) || 0, sstPct: dt.sstPct, sstMode: dt.sstMode, coBroke: !!f.coBroke, coaSharePct: dt.coaSharePct, referral: !!f.referral, referralPct: dt.referralPct })
@@ -91,7 +101,9 @@ export default function DealForm({ id }) {
     others.length ? ['Others', others.map(o => o.name).filter(Boolean).join(', ')] : null]
   const months = (label, k) => [label, `${f.rental[k]} month${Number(f.rental[k]) === 1 ? '' : 's'} · ${rm((Number(f.price) || 0) * Number(f.rental[k] || 0))}`]
   // What a reader would call changed, side by side (for Save changes on a submitted E-Form).
-  const flat = x => ({ type: P.DEAL_TYPE_LABELS[x.type], date: x.date, listing: m.listings[Number(x.listingId)]?.code, agent: who(x.agentId), holder: who(x.holderId),
+  // A listing's code: the one picked, or the one the E-Form had.
+  const codeOf = lid => (!lid ? '' : listing && String(listing.id) === String(lid) ? listing.code : deal && String(deal.listingId) === String(lid) ? deal.$.listingCode : '')
+  const flat = x => ({ type: P.DEAL_TYPE_LABELS[x.type], date: x.date, listing: codeOf(x.listingId), agent: who(x.agentId), holder: who(x.holderId),
     price: x.price, feePct: x.feePct, fee: x.fee, buyer: x.buyer.name, buyerIc: x.buyer.ic, buyerPhone: x.buyer.phone, owner: x.owner.name, ownerIc: x.owner.ic, ownerPhone: x.owner.phone,
     coBroke: x.coBroke?.agency || '', referral: x.referral?.name || '', remark: x.remark })
   const money2 = v => rm(Number(v) || 0)
@@ -197,15 +209,15 @@ export default function DealForm({ id }) {
             <FormField label="Branch Manager · Area Manager"><input style={{ ...field, background: C.bg }} readOnly value={agent ? `${bm?.short || '—'} · ${am?.short || '—'}` : 'From the agent'} /></FormField>
             {f.type !== 'project' ? (
               <>
-                <FormField label="Listing" required help={listings.length ? null : `No free ${f.type === 'sale' ? 'sale' : 'rental'} listing. Add the listing first.`}>
-                  <Select block plain label="Listing" value={f.listingId} onChange={v => setF(s => (v ? pickListing(s, m.listings[Number(v)]) : { ...s, listingId: '', holderId: '' }))}
-                    options={[{ value: '', label: 'Select the listing' }, ...listings.map(l => ({ value: String(l.id), label: `${l.code} · ${l.title}, ${l.area} · ${rm0(l.askPrice)}` }))]} />
+                <FormField label="Listing" required help="Any listing on the market in the agency, by code, title or holder. Add the listing first if it isn't there.">
+                  <ListingPicker value={f.listingId} type={f.type} dealId={deal?.id} chosen={listing}
+                    onChange={(v, l) => { setListing(l); setF(s => (l ? pickListing(s, l) : { ...s, listingId: '', holderId: '' })) }} />
                 </FormField>
                 <FormField label="Product Handler" help="The listing holder, or a co-product handler on it">
                   <Select block plain label="Product Handler" value={f.holderId} onChange={v => set('holderId', v)}
                     options={holders.length ? holders.map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` })) : [{ value: '', label: 'From the listing' }]} />
                 </FormField>
-                <FormField label="Property Address" wide><input style={{ ...field, background: C.bg }} readOnly value={listing ? listing.address : 'From the listing'} /></FormField>
+                <FormField label="Property Address" wide><input style={{ ...field, background: C.bg }} readOnly value={listing?.address || f.property.address || 'From the listing'} /></FormField>
                 <FormField label="Property Type"><input style={{ ...field, background: C.bg }} readOnly value={listing?.category || '—'} /></FormField>
               </>
             ) : (
