@@ -42,9 +42,11 @@
 // download: { file, sheet, widths?, columns: [[label, field | row => value]] }   the Excel download (downloadRows)
 // readers: { area: record => record }   other areas that may read the list too, with what they may not see taken out
 // fields: [fields]               the rows carry only these (a list over another kind that needs a few of its fields)
+// mine: (record, viewer) => bool  each person's own, whatever their role (notifications); viewer: { key, branchId }
+// area: null                     everyone may read it (their own)
 import { teamOf } from './access.js'
 import { payslipTotals } from './payout.js'
-import { buildingRankings } from './listings.js'
+import { buildingRankings, noticeFor } from './listings.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
 
 export const DEFAULT_SIZE = 50
@@ -388,6 +390,15 @@ export const LISTS = {
 
   propertyTypes: { area: 'listings', search: ['name'], sorts: { name: 'name' }, sort: 'name' },
 
+  // Notifications: each person's own (to them, their branch or everyone), newest first.
+  notices: {
+    area: null, mine: (n, who) => noticeFor(n, who.key, who.branchId),
+    search: ['text'],
+    filters: { cat: { eq: 'cat' }, unread: { custom: 'unreadBy', values: ['0', '1', 'x'] } },
+    sorts: { at: 'at' }, sort: '-at',
+    counts: { cat: 'cat' },
+  },
+
   projects: {
     area: 'projects',
     search: ['name', 'developer', 'location'], filters: { status: { eq: 'status' } },
@@ -461,6 +472,8 @@ export const closeKind = c => (!c.full ? 'partial' : c.partNo > 1 ? 'balance' : 
 const CUSTOM = {
   readyToClose: (r, v, ctx) => truthy(v) === (readyLeft(r, ctx.cash().get(r.id), ctx.setup) > 0),
   closeType: (r, v, ctx) => { const c = ctx.byId('closes').get(r.closeId); return !!c && closeKind(c) === v },
+  // Not read yet by that person (their key: staff id, 0 = an office account).
+  unreadBy: (r, v) => personId(v) != null && !(r.readBy || []).includes(personId(v)),
   readyPay: (r, v, ctx) => !!ctx.once(`readyPay:${v}`, () => {
     const has = new Set()
     if (v === 'salary' || v === 'incentives') for (const p of ctx.data?.payouts || []) if (isReady(p) && !p.stacked && !!p.role === (v === 'incentives')) has.add(p.staffId)
@@ -584,7 +597,9 @@ function addUp(hits, def) {
     ...(def.range && { range: { min: vals[0] ?? null, max: vals.at(-1) ?? null } }) }
 }
 
-function run(records, spec, params, ctx, all) {
+function run(all_records, spec, params, ctx, all) {
+  // A list of each person's own: theirs only, whatever their role.
+  const records = spec.mine ? all_records.filter(r => spec.mine(r, ctx.viewer || { key: 0, branchId: null })) : all_records
   // Teams, E-Form cash and lookups by id are worked out once per call, not once per record.
   const teams = new Map(), byKind = new Map(), memo = new Map()
   let cashByDeal = null

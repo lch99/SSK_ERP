@@ -32,7 +32,8 @@ test('a branch viewer and a team viewer see what the demo shows them, in every l
   for (const v of viewers) {
     const shown = AC.visibleData(data, { staffId: v.staffId, branchId: v.branchId }, v.scope);
     for (const [key, spec] of Object.entries(LISTS)) {
-      const want = SL.recordsOf(shown, key).map(x => x.id).sort((a, b) => a - b);
+      const own = SL.LISTS[key].mine ? r => SL.LISTS[key].mine(r, { key: v.staffId ?? 0, branchId: v.branchId }) : () => true;
+      const want = SL.recordsOf(shown, key).filter(own).map(x => x.id).sort((a, b) => a - b);
       assert.deepEqual(await allIds(spec, v), want, `${key}, ${v.scope}`);
       // An Excel download holds the same rows, never more.
       if (spec.download) assert.deepEqual((await listAll(db, spec, {}, scopeFor(spec, v))).rows.map(x => x.id).sort((a, b) => a - b), want, `${key} download, ${v.scope}`);

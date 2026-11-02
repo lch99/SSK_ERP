@@ -21,7 +21,10 @@ function source(erp, access, key, { branch = true } = {}) {
   // "View the ERP as": the server limits the list to that role and person (the demo's records are limited already).
   if (!DEMO && access?.viewing) Object.assign(extra, { as: access.who.role, asStaff: access.who.staffId ?? '' })
   const records = () => recordsOf(branch === true || !all ? erp.scoped : erp.m.data, key)
-  const ctx = { data: erp.m?.data, today: erp.m?.today, setup: erp.setup }
+  // Who is asking, for a list of each person's own (notifications), as the server works it out.
+  const staffId = access?.who?.staffId ?? null
+  const viewer = { key: staffId ?? 0, branchId: (staffId != null ? erp.m?.staff[staffId]?.branchId : null) ?? access?.who?.branchId ?? null }
+  const ctx = { data: erp.m?.data, today: erp.m?.today, setup: erp.setup, viewer }
   return { spec, extra, records, ctx }
 }
 

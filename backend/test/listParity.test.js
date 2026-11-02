@@ -22,6 +22,8 @@ const get = (r, path) => path.split('.').reduce((v, k) => (v == null ? v : v[k])
 // A search field's text on a record, through the record it points at for { via, of, fields }.
 const searchText = (r, f) => (typeof f === 'string' ? get(r, f) : f.digits ? L.phoneDigits(get(r, f.digits)).slice(2, 7)
   : get(L.recordsOf(state.data, f.of).find(x => x.id === get(r, f.via)), f.fields[0]));
+// The demo user the server sees with sign-in off (an office account: key 0, no branch).
+const ME = { key: 0, branchId: null };
 const query = params => new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
 
 // A few values each filter can take, from the records themselves.
@@ -58,7 +60,7 @@ function cases(key, spec, records) {
 }
 
 test('every list gives the same page in the demo and on the server', async () => {
-  const ctx = { data: state.data, today: localToday(), setup: state.setup };
+  const ctx = { data: state.data, today: localToday(), setup: state.setup, viewer: ME };
   let checked = 0;
   for (const [key, spec] of Object.entries(L.LISTS)) {
     const records = L.recordsOf(state.data, key);
@@ -78,7 +80,7 @@ test('every list gives the same page in the demo and on the server', async () =>
 });
 
 test('one record carries the same extras as its row in the list', async () => {
-  const ctx = { data: state.data, today: localToday(), setup: state.setup };
+  const ctx = { data: state.data, today: localToday(), setup: state.setup, viewer: ME };
   for (const [key, spec] of Object.entries(L.LISTS)) {
     if (!spec.extras) continue;
     const records = L.recordsOf(state.data, key);
@@ -93,7 +95,7 @@ test('one record carries the same extras as its row in the list', async () => {
 
 test('an Excel download has the rows the demo would write, for the same filters', async () => {
   const { readXlsx } = await import('../../src/setup/sheet.js');
-  const ctx = { data: state.data, today: localToday(), setup: state.setup };
+  const ctx = { data: state.data, today: localToday(), setup: state.setup, viewer: ME };
   const cell = v => (v === '' || v == null ? '' : String(v));
   let checked = 0;
   for (const [key, spec] of Object.entries(L.LISTS)) {
@@ -151,7 +153,7 @@ test('an E-Form\'s earners\' tier credit from the server is the rule run on ever
 });
 
 test('a phone number is found by its digits, whatever dashes or spaces it is written with', async () => {
-  const ctx = { data: state.data, today: localToday(), setup: state.setup };
+  const ctx = { data: state.data, today: localToday(), setup: state.setup, viewer: ME };
   const v = state.data.vendorRequests.find(x => /\d-\d/.test(x.phone));
   assert.ok(v, 'a request with a dashed phone');
   const digits = L.phoneDigits(v.phone);

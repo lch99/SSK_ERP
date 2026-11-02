@@ -5,6 +5,7 @@ import { useErp } from './ErpContext.jsx'
 import { useCan } from './access.jsx'
 import { useFeedback } from './feedback.jsx'
 import { useViewer } from './listingLife.jsx'
+import { useList } from './useList.js'
 import { Page, Card, Tabs, Pill, Empty, Modal, FormField, Select, TextArea, Notice, go, small, field } from './ui.jsx'
 import { PAGE } from './help.js'
 import { ago } from './format.js'
@@ -14,11 +15,13 @@ import Icon from './Icon.jsx'
 // requests and replies, price changes and sales on favourites, becoming a
 // listing's product handler or a building's lead, commission ready to claim,
 // and notices the office sends. Each person's own; read state is theirs too.
-export function useNotices() {
-  const { m } = useErp()
+// The newest `size` of them and how many are unread, from the notices list
+// (the server keeps each person's own), whatever branch the top bar shows.
+export function useNotices(size = 10) {
   const v = useViewer()
-  const list = (m?.data.notices || []).filter(n => L.noticeFor(n, v.key, v.branchId))
-  return { list, unread: list.filter(n => !n.readBy.includes(v.key)), key: v.key }
+  const latest = useList('notices', { counts: '0' }, { branch: false, pageSize: size })
+  const unread = useList('notices', { unread: v.key, counts: '0' }, { branch: false, pageSize: 1 })
+  return { list: latest.rows, total: latest.total, unread: unread.total, key: v.key }
 }
 
 function NoticeLine({ n, unread, onOpen, compact }) {
@@ -61,21 +64,21 @@ export function NoticeBell() {
   }
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(!open)} aria-expanded={open} aria-label={`Notifications${unread.length ? `, ${unread.length} unread` : ''}`} title="Notifications"
+      <button onClick={() => setOpen(!open)} aria-expanded={open} aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} title="Notifications"
         style={{ ...btn, padding: 8, boxShadow: 'none', position: 'relative', background: open ? C.grayBg : '#fff' }}>
         <Icon name="bell" size={18} />
-        {unread.length > 0 && <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 99, background: C.primary, color: '#fff', fontSize: 11, fontWeight: 700,
-          display: 'grid', placeItems: 'center', padding: '0 4px', boxSizing: 'border-box', border: '2px solid #fff' }}>{unread.length > 99 ? '99+' : unread.length}</span>}
+        {unread > 0 && <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 99, background: C.primary, color: '#fff', fontSize: 11, fontWeight: 700,
+          display: 'grid', placeItems: 'center', padding: '0 4px', boxSizing: 'border-box', border: '2px solid #fff' }}>{unread > 99 ? '99+' : unread}</span>}
       </button>
       {open && (
         <div role="dialog" aria-label="Notifications" className="ssk-fade" style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 'min(380px, calc(100vw - 24px))', maxHeight: 'min(520px, 75vh)', overflowY: 'auto',
           background: '#fff', border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: C.shadowLg, zIndex: 40 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: `1px solid ${C.border}`, position: 'sticky', top: 0, background: '#fff' }}>
             <b style={{ flex: 1, fontSize: 14 }}>Notifications</b>
-            {unread.length > 0 && <button style={{ ...small, fontSize: 12 }} onClick={() => erp.readNotices('all', key)}>Mark all read</button>}
+            {unread > 0 && <button style={{ ...small, fontSize: 12 }} onClick={() => erp.readNotices('all', key)}>Mark all read</button>}
           </div>
           {!list.length ? <p style={{ padding: 16, margin: 0, fontSize: 13.5, color: C.muted }}>Nothing yet. You will hear about viewings, your favourites and your commission here.</p>
-            : <div style={{ padding: 4 }}>{list.slice(0, 10).map(n => <NoticeLine key={n.id} n={n} unread={!n.readBy.includes(key)} onOpen={openOne} compact />)}</div>}
+            : <div style={{ padding: 4 }}>{list.map(n => <NoticeLine key={n.id} n={n} unread={!n.readBy.includes(key)} onOpen={openOne} compact />)}</div>}
           <div style={{ padding: 8, borderTop: `1px solid ${C.border}`, textAlign: 'center' }}>
             <a href="#/notifications" onClick={() => setOpen(false)} style={{ fontSize: 13, fontWeight: 600, color: C.primaryDark }}>See all notifications</a>
           </div>
@@ -85,29 +88,32 @@ export function NoticeBell() {
   )
 }
 
+// Every notification a page at a time (useList): All, Unread or one kind.
 export function Notifications() {
   const erp = useErp()
-  const { list, unread, key } = useNotices()
+  const { total, unread, key } = useNotices(1)
   const can = useCan()
   const [cat, setCat] = useState('')
   const [sending, setSending] = useState(false)
-  const [limit, setLimit] = useState(30)
-  const cats = Object.entries(L.NOTICE_CAT).filter(([k]) => list.some(n => n.cat === k))
-  const rows = list.filter(n => (cat === 'unread' ? !n.readBy.includes(key) : !cat || n.cat === cat))
+  const byCat = useList('notices', { counts: 'cat' }, { branch: false, pageSize: 1 }).counts.cat || {}
+  const shown = useList('notices', { ...(cat === 'unread' ? { unread: key } : { cat }), counts: '0' }, { branch: false, pageSize: 30 })
+  const cats = Object.entries(L.NOTICE_CAT).filter(([k]) => byCat[k])
+  const rows = shown.rows
   const openOne = n => { if (!n.readBy.includes(key)) erp.readNotices([n.id], key); if (n.link) go(n.link) }
   return (
     <Page title="Notifications" help={PAGE.notifications} sub="What happened to your viewings, favourites, listings and commission, and notices from the office."
       actions={<>
-        {unread.length > 0 && <button style={btn} onClick={() => erp.readNotices('all', key)}>Mark all read</button>}
+        {unread > 0 && <button style={btn} onClick={() => erp.readNotices('all', key)}>Mark all read</button>}
         {can('staff', 'edit') && <button style={btnPrimary} onClick={() => setSending(true)}>Send a notice</button>}
       </>}>
       <Card pad={16}>
-        <Tabs value={cat} onChange={c => { setCat(c); setLimit(30) }} tabs={[{ key: '', label: 'All', count: list.length }, { key: 'unread', label: 'Unread', count: unread.length },
-          ...cats.map(([k, c]) => ({ key: k, label: c.label, count: list.filter(n => n.cat === k).length }))]} />
-        {!rows.length ? <Empty icon="bell" title="Nothing here" /> : (
+        <Tabs value={cat} onChange={setCat} tabs={[{ key: '', label: 'All', count: total }, { key: 'unread', label: 'Unread', count: unread },
+          ...cats.map(([k, c]) => ({ key: k, label: c.label, count: byCat[k] }))]} />
+        {shown.error && <Notice tone="red">{shown.error}</Notice>}
+        {!rows.length ? <Empty icon="bell" title={shown.loading ? 'Loading…' : 'Nothing here'} /> : (
           <div style={{ display: 'grid', gap: 2 }}>
-            {rows.slice(0, limit).map(n => <NoticeLine key={n.id} n={n} unread={!n.readBy.includes(key)} onOpen={openOne} />)}
-            {rows.length > limit && <div style={{ textAlign: 'center', marginTop: 8 }}><button style={small} onClick={() => setLimit(limit + 30)}>Show more ({rows.length - limit} left)</button></div>}
+            {rows.map(n => <NoticeLine key={n.id} n={n} unread={!n.readBy.includes(key)} onOpen={openOne} />)}
+            {rows.length < shown.total && <div style={{ textAlign: 'center', marginTop: 8 }}><button style={small} disabled={shown.loading} onClick={shown.more}>Show more ({shown.total - rows.length} left)</button></div>}
           </div>
         )}
       </Card>

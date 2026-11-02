@@ -221,9 +221,11 @@ const listOf = (req, res) => {
 // A list's own area may read it, and so may its `readers` (shared/lists.js),
 // each record with what that reader may not see taken out.
 const areasOf = spec => [spec.area, ...Object.keys(spec.readers)];
+// Who may read a list: its areas, or everyone (area: null, each person's own).
+const gateOf = spec => (spec.area == null ? (req, res, next) => next() : needs(areasOf(spec)));
 // A list that names its `fields` sends only those.
 const asReader = (spec, v) => {
-  const strip = AC.allows(v.policy, v.role, spec.area, 'view') ? r => r
+  const strip = spec.area == null || AC.allows(v.policy, v.role, spec.area, 'view') ? r => r
     : Object.entries(spec.readers).find(([area]) => AC.allows(v.policy, v.role, area, 'view'))?.[1] || (r => r);
   return r => trimmed(spec, strip(r));
 };
@@ -231,7 +233,7 @@ const asReader = (spec, v) => {
 router.get('/:list', wrap(async (req, res, next) => {
   const spec = listOf(req, res);
   if (!spec) return;
-  needs(areasOf(spec))(req, res, async () => {
+  gateOf(spec)(req, res, async () => {
     try {
       const v = await viewerOf(req);
       const page = await listPage(db, spec, { ...req.query }, scopeFor(spec, v));
@@ -244,7 +246,7 @@ router.get('/:list/download', wrap(async (req, res, next) => {
   const spec = listOf(req, res);
   if (!spec) return;
   if (!spec.download) return notFound(res);
-  needs(areasOf(spec))(req, res, async () => {
+  gateOf(spec)(req, res, async () => {
     try {
       const v = await viewerOf(req);
       // One transaction: the rows are read in chunks from one snapshot, so a save meanwhile can't shift them.
@@ -265,7 +267,7 @@ router.get('/:list/download', wrap(async (req, res, next) => {
 router.get('/:list/:id', wrap(async (req, res, next) => {
   const spec = listOf(req, res);
   if (!spec) return;
-  needs(areasOf(spec))(req, res, async () => {
+  gateOf(spec)(req, res, async () => {
     try {
       const id = idOf(req.params.id);
       const v = await viewerOf(req);

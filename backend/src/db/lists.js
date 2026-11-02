@@ -122,6 +122,22 @@ const SERVER = {
   areas: { table: 'areas', scope: { branch: inBranch, team: inBranch } },
   videos: { table: 'videos' },
   propertyTypes: { table: 'property_types' },
+  notices: {
+    table: 'notices',
+    // Every role: the person's own (shared/listings.js noticeFor). An office account is 0.
+    scope: { every: (b, v) => b.whereIn('notices.to_whom', [String(v.staffId ?? 0), 'all', ...(v.branchId != null ? [`branch:${v.branchId}`] : [])]) },
+    custom: {
+      // Not in read_by (a JSON array of keys), read as MySQL and SQLite each search JSON.
+      unreadBy: {
+        apply: (b, v) => {
+          const key = personId(v);
+          if (key == null) return b.whereRaw('1 = 0');
+          if (/mysql/.test(b.client.config.client)) return b.whereRaw("not json_contains(coalesce(notices.read_by, '[]'), ?)", [String(key)]);
+          return b.whereRaw("not exists (select 1 from json_each(coalesce(notices.read_by, '[]')) where json_each.value = ?)", [key]);
+        },
+      },
+    },
+  },
   projects: { table: 'projects' },
   v1Eforms: { table: 'v1_eforms', scope: byStaff },
   v1Overrides: { table: 'v1_overrides', scope: byStaff },
@@ -219,7 +235,7 @@ function serverSpec(key) {
   const searchOf = f => (typeof f === 'string' ? col(f) : f.digits ? { digits: col(f.digits) }
     : { via: col(f.via), table: MODELS[f.of].table, cols: f.fields.map(g => columnOf(MODELS[f.of], g)) });
   return {
-    key, area: shared.area, readers: shared.readers || {}, fields: shared.fields, table: server.table, model, scope: server.scope, download: shared.download,
+    key, area: shared.area, readers: shared.readers || {}, fields: shared.fields, mine: shared.mine, table: server.table, model, scope: server.scope, download: shared.download,
     search: (shared.search || []).map(searchOf),
     filters: Object.fromEntries(Object.entries(shared.filters || {}).map(([k, rule]) => [k, filterOf(rule, col, server)])),
     sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, typeof f === 'string' ? col(f)
@@ -239,6 +255,8 @@ const LISTS = Object.fromEntries(Object.keys(SHARED.LISTS).map(k => [k, serverSp
 // The viewer's reach as a where clause on `spec`'s table (nothing for 'all').
 // A reach a list has no rule for sees nothing, never everything.
 function scopeFor(spec, viewer) {
+  // A list of each person's own: for every role.
+  if (spec.scope?.every) return b => spec.scope.every(b, viewer);
   if (viewer.scope === 'all' || !spec.scope) return () => {};
   const rule = spec.scope[viewer.scope];
   if (!rule || (viewer.scope === 'branch' && viewer.branchId == null)) return b => b.whereRaw('1 = 0');
