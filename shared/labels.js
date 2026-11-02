@@ -1,6 +1,15 @@
 // Labels the pages show and the server writes in Excel downloads (shared/lists.js
 // `download`), so a status reads the same on screen and in the file.
 
+// E-Forms: Draft → Submitted → Closed Partial / Closed Full, or Abort/Cancel.
+export const DEAL_STATUS = {
+  draft: { label: 'Draft', tone: 'gray', help: 'Saved by the agent but not submitted yet. Nothing is billed.' },
+  submitted: { label: 'Submitted', tone: 'blue', hint: 'Waiting for the client’s money', help: 'Submitted. Waiting for the client’s money to come in and clear.' },
+  partial: { label: 'Closed Partial', tone: 'violet', help: 'Part of the money is in and closed (paid out); the rest is still to come.' },
+  closed: { label: 'Closed Full', tone: 'green', help: 'All the money is in and closed. The payouts are made.' },
+  cancelled: { label: 'Abort/Cancel', tone: 'red', help: 'The deal fell through. Money received is refunded through Payments out.' },
+}
+
 // Money in (transactions): Draft → Pending → Clear, or Return / Invalid.
 export const MONEY_IN_STATUS = {
   draft: { label: 'Draft', tone: 'gray', help: 'Recorded, not checked yet.' },

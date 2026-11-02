@@ -2,8 +2,8 @@
 // labels for every status. Pages read from this instead of searching arrays.
 import * as P from '../../shared/payout.js'
 import { readyLeft } from '../../shared/lists.js'
-// Payment labels: the server writes them in Excel downloads too.
-export { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from '../../shared/labels.js'
+// E-Form and payment labels: the server writes them in Excel downloads too.
+export { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from '../../shared/labels.js'
 
 const r2 = n => Math.round(n * 100) / 100
 const sum = (xs, f) => r2((xs || []).reduce((s, x) => s + Number(f(x) || 0), 0))
@@ -11,13 +11,6 @@ const byId = arr => Object.fromEntries(arr.map(x => [x.id, x]))
 const group = (arr, key) => arr.reduce((m, x) => { (m[x[key]] ||= []).push(x); return m }, {})
 
 // Statuses and options with the current ERP's names (tone: gray | blue | amber | green | red | violet).
-export const DEAL_STATUS = {
-  draft: { label: 'Draft', tone: 'gray', help: 'Saved by the agent but not submitted yet. Nothing is billed.' },
-  submitted: { label: 'Submitted', tone: 'blue', hint: 'Waiting for the client’s money', help: 'Submitted. Waiting for the client’s money to come in and clear.' },
-  partial: { label: 'Closed Partial', tone: 'violet', help: 'Part of the money is in and closed (paid out); the rest is still to come.' },
-  closed: { label: 'Closed Full', tone: 'green', help: 'All the money is in and closed. The payouts are made.' },
-  cancelled: { label: 'Abort/Cancel', tone: 'red', help: 'The deal fell through. Money received is refunded through Payments out.' },
-}
 // Close-case lines: New → Pending Queries → Ready (approved; paid lines stay Ready).
 export const PAYOUT_STATUS = {
   new: { label: 'New', tone: 'amber', help: 'Made when the case closed. Waiting for the approver to check it.' },

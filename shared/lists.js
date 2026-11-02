@@ -23,7 +23,8 @@
 // counts: 'field'                { value: n } for each value, leaving out the filter of the same name
 //         { set: { key: value } | ctx => …, ignores? }   n with those filters set as well
 //         { only: ctx => { key: value }, sum: field, keep?, distinct? }   { n, sum } over these filters alone (and of the page's, those it keeps);
-//                                with distinct: field, also how many different values it has ({ n, sum, distinct })
+//                                with distinct: field, also how many different values it has ({ n, sum, distinct });
+//                                with range: field, its lowest and highest value ({ …, range: { min, max } })
 //         { only, custom: name, keep? }   CUSTOM_COUNTS below here over those records, and the same on the server
 //         { sum: field, distinct? }       { n, sum (, distinct) } over the page's own search and filters
 //         ?counts=a,b asks for those counts only; ?counts=0 for none (a later page)
@@ -39,7 +40,7 @@
 // fields: [fields]               the rows carry only these (a list over another kind that needs a few of its fields)
 import { teamOf } from './access.js'
 import { payslipTotals } from './payout.js'
-import { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
+import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
 
 export const DEFAULT_SIZE = 50
 export const MAX_SIZE = 200
@@ -373,16 +374,33 @@ export const LISTS = {
     counts: { status: 'status' },
   },
 
+  // The first system's (V1) E-Forms and yearly Overide summaries: read only.
   v1Eforms: {
     area: 'deals',
-    search: ['code', 'address'], filters: { staffId: { eq: 'staffId' }, type: { eq: 'type' }, status: { eq: 'status' } },
-    sorts: { date: 'date', code: 'code' }, sort: '-date',
+    search: ['code', 'address', { via: 'staffId', of: 'staff', fields: ['name', 'short'] }],
+    filters: { staffId: { eq: 'staffId' }, type: { eq: 'type' }, status: { eq: 'status' }, from: { from: 'date' }, to: { to: 'date' } },
+    sorts: { date: 'date', code: 'code', price: 'price', total: 'total', status: 'status' }, sort: '-date',
+    // All of them: how many, the closing total, and the years they span.
+    counts: { all: { only: () => ({}), sum: 'closing', range: 'date' } },
+    extras: { staff: { pick: ['short', 'name'], of: 'staff', from: 'staffId' } },
+    download: {
+      file: 'old-eforms', sheet: 'Old E-Forms', widths: [16, 12, 10, 22, 40, 14, 14, 14, 14],
+      columns: [['Code', 'code'], ['Date', 'date'], ['Type', 'type'], ['Staff', r => r.$.staff?.short || r.$.staff?.name || ''], ['Address', 'address'],
+        ['Price', 'price'], ['Total', 'total'], ['Closing Total', 'closing'], ['Status', r => DEAL_STATUS[r.status]?.label]],
+    },
   },
 
   v1Overrides: {
     area: 'deals',
     search: [], filters: { staffId: { eq: 'staffId' }, year: { eq: 'year' } },
-    sorts: { year: 'year' }, sort: '-year',
+    sorts: { year: 'year', override: 'override', sales: 'sales', cases: 'cases' }, sort: '-year',
+    // The years there are; the overides and team sales of the rows found.
+    counts: { years: 'year', override: { sum: 'override' }, sales: { sum: 'sales' } },
+    extras: { staff: { pick: ['short', 'name', 'code'], of: 'staff', from: 'staffId' } },
+    download: {
+      file: 'overide-summary', sheet: 'Overide Summary', widths: [24, 8, 10, 16, 16],
+      columns: [['Staff', r => r.$.staff?.short || r.$.staff?.name || ''], ['Year', 'year'], ['Cases', 'cases'], ['Team Sales', 'sales'], ['Overide', 'override']],
+    },
   },
 }
 
@@ -519,9 +537,13 @@ export const listPage = (records, spec, params = {}, ctx = {}) => run(records, s
 // Every matching record, sorted, with extras (an Excel download): { rows, total }.
 export const listAll = (records, spec, params = {}, ctx = {}) => run(records, spec, { ...params, counts: '0' }, ctx, true)
 
-// { n, sum (, distinct) } of records.
-const addUp = (hits, def) => ({ n: hits.length, sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)),
-  ...(def.distinct && { distinct: new Set(hits.map(r => get(r, def.distinct))).size }) })
+// { n, sum (, distinct, range) } of records.
+function addUp(hits, def) {
+  const vals = def.range ? hits.map(r => get(r, def.range)).filter(v => v != null).sort(compare) : null
+  return { n: hits.length, sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)),
+    ...(def.distinct && { distinct: new Set(hits.map(r => get(r, def.distinct))).size }),
+    ...(def.range && { range: { min: vals[0] ?? null, max: vals.at(-1) ?? null } }) }
+}
 
 function run(records, spec, params, ctx, all) {
   // Teams, E-Form cash and lookups by id are worked out once per call, not once per record.
