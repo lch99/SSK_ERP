@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { CATEGORIES } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { PARTY, METHODS, LISTING_CATEGORY, listingCategory, sum } from '../model.js'
+import { useList, useRecord } from '../useList.js'
+import { PARTY, METHODS, LISTING_CATEGORY, listingCategory } from '../model.js'
 import { Page, Card, Tabs, DataTable, Status, Link, Empty, Modal, KV, Notice, FormField, FileInput, TextArea, go, mono, tabular, field } from '../ui.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { CARD, PAGE } from '../help.js'
@@ -34,20 +35,26 @@ export function Invoices({ parts }) {
   return parts[1] === 'tax' ? <TaxDocs /> : <InvoiceList />
 }
 
+// The E-Forms with an invoice (every one but drafts), and those with a tax invoice (not aborted either).
+const INVOICED = 'submitted,partial,closed,cancelled'
+const TAXED = 'submitted,partial,closed'
+// A list's DataTable paging, newest first.
+const paging = list => ({ total: list.total, sort: '-date', onSort: () => {}, onMore: list.more, loading: list.loading })
+
 function InvoiceList() {
-  const { m, scoped: d } = useErp()
-  const rows = d.deals.filter(x => x.status !== 'draft').sort((a, b) => b.date.localeCompare(a.date))
+  const list = useList('deals', { status: INVOICED, sort: '-date', counts: '0' }, { pageSize: 25 })
   return (
     <Page title="Invoices" help={PAGE.invoices} sub="One invoice per E-Form for the claim from owner (commission + SST).">
       <Card pad={16}>
-        <DataTable rows={rows} pageSize={25} narrowAt={820} onRow={x => go(`invoices/doc/${x.id}/tax-invoice`)} columns={[
+        {list.error && <Notice tone="red">{list.error}</Notice>}
+        <DataTable rows={list.rows} pageSize={25} narrowAt={820} onRow={x => go(`invoices/doc/${x.id}/tax-invoice`)} paged={paging(list)} empty={list.loading ? 'Loading…' : 'No invoices yet'} columns={[
           { key: 'no', label: 'Invoice No.', render: x => <b style={mono}>{invNo(x)}</b> },
           { key: 'date', label: 'Date', nowrap: true, render: x => date(x.submittedOn || x.date) },
           { key: 'to', label: 'Bill To', render: x => <span>{x.owner.name}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{PARTY[x.type].owner}</span></span> },
           { key: 'form', label: 'E-Form', render: x => <Link to={`deals/${x.id}`} style={mono}>{x.code}</Link> },
           { key: 'amount', label: 'Amount', align: 'right', render: x => <b>{rm(x.money.billed)}</b> },
           { key: 'paid', label: 'Status', render: x => {
-            const got = Math.min(m.cleared(x.id), x.money.billed)
+            const got = Math.min(x.$.cleared, x.money.billed)
             return <Status of={{ paid: { label: 'Paid', tone: 'green' }, part: { label: 'Part paid', tone: 'blue' }, open: { label: x.status === 'cancelled' ? 'Void' : 'Unpaid', tone: x.status === 'cancelled' ? 'gray' : 'amber' } }}
               value={got >= x.money.billed ? 'paid' : got > 0 ? 'part' : 'open'} />
           } },
@@ -58,16 +65,17 @@ function InvoiceList() {
 }
 
 function TaxDocs() {
-  const { m, scoped: d } = useErp()
+  const { setup } = useErp()
   const [tab, setTab] = useState('invoices')
-  const invoices = d.deals.filter(x => x.status !== 'draft' && x.status !== 'cancelled').sort((a, b) => b.date.localeCompare(a.date))
-  const receipts = d.moneyIn.filter(t => t.status === 'cleared').sort((a, b) => b.clearsOn.localeCompare(a.clearsOn))
+  const invoices = useList('deals', { status: TAXED, sort: '-date', counts: '0' }, { pageSize: 25 })
+  const receipts = useList('moneyIn', { status: 'cleared', sort: '-clearsOn', counts: '0' }, { pageSize: 25 })
   return (
-    <Page title="Tax invoices & receipts" help={PAGE.invoicesTax} sub={`Tax invoices carry SST (${m.setup.company.sstNo || 'SST no. not set'}). Official receipts are issued for cleared transactions.`}>
+    <Page title="Tax invoices & receipts" help={PAGE.invoicesTax} sub={`Tax invoices carry SST (${setup.company.sstNo || 'SST no. not set'}). Official receipts are issued for cleared transactions.`}>
       <Card pad={16}>
-        <Tabs value={tab} onChange={setTab} tabs={[{ key: 'invoices', label: 'Tax Invoices', count: invoices.length }, { key: 'receipts', label: 'Official Receipts', count: receipts.length }]} />
+        <Tabs value={tab} onChange={setTab} tabs={[{ key: 'invoices', label: 'Tax Invoices', count: invoices.total }, { key: 'receipts', label: 'Official Receipts', count: receipts.total }]} />
+        {(invoices.error || receipts.error) && <Notice tone="red">{invoices.error || receipts.error}</Notice>}
         {tab === 'invoices' ? (
-          <DataTable rows={invoices} pageSize={25} narrowAt={760} onRow={x => go(`invoices/doc/${x.id}/tax-invoice`)} columns={[
+          <DataTable rows={invoices.rows} pageSize={25} narrowAt={760} onRow={x => go(`invoices/doc/${x.id}/tax-invoice`)} paged={paging(invoices)} empty={invoices.loading ? 'Loading…' : 'No tax invoices yet'} columns={[
             { key: 'no', label: 'Tax Invoice No.', render: x => <b style={mono}>{invNo(x)}</b> },
             { key: 'date', label: 'Date', nowrap: true, render: x => date(x.submittedOn || x.date) },
             { key: 'to', label: 'Bill To', render: x => x.owner.name },
@@ -76,11 +84,11 @@ function TaxDocs() {
             { key: 'total', label: 'Total', align: 'right', render: x => <b>{rm(x.money.billed)}</b> },
           ]} />
         ) : (
-          <DataTable rows={receipts} pageSize={25} narrowAt={760} onRow={t => go(`invoices/doc/${t.dealId}/tax-receipt`)} columns={[
+          <DataTable rows={receipts.rows} pageSize={25} narrowAt={760} onRow={t => go(`invoices/doc/${t.dealId}/tax-receipt`)} paged={{ ...paging(receipts), sort: '-clearsOn' }} empty={receipts.loading ? 'Loading…' : 'No official receipts yet'} columns={[
             { key: 'no', label: 'Receipt No.', render: t => <b style={mono}>{orNo(t)}</b> },
             { key: 'date', label: 'Date', nowrap: true, render: t => date(t.clearsOn) },
             { key: 'from', label: 'Received From', render: t => t.payer },
-            { key: 'form', label: 'E-Form', render: t => <Link to={`deals/${t.dealId}`} style={mono}>{m.deals[t.dealId].code}</Link> },
+            { key: 'form', label: 'E-Form', render: t => <Link to={`deals/${t.dealId}`} style={mono}>{t.$.deal?.code}</Link> },
             { key: 'how', label: 'Method', render: t => METHODS[t.method] },
             { key: 'amount', label: 'Amount', align: 'right', render: t => <b>{rm(t.amount)}</b> },
           ]} />
@@ -90,16 +98,21 @@ function TaxDocs() {
   )
 }
 
-// A printable tax invoice / receipt / SST document for one E-Form.
+// A printable tax invoice / receipt / SST document for one E-Form: the E-Form
+// and its cleared payments, in the order they were recorded.
 function DocView({ dealId, kind }) {
-  const { m, setup } = useErp()
-  const deal = m.deals[dealId]
-  if (!deal) return <Page title="Document not found" back={{ to: 'invoices/tax', label: 'Tax invoices & receipts' }}><Empty title="This E-Form no longer exists" /></Page>
+  const { record: deal, loading } = useRecord('deals', dealId)
+  const cleared = useList('moneyIn', { dealId, status: 'cleared', sort: 'recorded', counts: '0' }, { branch: false, pageSize: 200 })
+  if (!deal) return <Page title={loading ? 'Loading…' : 'Document not found'} back={{ to: 'invoices/tax', label: 'Tax invoices & receipts' }}>{!loading && <Empty title="This E-Form no longer exists" />}</Page>
+  return <Doc deal={deal} txs={cleared.rows} kind={kind} />
+}
+
+function Doc({ deal, txs, kind }) {
+  const { setup } = useErp()
   const co = setup.company
   const receipt = kind.endsWith('receipt')
   const sstOnly = kind.startsWith('sst')
-  const txs = (m.moneyInByDeal[deal.id] || []).filter(t => t.status === 'cleared')
-  const paid = sum(txs, t => t.amount)
+  const paid = deal.$.cleared
   const desc = deal.type === 'project' ? `Professional fee for the sale of ${deal.property.address} (developer: ${deal.owner.name})`
     : `Professional fee for the ${deal.type === 'sale' ? 'sale' : 'rental'} of ${deal.property.address} at ${rm(deal.price)}${deal.type === 'rental' ? ' per month' : ''}`
   const no = receipt ? (txs[0] ? orNo(txs[0]) : '—') : `${sstOnly ? 'SST-' : ''}${invNo(deal)}`
@@ -158,8 +171,9 @@ export function Videos({ parts }) {
   const [open, setOpen] = useState(null)
   const [edit, setEdit] = useState(null)
   const [error, setError] = useState(null)
-  const list = m.data.videos.filter(v => v.cate === cate).sort((a, b) => b.date.localeCompare(a.date))
-  const dates = [...new Set(list.map(v => v.date))]
+  const videos = useList('videos', { cate, sort: '-date', counts: 'dates' }, { pageSize: 24 })
+  const list = videos.rows
+  const dates = videos.counts.dates?.distinct ?? 0
   const save = async () => {
     setError(null)
     try { await erp.saveVideo({ ...edit, cate }); fb.toast(edit.id ? `${edit.title} saved` : `${edit.title} published`); setEdit(null) } catch (e) { setError(e.message) }
@@ -168,7 +182,7 @@ export function Videos({ parts }) {
     if (await fb.confirm({ title: `Delete ${v.title}?`, body: 'The video is removed from the gallery.', confirmLabel: 'Delete', danger: true }) && await fb.run(() => erp.deleteVideo(v.id), `${v.title} deleted`)) setOpen(null)
   }
   return (
-    <Page title={cate === 'meeting' ? 'Meeting recordings' : 'Training videos'} help={PAGE.videos} sub={`${cate === 'training' ? 'How-to videos for agents and admins.' : 'Recordings of company meetings.'} ${dates.length} dates.`}
+    <Page title={cate === 'meeting' ? 'Meeting recordings' : 'Training videos'} help={PAGE.videos} sub={`${cate === 'training' ? 'How-to videos for agents and admins.' : 'Recordings of company meetings.'} ${dates} date${dates === 1 ? '' : 's'}.`}
       actions={can('videos', 'edit') && <button style={btnPrimary} onClick={() => { setError(null); setEdit({ title: '', date: m.today, description: '', minutes: '', file: '' }) }}>Add</button>}>
       <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))' }}>
         {list.map(v => (
@@ -184,7 +198,13 @@ export function Videos({ parts }) {
           </button>
         ))}
       </div>
-      {!list.length && <Empty title="No videos yet" text="Press Add to upload the first one." icon="video" />}
+      {list.length < videos.total && (
+        <div style={{ textAlign: 'center', marginTop: 14, fontSize: 13, color: C.muted }}>
+          Showing {list.length} of {videos.total} <button style={{ ...btn, fontSize: 13, padding: '4px 10px', marginLeft: 8 }} disabled={videos.loading} onClick={videos.more}>Show more</button>
+        </div>
+      )}
+      {videos.error && <Notice tone="red">{videos.error}</Notice>}
+      {!list.length && !videos.loading && <Empty title="No videos yet" text="Press Add to upload the first one." icon="video" />}
       <Modal open={!!open} onClose={() => setOpen(null)} title={open?.title} width={640}
         footer={open && can('videos', 'edit') && <>{can('videos', 'full') && <button style={{ ...btn, color: C.err }} onClick={() => remove(open)}>Delete</button>}<span style={{ flex: 1 }} />
           <button style={btn} onClick={() => { setError(null); setEdit({ id: open.id, title: open.title, date: open.date, description: open.description || '', minutes: open.minutes }); setOpen(null) }}>Edit</button></>}>

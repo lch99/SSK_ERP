@@ -210,10 +210,9 @@ function serverSpec(key) {
     sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, col(f)])),
     sort: shared.sort,
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
-      typeof c === 'string' ? { col: col(c) }
-        : c.only || c.sum ? { only: c.only, found: !c.only, sum: c.sum && col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct),
-          range: c.range && { col: col(c.range), read: fieldOf(model, c.range).kind.read }, custom: c.custom && server.counts?.[c.custom] }
-          : c])),
+      typeof c === 'string' ? { col: col(c) } : c.set ? c
+        : { only: c.only, found: !c.only, sum: c.sum && col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct),
+          range: c.range && { col: col(c.range), read: fieldOf(model, c.range).kind.read }, custom: c.custom && server.counts?.[c.custom] }])),
     extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => extraOf(k, e)) : null,
   };
 }

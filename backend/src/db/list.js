@@ -153,8 +153,9 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
       if (c.custom) { counts[key] = await c.custom(q, b, ctx); continue; }
       if (c.distinct) b.countDistinct({ d: c.distinct });
       if (c.range) b.min({ lo: c.range.col }).max({ hi: c.range.col });
-      const r = await b.count({ n: '*' }).sum({ s: c.sum }).first();
-      counts[key] = { n: Number(r.n), sum: r2(Number(r.s) || 0), ...(c.distinct && { distinct: Number(r.d) }),
+      if (c.sum) b.sum({ s: c.sum });
+      const r = await b.count({ n: '*' }).first();
+      counts[key] = { n: Number(r.n), ...(c.sum && { sum: r2(Number(r.s) || 0) }), ...(c.distinct && { distinct: Number(r.d) }),
         ...(c.range && { range: { min: c.range.read(r.lo) ?? null, max: c.range.read(r.hi) ?? null } }) };
     } else {
       const set = await prepareSet(typeof c.set === 'function' ? c.set(ctx) : c.set);

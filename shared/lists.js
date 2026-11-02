@@ -26,7 +26,7 @@
 //                                with distinct: field, also how many different values it has ({ n, sum, distinct });
 //                                with range: field, its lowest and highest value ({ …, range: { min, max } })
 //         { only, custom: name, keep? }   CUSTOM_COUNTS below here over those records, and the same on the server
-//         { sum: field, distinct? }       { n, sum (, distinct) } over the page's own search and filters
+//         { sum?, distinct?, range? }     the same over the page's own search and filters
 //         ?counts=a,b asks for those counts only; ?counts=0 for none (a later page)
 // extras (on each row as `$`):
 //         { sum: field, of: kind, by: field, where?: { field: [values] }, not?: { field: [values] } } → a number (null in values: empty)
@@ -170,7 +170,7 @@ export const LISTS = {
       // The same slip recorded twice: the same reference or cheque, or the same amount banked in on the same day.
       ref: { is: 'ref' }, amount: { eq: 'amount' }, bankOn: { eq: 'bankOn' },
     },
-    sorts: { date: 'date', amount: 'amount', bankOn: 'bankOn', code: 'code', status: 'status', recorded: 'id' },
+    sorts: { date: 'date', amount: 'amount', bankOn: 'bankOn', clearsOn: 'clearsOn', code: 'code', status: 'status', recorded: 'id' },
     sort: '-date',
     counts: {
       status: 'status',
@@ -362,7 +362,8 @@ export const LISTS = {
     area: 'videos',
     search: ['title', 'description'], filters: { cate: { eq: 'cate' } },
     sorts: { date: 'date', title: 'title' }, sort: '-date',
-    counts: { cate: 'cate' },
+    // On how many dates.
+    counts: { cate: 'cate', dates: { distinct: 'date' } },
   },
 
   propertyTypes: { area: 'listings', search: ['name'], sorts: { name: 'name' }, sort: 'name' },
@@ -540,7 +541,7 @@ export const listAll = (records, spec, params = {}, ctx = {}) => run(records, sp
 // { n, sum (, distinct, range) } of records.
 function addUp(hits, def) {
   const vals = def.range ? hits.map(r => get(r, def.range)).filter(v => v != null).sort(compare) : null
-  return { n: hits.length, sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)),
+  return { n: hits.length, ...(def.sum && { sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)) }),
     ...(def.distinct && { distinct: new Set(hits.map(r => get(r, def.distinct))).size }),
     ...(def.range && { range: { min: vals[0] ?? null, max: vals.at(-1) ?? null } }) }
 }
@@ -594,11 +595,11 @@ function run(records, spec, params, ctx, all) {
       const hits = records.filter(r => Object.entries(set).every(([k, v]) => test(spec.filters[k], r, v, c)))
       if (def.custom) { counts[key] = CUSTOM_COUNTS[def.custom](hits, c); continue }
       counts[key] = addUp(hits, def)
-    } else if (def.sum) {
-      counts[key] = addUp(matching, def)
-    } else {
+    } else if (def.set) {
       const set = typeof def.set === 'function' ? def.set(c) : def.set
       counts[key] = records.filter(r => pass(r, def.ignores || [], set)).length
+    } else {
+      counts[key] = addUp(matching, def)
     }
   }
 
