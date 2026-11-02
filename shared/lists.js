@@ -25,6 +25,7 @@
 //         { only: ctx => { key: value }, sum: field, keep?, distinct? }   { n, sum } over these filters alone (and of the page's, those it keeps);
 //                                with distinct: field, also how many different values it has ({ n, sum, distinct })
 //         { only, custom: name, keep? }   CUSTOM_COUNTS below here over those records, and the same on the server
+//         { sum: field, distinct? }       { n, sum (, distinct) } over the page's own search and filters
 //         ?counts=a,b asks for those counts only; ?counts=0 for none (a later page)
 // extras (on each row as `$`):
 //         { sum: field, of: kind, by: field, where?: { field: [values] }, not?: { field: [values] } } → a number (null in values: empty)
@@ -211,9 +212,10 @@ export const LISTS = {
     sort: '-date',
   },
 
-  // Payout lines (Closed Case): one per person paid on each close.
+  // Payout lines (Closed Case): one per person paid on each close. Salary requests and
+  // pays them (and an agent claims their own), so that area may read them too.
   payouts: {
-    area: 'payouts',
+    area: 'payouts', readers: { salary: r => r },
     search: ['code', { via: 'dealId', of: 'deals', fields: ['code'] }, { via: 'staffId', of: 'staff', fields: ['name', 'short'] }],
     filters: { status: { eq: 'status' }, staffId: { eq: 'staffId' }, dealId: { eq: 'dealId' }, closeId: { eq: 'closeId' }, side: { eq: 'side' }, role: { eq: 'role' },
       requestId: { eq: 'requestId' }, archiveId: { eq: 'archiveId' }, stacked: { yes: 'stacked' }, from: { from: 'date' }, to: { to: 'date' },
@@ -226,7 +228,7 @@ export const LISTS = {
       // An upline incentive (true) or the person's own salary line (false); the earner's branch.
       incentive: { notNull: 'role' }, staffBranch: { via: 'staffId', of: 'staff', rule: { eq: 'branchId' } },
     },
-    sorts: { date: 'date', amount: 'amount', code: 'code', status: 'status', close: 'closeId' },
+    sorts: { date: 'date', amount: 'amount', code: 'code', status: 'status', close: 'closeId', stackedOn: 'stackedOn' },
     sort: '-date',
     counts: {
       status: 'status',
@@ -242,6 +244,8 @@ export const LISTS = {
       incentivesReady: { only: () => ({ ...OPEN_LINE, incentive: 'true', stacked: 'false' }), sum: 'amount', distinct: 'staffId', keep: ['staffBranch'] },
       salaryStacked: { only: () => ({ ...OPEN_LINE, incentive: 'false', stacked: 'true' }), sum: 'amount', distinct: 'staffId', keep: ['staffBranch'] },
       incentivesStacked: { only: () => ({ ...OPEN_LINE, incentive: 'true', stacked: 'true' }), sum: 'amount', distinct: 'staffId', keep: ['staffBranch'] },
+      // The lines found, added up, and on how many closes (My commission).
+      lines: { sum: 'amount', distinct: 'closeId' },
     },
     extras: {
       close: { pick: ['date', 'claim', 'net', 'full', 'partNo'], of: 'closes', from: 'closeId' },
@@ -275,8 +279,8 @@ export const LISTS = {
     counts: {
       status: 'status', kind: 'kind',
       // New Request and Payment Ready: what is still to pay; Payment Clear this year, with the tax withheld.
-      unpaid: { only: () => ({ status: 'new,ready' }), custom: 'payslips', keep: ['branchId'] },
-      paidThisYear: { only: ctx => ({ status: 'clear', paidFrom: `${ctx.today.slice(0, 4)}-01-01`, paidTo: `${ctx.today.slice(0, 4)}-12-31` }), custom: 'payslips', keep: ['branchId'] },
+      unpaid: { only: () => ({ status: 'new,ready' }), custom: 'payslips', keep: ['branchId', 'staffId'] },
+      paidThisYear: { only: ctx => ({ status: 'clear', paidFrom: `${ctx.today.slice(0, 4)}-01-01`, paidTo: `${ctx.today.slice(0, 4)}-12-31` }), custom: 'payslips', keep: ['branchId', 'staffId'] },
     },
     extras: {
       gross: { sum: 'amount', of: 'payouts', by: 'requestId' },
@@ -495,6 +499,10 @@ export const listPage = (records, spec, params = {}, ctx = {}) => run(records, s
 // Every matching record, sorted, with extras (an Excel download): { rows, total }.
 export const listAll = (records, spec, params = {}, ctx = {}) => run(records, spec, { ...params, counts: '0' }, ctx, true)
 
+// { n, sum (, distinct) } of records.
+const addUp = (hits, def) => ({ n: hits.length, sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)),
+  ...(def.distinct && { distinct: new Set(hits.map(r => get(r, def.distinct))).size }) })
+
 function run(records, spec, params, ctx, all) {
   // Teams, E-Form cash and lookups by id are worked out once per call, not once per record.
   const teams = new Map(), byKind = new Map(), memo = new Map()
@@ -543,8 +551,9 @@ function run(records, spec, params, ctx, all) {
       const set = { ...Object.fromEntries(active.filter(([k]) => (def.keep || []).includes(k)).map(([k]) => [k, params[k]])), ...def.only(c) }
       const hits = records.filter(r => Object.entries(set).every(([k, v]) => test(spec.filters[k], r, v, c)))
       if (def.custom) { counts[key] = CUSTOM_COUNTS[def.custom](hits, c); continue }
-      counts[key] = { n: hits.length, sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)),
-        ...(def.distinct && { distinct: new Set(hits.map(r => get(r, def.distinct))).size }) }
+      counts[key] = addUp(hits, def)
+    } else if (def.sum) {
+      counts[key] = addUp(matching, def)
     } else {
       const set = typeof def.set === 'function' ? def.set(c) : def.set
       counts[key] = records.filter(r => pass(r, def.ignores || [], set)).length

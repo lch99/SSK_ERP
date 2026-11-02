@@ -212,7 +212,8 @@ function serverSpec(key) {
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
       typeof c === 'string' ? { col: col(c) }
         : c.only ? { only: c.only, sum: c.sum && col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct), custom: c.custom && server.counts[c.custom] }
-          : c])),
+          : c.sum ? { found: true, sum: col(c.sum), distinct: c.distinct && col(c.distinct) }
+            : c])),
     extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => extraOf(k, e)) : null,
   };
 }

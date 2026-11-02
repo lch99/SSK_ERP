@@ -233,3 +233,19 @@ test('an agent pages through only their team\'s pay: people with Ready pay (with
   assert.ok(lines.body.rows.length > 0 && lines.body.rows.every(p => team.has(p.staffId)));
   assert.deepEqual(Object.keys(lines.body.counts), ['salaryReady'], 'only the counts asked for');
 });
+
+test('a Sales Agent (Salary but no Payouts access) reads their own payout lines for My commission, and no one else\'s', async () => {
+  const policy = AC.defaultPolicy();
+  assert.equal(policy['sale-staff'].levels.payouts, 'none');
+  assert.equal(policy['sale-staff'].levels.salary, 'edit');
+  // An agent with commission, made a Sales Agent (the sample may have none).
+  const seller = await free(s => s.status === 'active' && s.type === 'staff' && data.payouts.some(p => p.staffId === s.id));
+  await db('staff').where('id', seller.id).update({ type: 'sale-staff' });
+  const call = await signInAs('seller1', seller.id, 'admin');
+  const team = AC.teamOf(seller.id, data.staff);
+  const lines = await call('GET', `/erp/payouts?staffId=${seller.id}&size=200&counts=lines`);
+  assert.equal(lines.status, 200);
+  assert.equal(lines.body.total, data.payouts.filter(p => p.staffId === seller.id).length);
+  const all = await call('GET', '/erp/payouts?size=200');
+  assert.ok(all.body.rows.every(p => team.has(p.staffId)));
+});

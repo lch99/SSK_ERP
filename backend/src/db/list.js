@@ -9,7 +9,7 @@
 //   search: [column | { via, table, cols }],   — every word typed must match one of them (or of the record it points at)
 //   filters: { key: { apply(query, value, prepared), prepare?(q, value) } },
 //   sorts: { key: column }, sort: '-date',        — '-' = newest / biggest first
-//   counts: { key: { col } | { set } | { only, sum, distinct? } | { only, custom } },   (see shared/lists.js)
+//   counts: { key: { col } | { set } | { only, sum, distinct? } | { only, custom } | { found, sum, distinct? } },   (see shared/lists.js)
 //   extras: [{ key, … }],              — worked out for the page's rows only
 // }
 const { toRecords } = require('./records');
@@ -140,12 +140,16 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
     if (c.col) {
       const got = await where(q(spec.table), [key]).select({ v: c.col }).count({ n: '*' }).groupBy(c.col);
       counts[key] = Object.fromEntries(got.map(r => [r.v ?? '', Number(r.n)]));
-    } else if (c.only) {
+    } else if (c.only || c.found) {
       const b = q(spec.table);
-      scope(b);
-      // Its own filters, and of the page's only those it keeps (the chosen branch).
-      const kept = Object.fromEntries(active.filter(([k]) => c.keep.includes(k)).map(([k]) => [k, params[k]]));
-      for (const [k, [v, p]] of Object.entries(await prepareSet({ ...kept, ...c.only(ctx) }))) spec.filters[k].apply(b, v, p);
+      // found: the page's own search and filters.
+      if (c.found) where(b);
+      else {
+        // only: its own filters, and of the page's only those it keeps (the chosen branch).
+        scope(b);
+        const kept = Object.fromEntries(active.filter(([k]) => c.keep.includes(k)).map(([k]) => [k, params[k]]));
+        for (const [k, [v, p]] of Object.entries(await prepareSet({ ...kept, ...c.only(ctx) }))) spec.filters[k].apply(b, v, p);
+      }
       if (c.custom) { counts[key] = await c.custom(q, b, ctx); continue; }
       if (c.distinct) b.countDistinct({ d: c.distinct });
       const r = await b.count({ n: '*' }).sum({ s: c.sum }).first();
