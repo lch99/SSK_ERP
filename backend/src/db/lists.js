@@ -4,6 +4,7 @@
 // (from records.js). The searches, filters, sorts, counts and extras themselves
 // come from shared/lists.js, so the demo and the server page the same way.
 const SHARED = require('../../../shared/lists.js');
+const { buildingRankings } = require('../../../shared/listings.js');
 const { loadSetup } = require('./setupStore');
 const { MODELS, parseJson } = require('./records');
 const { teamIds } = require('./list');
@@ -103,7 +104,21 @@ const SERVER = {
   moneyOut: { table: 'money_out', scope: { branch: viaDeal, team: viaDeal }, columns: { 'payee.name': 'payee_name' } },
   vendorRequests: { table: 'vendor_requests', scope: { branch: inBranch, team: viaListing } },
   enquiries: { table: 'enquiries', scope: { branch: viaListing, team: viaListing } },
-  titles: { table: 'titles', scope: { branch: inBranch, team: inBranch } },
+  titles: {
+    table: 'titles', scope: { branch: inBranch, team: inBranch },
+    extras: {
+      // shared/lists.js CUSTOM_EXTRAS.buildingRanking: the same rankings, from the listings and closed sales of the page's buildings only.
+      buildingRanking: async (q, rows) => {
+        const ids = rows.map(r => r.id);
+        const listings = ids.length ? (await q('listings').whereIn('title_id', ids).orderBy('id').select('id', 'title_id', 'type', 'status', 'flags', 'holder_id'))
+          .map(l => ({ id: l.id, titleId: l.title_id, type: l.type, status: l.status, flags: parseJson(l.flags) || [], holderId: l.holder_id })) : [];
+        const deals = listings.length ? (await q('deals').whereIn('listing_id', listings.map(l => l.id)).where({ status: 'closed', type: 'sale' }).orderBy('id')
+          .select('listing_id', 'holder_id', 'price', 'status', 'type')).map(d => ({ listingId: d.listing_id, holderId: d.holder_id, price: Number(d.price), status: d.status, type: d.type })) : [];
+        const all = buildingRankings({ listings, deals });
+        return new Map(ids.map(id => [id, all.get(id) || { sale: [], rental: [] }]));
+      },
+    },
+  },
   areas: { table: 'areas', scope: { branch: inBranch, team: inBranch } },
   videos: { table: 'videos' },
   propertyTypes: { table: 'property_types' },
@@ -180,7 +195,7 @@ function filterOf(rule, col, server) {
   throw new Error(`Unknown filter rule ${JSON.stringify(rule)}`);
 }
 
-function extraOf(key, e) {
+function extraOf(key, e, own) {
   const m = MODELS[e.of];
   const col = f => columnOf(m, f);
   if (e.from && e.pick) {
@@ -191,7 +206,7 @@ function extraOf(key, e) {
   }
   if (e.from) return { key, from: e.from, table: m.table, fieldCol: col(e.field) };
   return {
-    key, table: m.table, model: m, by: e.by, byCol: col(e.by), sumCol: e.sum ? col(e.sum) : null, count: !!e.count, pick: e.pick,
+    key, table: m.table, model: m, by: e.by, byCol: col(e.by), on: e.on || null, sumCol: e.sum ? col(e.sum) : null, count: !!e.count, pick: e.pick,
     where: Object.entries(e.where || {}).map(([f, vals]) => [col(f), vals]),
     not: Object.entries(e.not || {}).map(([f, vals]) => [col(f), vals]),
   };
@@ -207,13 +222,15 @@ function serverSpec(key) {
     key, area: shared.area, readers: shared.readers || {}, fields: shared.fields, table: server.table, model, scope: server.scope, download: shared.download,
     search: (shared.search || []).map(searchOf),
     filters: Object.fromEntries(Object.entries(shared.filters || {}).map(([k, rule]) => [k, filterOf(rule, col, server)])),
-    sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, col(f)])),
+    sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, typeof f === 'string' ? col(f)
+      // How many records of that kind point at this one, as a subquery.
+      : { count: MODELS[f.count].table, by: columnOf(MODELS[f.count], f.by), on: col(f.on || 'id') }])),
     sort: shared.sort,
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
       typeof c === 'string' ? { col: col(c) } : c.set ? c
         : { only: c.only, found: !c.only, sum: c.sum && col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct),
           range: c.range && { col: col(c.range), read: fieldOf(model, c.range).kind.read }, custom: c.custom && server.counts?.[c.custom] }])),
-    extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => extraOf(k, e)) : null,
+    extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => (e.custom ? { key: k, custom: server.extras[e.custom] } : extraOf(k, e, col))) : null,
   };
 }
 

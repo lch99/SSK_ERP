@@ -20,7 +20,8 @@
 //   { team: [fields], self }     everyone under that person (and them, unless self: false); any field may match
 //   { custom: name, values? }    CUSTOM below here, and the same rule in SQL on the server (values: what it takes, when not true / false)
 //   { via: field, of: kind, rule }   the record this one points at passes `rule` (a payment's E-Form is in that branch)
-// sorts:  { key: field }; ?sort=-key is newest / biggest first; then by id, the same way.
+// sorts:  { key: field | { count: kind, by: field, on? } }; ?sort=-key is newest / biggest first; then by id, the same way.
+//         { count } sorts by how many records of that kind point at this one (by its id, or its `on` field)
 // counts: 'field'                { value: n } for each value, leaving out the filter of the same name
 //         { set: { key: value } | ctx => …, ignores? }   n with those filters set as well
 //         { only: ctx => { key: value }, sum: field, keep?, distinct? }   { n, sum } over these filters alone (and of the page's, those it keeps);
@@ -36,11 +37,14 @@
 //         { field, of: kind, from: field }          one field of the record this one points at
 //         { pick: [fields], of: kind, from: field }  some of its fields ({ … } or null)
 //         `from` may start with '$.' to go on from an extra worked out above it (the agent on a payment's E-Form)
+//         sums, counts and picks link on this record's id, or on its `on` field (listings by an area's name)
+//         { custom: name }                CUSTOM_EXTRAS below here for the page's rows, and the same on the server
 // download: { file, sheet, widths?, columns: [[label, field | row => value]] }   the Excel download (downloadRows)
 // readers: { area: record => record }   other areas that may read the list too, with what they may not see taken out
 // fields: [fields]               the rows carry only these (a list over another kind that needs a few of its fields)
 import { teamOf } from './access.js'
 import { payslipTotals } from './payout.js'
+import { buildingRankings } from './listings.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
 
 export const DEFAULT_SIZE = 50
@@ -354,20 +358,24 @@ export const LISTS = {
     extras: { listing: { pick: ['code', 'title', 'holderId'], of: 'listings', from: 'listingId' } },
   },
 
+  // Buildings and estates (titles), with how many listings each has and who leads it.
   titles: {
     area: 'listings',
     search: ['name', 'area'],
     filters: { status: { eq: 'status' }, branchId: { eq: 'branchId' }, category: { eq: 'category' }, area: { eq: 'area' } },
-    sorts: { name: 'name', area: 'area', requestedOn: 'requestedOn' }, sort: 'name',
+    sorts: { name: 'name', area: 'area', requestedOn: 'requestedOn', listings: { count: 'listings', by: 'titleId' } }, sort: 'name',
     counts: { status: 'status' },
+    extras: { listings: { count: true, of: 'listings', by: 'titleId' }, ranking: { custom: 'buildingRanking' } },
   },
 
+  // Areas, with how many listings carry each area's name.
   areas: {
     area: 'listings',
     search: ['name', 'state'],
     filters: { status: { eq: 'status' }, branchId: { eq: 'branchId' }, state: { eq: 'state' } },
-    sorts: { name: 'name', requestedOn: 'requestedOn' }, sort: 'name',
-    counts: { status: 'status' },
+    sorts: { name: 'name', requestedOn: 'requestedOn', listings: { count: 'listings', by: 'area', on: 'name' } }, sort: 'name',
+    counts: { status: 'status', state: 'state' },
+    extras: { listings: { count: true, of: 'listings', by: 'area', on: 'name' } },
   },
 
   videos: {
@@ -471,6 +479,15 @@ export const CUSTOM_COUNTS = {
     return addSlips(hits.map(r => ({ amounts: gross.get(r.id) || [], exempt: !!ctx.byId('staff').get(r.staffId)?.whtExempt })), ctx.setup)
   },
 }
+// Extras worked out in code for the page's rows: Map(id → value) (the server runs the same on the rows it reads).
+const CUSTOM_EXTRAS = {
+  // Who leads each building: shared/listings.js buildingRankings ({ sale, rental } rankings).
+  buildingRanking: (rows, ctx) => {
+    const all = ctx.once('buildingRankings', () => buildingRankings({ listings: ctx.data?.listings || [], deals: ctx.data?.deals || [] }))
+    return new Map(rows.map(r => [r.id, all.get(r.id) || { sale: [], rental: [] }]))
+  },
+}
+
 // { n, gross, wht, net } of slips [{ amounts, exempt }].
 export function addSlips(slips, setup) {
   const t = slips.map(x => payslipTotals(x.amounts, setup?.dealTypes?.whtPct, x.exempt))
@@ -510,10 +527,17 @@ function test(rule, r, v, ctx) {
 }
 
 // The extras of `rows`, from the records in `data`: Map(id → { key: value }).
-function extrasOf(defs, rows, data) {
+// ctx: the run's (for custom extras).
+function extrasOf(defs, rows, data, ctx) {
   const out = new Map(rows.map(r => [r.id, {}]))
-  const ids = new Set(rows.map(r => r.id))
   for (const [key, e] of Object.entries(defs)) {
+    if (e.custom) {
+      const got = CUSTOM_EXTRAS[e.custom](rows, ctx)
+      for (const r of rows) out.get(r.id)[key] = got.get(r.id) ?? null
+      continue
+    }
+    const at = r => (e.on ? get(r, e.on) : r.id)
+    const ids = new Set(rows.map(at))
     if (e.from) {
       const byId = new Map((data[e.of] || []).map(x => [x.id, x]))
       for (const r of rows) {
@@ -530,7 +554,7 @@ function extrasOf(defs, rows, data) {
       linked.set(to, [...(linked.get(to) || []), x])
     }
     for (const r of rows) {
-      const mine = linked.get(r.id) || []
+      const mine = linked.get(at(r)) || []
       out.get(r.id)[key] = e.sum ? r2(mine.reduce((t, x) => t + Number(get(x, e.sum) || 0), 0)) : e.count ? mine.length
         : [...mine].sort((a, b) => a.id - b.id).map(x => Object.fromEntries(e.pick.map(f => [f, get(x, f) ?? null])))
     }
@@ -568,7 +592,7 @@ function run(records, spec, params, ctx, all) {
     ...ctx,
     once: (key, fn) => { if (!memo.has(key)) memo.set(key, fn()); return memo.get(key) },
     team: id => { if (!teams.has(id)) teams.set(id, ctx.team ? ctx.team(id) : teamOf(id, ctx.data?.staff || [])); return teams.get(id) },
-    cash: () => (cashByDeal ||= extrasOf(DEAL_CASH, ctx.data?.deals || [], ctx.data || {})),
+    cash: () => (cashByDeal ||= extrasOf(DEAL_CASH, ctx.data?.deals || [], ctx.data || {}, c)),
     byId: kind => { if (!byKind.has(kind)) byKind.set(kind, new Map((ctx.data?.[kind] || []).map(x => [x.id, x]))); return byKind.get(kind) },
   }
   const words = String(params.q || '').trim().toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6)
@@ -594,9 +618,20 @@ function run(records, spec, params, ctx, all) {
   const sorts = String(params.sort || spec.sort || '').split(',').filter(Boolean)
     .map(s => ({ desc: s.startsWith('-'), field: spec.sorts?.[s.replace(/^-/, '')] })).filter(s => s.field)
   if (!sorts.length && spec.sort) sorts.push({ desc: spec.sort.startsWith('-'), field: spec.sorts[spec.sort.replace(/^-/, '')] })
+  // A count sort: how many records of that kind point at each one.
+  const sortValue = f => {
+    if (typeof f === 'string') return r => get(r, f)
+    const n = c.once(`count:${f.count}:${f.by}`, () => {
+      const m = new Map()
+      for (const x of ctx.data?.[f.count] || []) { const k = get(x, f.by); m.set(k, (m.get(k) || 0) + 1) }
+      return m
+    })
+    return r => n.get(f.on ? get(r, f.on) : r.id) || 0
+  }
+  for (const s of sorts) s.value = sortValue(s.field)
   const tie = sorts[0]?.desc ?? true
   const ordered = [...matching].sort((a, b) => {
-    for (const s of sorts) { const d = compare(get(a, s.field), get(b, s.field)); if (d) return s.desc ? -d : d }
+    for (const s of sorts) { const d = compare(s.value(a), s.value(b)); if (d) return s.desc ? -d : d }
     return tie ? b.id - a.id : a.id - b.id
   })
 
@@ -623,6 +658,6 @@ function run(records, spec, params, ctx, all) {
     }
   }
 
-  const extras = spec.extras ? extrasOf(spec.extras, rows, ctx.data || {}) : null
+  const extras = spec.extras ? extrasOf(spec.extras, rows, ctx.data || {}, c) : null
   return { rows: (extras ? rows.map(r => ({ ...r, $: extras.get(r.id) })) : rows).map(r => trimmed(spec, r)), total: matching.length, counts, page, size }
 }

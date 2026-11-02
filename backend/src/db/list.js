@@ -35,6 +35,15 @@ async function teamIds(q, staffId) {
   return rawRows(rows).map(r => r.id);
 }
 
+// Rows in `order` (parseSort): a column, or how many records of a kind point at each row.
+function ordered(b, order) {
+  for (const o of order) {
+    if (typeof o.column === 'string') b.orderBy(o.column, o.order);
+    else b.orderByRaw(`(select count(*) from ?? where ?? = ??) ${o.order === 'desc' ? 'desc' : 'asc'}`, [o.column.count, o.column.by, o.column.on]);
+  }
+  return b;
+}
+
 function parseSort(param, spec) {
   const wanted = String(param || spec.sort || '').split(',').filter(Boolean);
   const out = [];
@@ -53,8 +62,15 @@ function parseSort(param, spec) {
 // reads an extra worked out before it (defs keep their order).
 async function extrasFor(q, defs, records) {
   const out = new Map(records.map(r => [r.id, {}]));
-  const ids = records.map(r => r.id);
   for (const e of defs) {
+    if (e.custom) {
+      const got = await e.custom(q, records);
+      for (const r of records) out.get(r.id)[e.key] = got.get(r.id) ?? null;
+      continue;
+    }
+    // Linked on this record's id, or on its `on` field (an area's name); keys compared as text.
+    const at = r => (e.on ? get(r, e.on) : r.id);
+    const ids = [...new Set(records.map(at).filter(x => x != null))];
     if (e.from) {
       const at = r => get({ ...r, $: out.get(r.id) }, e.from);
       const want = [...new Set(records.map(at).filter(x => x != null))];
@@ -84,12 +100,12 @@ async function extrasFor(q, defs, records) {
     if (e.sumCol || e.count) {
       const by = linked(q(e.table)).select({ k: e.byCol }).groupBy(e.byCol);
       if (e.count) by.count({ s: '*' }); else by.sum({ s: e.sumCol });
-      const sums = new Map(ids.length ? (await by).map(x => [Number(x.k), Number(x.s)]) : []);
-      for (const r of records) out.get(r.id)[e.key] = e.count ? sums.get(r.id) || 0 : r2(sums.get(r.id) || 0);
+      const sums = new Map(ids.length ? (await by).map(x => [String(x.k), Number(x.s)]) : []);
+      for (const r of records) { const n = sums.get(String(at(r))) || 0; out.get(r.id)[e.key] = e.count ? n : r2(n); }
     } else {
       const rows = ids.length ? await toRecords(q, e.model, await linked(q(e.table)).orderBy('id')) : [];
       for (const r of records) {
-        out.get(r.id)[e.key] = rows.filter(x => get(x, e.by) === r.id).map(x => Object.fromEntries(e.pick.map(f => [f, get(x, f) ?? null])));
+        out.get(r.id)[e.key] = rows.filter(x => get(x, e.by) === at(r)).map(x => Object.fromEntries(e.pick.map(f => [f, get(x, f) ?? null])));
       }
     }
   }
@@ -137,7 +153,7 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
   const size = Math.min(MAX_SIZE, Math.max(1, Number.parseInt(params.size, 10) || DEFAULT_SIZE));
   const page = Math.max(1, Number.parseInt(params.page, 10) || 1);
   const { n } = await where(q(spec.table)).count({ n: '*' }).first();
-  const rows = await where(q(spec.table)).select(`${spec.table}.*`).orderBy(parseSort(params.sort, spec)).limit(size).offset((page - 1) * size);
+  const rows = await ordered(where(q(spec.table)).select(`${spec.table}.*`), parseSort(params.sort, spec)).limit(size).offset((page - 1) * size);
 
   // counts=0: a later page (the first one had the counts).
   const counts = {};
@@ -188,7 +204,7 @@ async function listAll(q, spec, params = {}, scope = () => {}, { max = 50000 } =
   const order = parseSort(params.sort, spec);
   const out = [];
   for (let at = 0; at < Number(n); at += CHUNK) {
-    const records = await toRecords(q, spec.model, await where(q(spec.table)).select(`${spec.table}.*`).orderBy(order).limit(CHUNK).offset(at));
+    const records = await toRecords(q, spec.model, await ordered(where(q(spec.table)).select(`${spec.table}.*`), order).limit(CHUNK).offset(at));
     if (spec.extras) {
       const ex = await extrasFor(q, spec.extras, records);
       for (const r of records) r.$ = ex.get(r.id);
