@@ -6,7 +6,8 @@
 const SHARED = require('../../../shared/lists.js');
 const { buildingRankings } = require('../../../shared/listings.js');
 const { loadSetup } = require('./setupStore');
-const { MODELS, parseJson } = require('./records');
+const { MODELS, KINDS, parseJson } = require('./records');
+const { localToday } = require('./days');
 const { teamIds } = require('./list');
 
 // Records reached through their E-Form (payments, closes, request forms).
@@ -138,7 +139,21 @@ const SERVER = {
       },
     },
   },
-  projects: { table: 'projects' },
+  projects: {
+    table: 'projects',
+    extras: {
+      // shared/lists.js projectSales, on the E-Forms named after the page's projects only.
+      projectSales: async (q, rows) => {
+        const names = rows.map(p => p.name);
+        const deals = names.length ? (await q('deals').where('type', 'project').whereIn('property_title', names).orderBy('id')
+          .select('id', 'date', 'type', 'status', 'branch_id', 'agent_id', 'price', 'fee', 'property_title'))
+          .map(d => ({ id: d.id, date: KINDS.date.read(d.date), type: d.type, status: d.status, branchId: d.branch_id, agentId: d.agent_id,
+            price: Number(d.price), fee: Number(d.fee), property: { title: d.property_title } })) : [];
+        const today = localToday();
+        return new Map(rows.map(p => [p.id, SHARED.projectSales(p, deals, today)]));
+      },
+    },
+  },
   v1Eforms: { table: 'v1_eforms', scope: byStaff },
   v1Overrides: { table: 'v1_overrides', scope: byStaff },
 };

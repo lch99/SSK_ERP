@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { DEMO, getListPage, getListRecord, downloadListFile } from '../api.js'
+import { DEMO, getListPage, getListRecord, downloadListFile, projectsOf } from '../api.js'
 import { LISTS, MAX_SIZE, listPage, listAll, recordsOf, downloadRows } from '../../shared/lists.js'
 import { makeXlsx, XLSX_TYPE } from '../../shared/xlsx.js'
 import { download } from '../setup/sheet.js'
@@ -20,7 +20,8 @@ function source(erp, access, key, { branch = true } = {}) {
   const extra = { ...((!DEMO || named) && branch && all && erp.branchId != null && spec.filters?.[filter] ? { [filter]: erp.branchId } : {}) }
   // "View the ERP as": the server limits the list to that role and person (the demo's records are limited already).
   if (!DEMO && access?.viewing) Object.assign(extra, { as: access.who.role, asStaff: access.who.staffId ?? '' })
-  const records = () => recordsOf(branch === true || !all ? erp.scoped : erp.m.data, key)
+  // The demo keeps projects in a store of their own (src/demo/projectsApi.js).
+  const records = () => (key === 'projects' && DEMO ? projectsOf(erp.m.data, erp.setup) : recordsOf(branch === true || !all ? erp.scoped : erp.m.data, key))
   // Who is asking, for a list of each person's own (notifications), as the server works it out.
   const staffId = access?.who?.staffId ?? null
   const viewer = { key: staffId ?? 0, branchId: (staffId != null ? erp.m?.staff[staffId]?.branchId : null) ?? access?.who?.branchId ?? null }

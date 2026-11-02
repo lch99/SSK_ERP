@@ -47,6 +47,7 @@
 import { teamOf } from './access.js'
 import { payslipTotals } from './payout.js'
 import { buildingRankings, noticeFor } from './listings.js'
+import { projectDeals, incentiveProgress } from './projects.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
 
 export const DEFAULT_SIZE = 50
@@ -143,7 +144,7 @@ export const LISTS = {
     search: ['code', 'buyer.name', 'owner.name', 'property.title', 'property.address'],
     filters: {
       status: { eq: 'status' }, type: { eq: 'type' }, branchId: { eq: 'branchId' }, agentId: { eq: 'agentId' }, holderId: { eq: 'holderId' },
-      listingId: { eq: 'listingId' }, projectId: { eq: 'projectId' }, lvStatus: { eq: 'landlordCheck.status' },
+      listingId: { eq: 'listingId' }, projectId: { eq: 'projectId' }, lvStatus: { eq: 'landlordCheck.status' }, title: { eq: 'property.title' },
       // Either side of the deal (the sales agent or the listing holder).
       staffId: { eq: ['agentId', 'holderId'] },
       // A leader and everyone under them, on either side.
@@ -399,11 +400,13 @@ export const LISTS = {
     counts: { cat: 'cat' },
   },
 
+  // Developers' projects, with their sales and each incentive's progress (counted for the whole company).
   projects: {
     area: 'projects',
     search: ['name', 'developer', 'location'], filters: { status: { eq: 'status' } },
-    sorts: { name: 'name', launchedOn: 'launchedOn' }, sort: 'name',
+    sorts: { name: 'name', launchedOn: 'launchedOn', added: 'id' }, sort: 'name',
     counts: { status: 'status' },
+    extras: { sales: { custom: 'projectSales' } },
   },
 
   // The first system's (V1) E-Forms and yearly Overide summaries: read only.
@@ -500,6 +503,17 @@ const CUSTOM_EXTRAS = {
     return new Map(rows.map(r => [r.id, all.get(r.id) || { sale: [], rental: [] }]))
   },
 }
+
+// A project's sales (shared/projects.js projectDeals: its E-Forms by the project's name, not drafts or
+// aborted) and each incentive's progress: { units, value, fee, month, progress: { [incentiveId]: … } }.
+// `deals`: E-Forms that include every one of the project's; `today` for this month and the incentives' status.
+export function projectSales(project, deals, today) {
+  const sold = projectDeals(deals, project)
+  const add = k => r2(sold.reduce((t, d) => t + Number(d[k] || 0), 0))
+  return { units: sold.length, value: add('price'), fee: add('fee'), month: sold.filter(d => d.date.startsWith(today.slice(0, 7))).length,
+    progress: Object.fromEntries((project.incentives || []).map(i => [i.id, incentiveProgress(i, project, deals, today)])) }
+}
+CUSTOM_EXTRAS.projectSales = (rows, ctx) => new Map(rows.map(p => [p.id, projectSales(p, ctx.data?.deals || [], ctx.today)]))
 
 // { n, gross, wht, net } of slips [{ amounts, exempt }].
 export function addSlips(slips, setup) {
