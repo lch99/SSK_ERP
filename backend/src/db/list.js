@@ -9,11 +9,11 @@
 //   search: [column | { via, table, cols }],   — every word typed must match one of them (or of the record it points at)
 //   filters: { key: { apply(query, value, prepared), prepare?(q, value) } },
 //   sorts: { key: column }, sort: '-date',        — '-' = newest / biggest first
-//   counts: { key: { col } | { set } | { only, sum, distinct? } },   (see shared/lists.js)
+//   counts: { key: { col } | { set } | { only, sum, distinct? } | { only, custom } },   (see shared/lists.js)
 //   extras: [{ key, … }],              — worked out for the page's rows only
 // }
 const { toRecords } = require('./records');
-const { DEFAULT_SIZE, MAX_SIZE } = require('../../../shared/lists.js');
+const { DEFAULT_SIZE, MAX_SIZE, countsWanted } = require('../../../shared/lists.js');
 const { localToday } = require('./days');
 
 // '!' escapes % and _ in what was typed: a backslash means different things in MySQL and SQLite.
@@ -64,15 +64,26 @@ async function extrasFor(q, defs, records) {
       for (const r of records) out.get(r.id)[e.key] = found.get(at(r)) ?? null;
       continue;
     }
+    // null in a value list: empty. Booleans as the tables keep them (0 / 1).
+    const values = vals => vals.filter(x => x !== null).map(x => (typeof x === 'boolean' ? Number(x) : x));
     const linked = b => {
       b.whereIn(e.byCol, ids);
-      for (const [col, vals] of e.where) b.whereIn(col, vals);
-      for (const [col, vals] of e.not) b.whereNotIn(col, vals);
+      for (const [col, vals] of e.where) {
+        b.where(x => { if (values(vals).length) x.orWhereIn(col, values(vals)); if (vals.includes(null)) x.orWhereNull(col); });
+      }
+      for (const [col, vals] of e.not) {
+        b.where(x => {
+          if (vals.includes(null)) x.whereNotNull(col).whereNotIn(col, values(vals));
+          else x.whereNull(col).orWhereNotIn(col, values(vals));
+        });
+      }
       return b;
     };
-    if (e.sumCol) {
-      const sums = new Map(ids.length ? (await linked(q(e.table)).select({ k: e.byCol }).sum({ s: e.sumCol }).groupBy(e.byCol)).map(x => [Number(x.k), Number(x.s)]) : []);
-      for (const r of records) out.get(r.id)[e.key] = r2(sums.get(r.id) || 0);
+    if (e.sumCol || e.count) {
+      const by = linked(q(e.table)).select({ k: e.byCol }).groupBy(e.byCol);
+      if (e.count) by.count({ s: '*' }); else by.sum({ s: e.sumCol });
+      const sums = new Map(ids.length ? (await by).map(x => [Number(x.k), Number(x.s)]) : []);
+      for (const r of records) out.get(r.id)[e.key] = e.count ? sums.get(r.id) || 0 : r2(sums.get(r.id) || 0);
     } else {
       const rows = ids.length ? await toRecords(q, e.model, await linked(q(e.table)).orderBy('id')) : [];
       for (const r of records) {
@@ -125,7 +136,7 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
 
   // counts=0: a later page (the first one had the counts).
   const counts = {};
-  for (const [key, c] of Object.entries(params.counts === '0' ? {} : spec.counts || {})) {
+  for (const [key, c] of countsWanted(spec, params)) {
     if (c.col) {
       const got = await where(q(spec.table), [key]).select({ v: c.col }).count({ n: '*' }).groupBy(c.col);
       counts[key] = Object.fromEntries(got.map(r => [r.v ?? '', Number(r.n)]));
@@ -135,6 +146,7 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
       // Its own filters, and of the page's only those it keeps (the chosen branch).
       const kept = Object.fromEntries(active.filter(([k]) => c.keep.includes(k)).map(([k]) => [k, params[k]]));
       for (const [k, [v, p]] of Object.entries(await prepareSet({ ...kept, ...c.only(ctx) }))) spec.filters[k].apply(b, v, p);
+      if (c.custom) { counts[key] = await c.custom(q, b, ctx); continue; }
       if (c.distinct) b.countDistinct({ d: c.distinct });
       const r = await b.count({ n: '*' }).sum({ s: c.sum }).first();
       counts[key] = { n: Number(r.n), sum: r2(Number(r.s) || 0), ...(c.distinct && { distinct: Number(r.d) }) };

@@ -31,7 +31,7 @@ const { isInUse } = require('../db/errors');
 const { localToday } = require('../db/days');
 const zlib = require('node:zlib');
 const { promisify } = require('node:util');
-const { downloadRows } = require('../../../shared/lists.js');
+const { downloadRows, trimmed } = require('../../../shared/lists.js');
 const { xlsxParts, zip, XLSX_TYPE } = require('../../../shared/xlsx.js');
 
 const deflateRaw = promisify(zlib.deflateRaw);
@@ -203,8 +203,12 @@ const listOf = (req, res) => {
 // A list's own area may read it, and so may its `readers` (shared/lists.js),
 // each record with what that reader may not see taken out.
 const areasOf = spec => [spec.area, ...Object.keys(spec.readers)];
-const asReader = (spec, v) => (AC.allows(v.policy, v.role, spec.area, 'view') ? r => r
-  : Object.entries(spec.readers).find(([area]) => AC.allows(v.policy, v.role, area, 'view'))?.[1] || (r => r));
+// A list that names its `fields` sends only those.
+const asReader = (spec, v) => {
+  const strip = AC.allows(v.policy, v.role, spec.area, 'view') ? r => r
+    : Object.entries(spec.readers).find(([area]) => AC.allows(v.policy, v.role, area, 'view'))?.[1] || (r => r);
+  return r => trimmed(spec, strip(r));
+};
 
 router.get('/:list', wrap(async (req, res, next) => {
   const spec = listOf(req, res);

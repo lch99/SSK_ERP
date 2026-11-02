@@ -209,3 +209,27 @@ test('a role with payments but no E-Form access reads E-Forms to record payments
   assert.equal((await call('GET', `/erp/deals/${list.body.rows[0].id}/history`)).status, 403);
   assert.equal((await boss('PUT', '/access', { policy: AC.defaultPolicy() })).status, 200);
 });
+
+test('an agent pages through only their team\'s pay: people with Ready pay (with only what the page needs), requests and payout lines', async () => {
+  const leader = await free(s => s.type === 'staff' && s.role && data.staff.some(x => x.uplineId === s.id) && data.payouts.some(p => p.staffId === s.id));
+  const call = await signInAs('pay1', leader.id);
+  const team = AC.teamOf(leader.id, data.staff);
+  for (const kind of ['salary', 'incentives']) {
+    const people = await call('GET', `/erp/payees?ready=${kind}&size=200`);
+    assert.equal(people.status, 200);
+    const due = new Set(data.payouts.filter(p => team.has(p.staffId) && p.status === 'approved' && !p.requestId && !p.archiveId && !p.stacked && !!p.role === (kind === 'incentives')).map(p => p.staffId));
+    assert.deepEqual(people.body.rows.map(p => p.id).sort((a, b) => a - b), [...due].sort((a, b) => a - b), kind);
+    for (const p of people.body.rows) {
+      assert.ok(team.has(p.id), `${p.code} is in the team`);
+      assert.equal(p.ic, undefined, 'no IC on the list');
+      assert.ok(p.$[kind] > 0 && p.$[`${kind}Lines`] > 0);
+    }
+  }
+  const requests = await call('GET', '/erp/requests?size=200');
+  assert.equal(requests.status, 200);
+  assert.ok(requests.body.rows.every(r => team.has(r.staffId)));
+  assert.equal(requests.body.counts.unpaid.n, data.requests.filter(r => team.has(r.staffId) && ['new', 'ready'].includes(r.status)).length);
+  const lines = await call('GET', '/erp/payouts?size=200&counts=salaryReady');
+  assert.ok(lines.body.rows.length > 0 && lines.body.rows.every(p => team.has(p.staffId)));
+  assert.deepEqual(Object.keys(lines.body.counts), ['salaryReady'], 'only the counts asked for');
+});

@@ -8,15 +8,19 @@ import { useAccess } from './access.jsx'
 
 // What every read of a list adds to the page's own params, and where the demo
 // finds the records. `branch: false` leaves the top bar's branch out (a check
-// across everything the viewer may see, such as the same slip recorded twice).
+// across everything the viewer may see, such as the same slip recorded twice);
+// `branch: '<filter>'` gives it to that filter instead of branchId (the
+// earner's branch on payout lines, where branchId is the E-Form's).
 function source(erp, access, key, { branch = true } = {}) {
   const spec = LISTS[key]
   const all = (access?.scope || 'all') === 'all'
-  // The top bar's branch, for someone who sees every branch (the demo's records are limited to it already).
-  const extra = { ...(!DEMO && branch && all && erp.branchId != null && spec.filters?.branchId ? { branchId: erp.branchId } : {}) }
+  const named = typeof branch === 'string'
+  const filter = named ? branch : 'branchId'
+  // The top bar's branch, for someone who sees every branch (the demo's records are limited to it already, except by a named filter).
+  const extra = { ...((!DEMO || named) && branch && all && erp.branchId != null && spec.filters?.[filter] ? { [filter]: erp.branchId } : {}) }
   // "View the ERP as": the server limits the list to that role and person (the demo's records are limited already).
   if (!DEMO && access?.viewing) Object.assign(extra, { as: access.who.role, asStaff: access.who.staffId ?? '' })
-  const records = () => recordsOf(branch || !all ? erp.scoped : erp.m.data, key)
+  const records = () => recordsOf(branch === true || !all ? erp.scoped : erp.m.data, key)
   const ctx = { data: erp.m?.data, today: erp.m?.today, setup: erp.setup }
   return { spec, extra, records, ctx }
 }
@@ -28,7 +32,8 @@ function source(erp, access, key, { branch = true } = {}) {
 // extras as `$` (an E-Form's cleared cash…). After a change to the records (an
 // action) it reads again, as many rows as were shown; also when the top bar's
 // branch, or the person the Superadmin views the ERP as, changes. `branch:
-// false` leaves the top bar's branch out (one E-Form's payments). `searching`:
+// false` leaves the top bar's branch out (one E-Form's payments); `branch:
+// '<filter>'` sends it to that filter. `searching`:
 // what was typed hasn't been asked yet (the server waits until typing stops).
 export function useList(key, params, { pageSize = 20, branch = true } = {}) {
   const erp = useErp()

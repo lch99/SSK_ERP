@@ -23,7 +23,7 @@ const WAITING = 'new,queried'
 // The Status filter's Ready takes paid lines too.
 const STATUSES = { ready: 'approved,paid' }
 // What the next weekly archive takes (archiveCases): Ready lines whose salary is requested.
-const DUE = { status: 'approved,paid', requested: 'true', archived: 'false' }
+const DUE = { status: 'approved,paid', requested: 'true', archived: 'false', counts: 'due' }
 const salaryStatus = p => (!p.requestId ? 'none' : p.$.requestStatus === 'clear' ? 'paid' : 'requested')
 const lines = n => `${n} line${n === 1 ? '' : 's'}`
 
@@ -56,7 +56,7 @@ function CaseList({ archive, archives, onArchive }) {
   const tops = d.staff.filter(s => s.role && s.uplineId == null)
 
   const params = {
-    q, sort, status: STATUSES[status] || status, requested: salary && (salary === '1' ? 'true' : 'false'), closeType: type, side, agentTeam: bm,
+    q, sort, counts: 'waiting,ready', status: STATUSES[status] || status, requested: salary && (salary === '1' ? 'true' : 'false'), closeType: type, side, agentTeam: bm,
     // No archive yet (or none at all): nothing.
     ...(archived ? { archiveId: String(archive?.id ?? 0) } : { archived: 'false' }),
   }
@@ -177,7 +177,7 @@ function ApprovalList({ erp, closes: count }) {
   const { m, setup } = erp
   const can = useCan()
   const approver = can('payouts', 'full')
-  const list = useList('payouts', { status: WAITING, archived: 'false', sort: 'close' }, { pageSize: 200 })
+  const list = useList('payouts', { status: WAITING, archived: 'false', sort: 'close', counts: '0' }, { pageSize: 200 })
   const [asking, setAsking] = useState(null)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)

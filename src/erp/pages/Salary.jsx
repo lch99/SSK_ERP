@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { useNarrow } from '../../setup/useNarrow.js'
 import { nextPayDate } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { REQUEST_STATUS, group, sum } from '../model.js'
+import { useList, useRecord } from '../useList.js'
+import { REQUEST_STATUS, sum } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, DataTable, Status, Who, Link, Drawer, Notice, Empty, Stat, SelectionBar, TextArea, cols, go, mono, tabular, small, useRecordNav } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
@@ -13,7 +14,7 @@ import { rm, pct, date, maskAcc, maskIc } from '../format.js'
 import { useCan } from '../access.jsx'
 
 // Salary (own case lines) and Incentives (upline lines): each person requests
-// their Ready lines, accounts pays them on the Setup pay day.
+// their Ready lines, accounts pays them on the Setup pay day. A page at a time (useList).
 export default function Salary({ parts }) {
   if (parts[1] === 'request') return <RequestList kind="salary" />
   if (parts[1] === 'incentives') return <RequestList kind="incentives" />
@@ -22,58 +23,70 @@ export default function Salary({ parts }) {
 }
 
 const KIND = { salary: 'Salary', incentives: 'Incentives' }
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+// What waits for each kind, from the payout lines (by the earner's branch): Ready and stacked.
+const WAITING = 'salaryReady,incentivesReady,salaryStacked,incentivesStacked'
+const none = { n: 0, sum: 0, distinct: 0 }
 
+// The people with Ready lines of this kind not requested yet, a page at a time.
 function RequestList({ kind }) {
   const erp = useErp()
-  const { m, scoped: d, setup } = erp
-  const [picked, setPicked] = useState(new Set())
-  const [error, setError] = useState(null)
-  const ready = d.payouts.filter(p => p.status === 'approved' && !p.requestId && !p.stacked && (kind === 'incentives' ? p.role : !p.role))
+  const { m, setup } = erp
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState('name')
+  const [picked, setPicked] = useState(() => new Set())
+  // A tick is for a row on screen: another search starts a new selection.
+  const [pickedFor, setPickedFor] = useState(q)
+  if (pickedFor !== q) { setPickedFor(q); setPicked(new Set()) }
+  const people = useList('payees', { ready: kind, q, sort }, { pageSize: 50 })
+  const totals = useList('payouts', { counts: WAITING }, { branch: 'staffBranch', pageSize: 1 }).counts
+  const ready = totals[`${kind}Ready`] || none
   // Lines agents stacked wait for them to claim, so they are not requested here.
-  const stacked = d.payouts.filter(p => p.status === 'approved' && !p.requestId && p.stacked && (kind === 'incentives' ? p.role : !p.role))
+  const stacked = totals[`${kind}Stacked`] || none
   // The other kind waiting too: say so, with a link, since the flow counts both.
   const other = kind === 'incentives' ? 'salary' : 'incentives'
-  const otherPeople = new Set(d.payouts.filter(p => p.status === 'approved' && !p.requestId && !p.stacked && (kind === 'incentives' ? !p.role : p.role)).map(p => p.staffId)).size
-  const rows = Object.entries(group(ready, 'staffId')).map(([sid, ls]) => ({ staff: m.staff[sid], lines: ls, amount: sum(ls, l => l.amount) }))
-    .sort((a, b) => a.staff.short.localeCompare(b.staff.short))
+  const otherPeople = totals[`${other}Ready`]?.distinct || 0
+  const amountOf = r => r.$[kind]
   const payOn = nextPayDate(setup.approvals, m.today)
   const fb = useFeedback()
   const create = async ids => {
-    setError(null)
-    const who = ids.length === 1 ? m.staff[ids[0]].short : `${ids.length} people`
-    const total = sum(rows.filter(r => ids.includes(r.staff.id)), r => r.amount)
+    const rows = people.rows.filter(r => ids.includes(r.id))
+    const who = ids.length === 1 ? rows[0]?.short : `${ids.length} people`
     const ok = await fb.confirm({ title: `Create ${KIND[kind]} Request for ${who}?`,
-      body: <>{rm(total)} in Ready lines goes into the request. It is paid on the next pay day, <b>{date(payOn)}</b>.</>, confirmLabel: 'Create request' })
+      body: <>{rm(sum(rows, amountOf))} in Ready lines goes into the request. It is paid on the next pay day, <b>{date(payOn)}</b>.</>, confirmLabel: 'Create request' })
     if (!ok) return
     if (await fb.run(() => erp.createRequests(ids, kind), `${KIND[kind]} Request created for ${who} · paid on ${date(payOn)}`)) setPicked(new Set())
   }
-  const pickedTotal = sum(rows.filter(r => picked.has(r.staff.id)), r => r.amount)
+  const pickedRows = people.rows.filter(r => picked.has(r.id))
   const columns = [
-    { key: 'staff', label: 'Staff', render: r => <Who name={r.staff.short} sub={`${r.staff.code} · ${m.branchName(r.staff.branchId)}`} to={`staff/${r.staff.id}`} size={28} /> },
-    { key: 'bank', label: 'Bank Account', render: r => <span>{r.staff.bank}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{maskAcc(r.staff.account)}</span></span> },
-    { key: 'lines', label: 'Ready lines', align: 'right', render: r => r.lines.length },
-    { key: 'amount', label: 'Amount', align: 'right', render: r => <b>{rm(r.amount)}</b> },
-    { key: 'go', label: '', card: false, render: r => <button style={{ ...small, whiteSpace: 'nowrap' }} onClick={e => { e.stopPropagation(); create([r.staff.id]) }}>Request</button> },
+    { key: 'staff', label: 'Staff', sortKey: 'name', render: r => <Who name={r.short} sub={`${r.code} · ${m.branchName(r.branchId)}`} to={`staff/${r.id}`} size={28} /> },
+    { key: 'bank', label: 'Bank Account', render: r => <span>{r.bank}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{maskAcc(r.account)}</span></span> },
+    { key: 'lines', label: 'Ready lines', align: 'right', render: r => r.$[`${kind}Lines`] },
+    { key: 'amount', label: 'Amount', align: 'right', render: r => <b>{rm(amountOf(r))}</b> },
+    { key: 'go', label: '', card: false, render: r => <button style={{ ...small, whiteSpace: 'nowrap' }} onClick={e => { e.stopPropagation(); create([r.id]) }}>Request</button> },
   ]
   return (
     <Page title={`Request ${KIND[kind].toLowerCase()}`} help={kind === 'incentives' ? PAGE.incentivesRequest : PAGE.salaryRequest}
       sub={<>Staff with Ready {kind === 'incentives' ? 'upline incentive' : 'salary'} lines that are not requested yet. Requests are paid on the next pay day ({date(payOn)}).</>}
-      actions={<button style={{ ...btnPrimary, opacity: picked.size ? 1 : 0.5 }} disabled={!picked.size} onClick={() => create([...picked])}
-        title={picked.size ? undefined : 'Tick the people to request for first'}>Create {KIND[kind]} Request ({picked.size} items)</button>}>
+      actions={<button style={{ ...btnPrimary, opacity: pickedRows.length ? 1 : 0.5 }} disabled={!pickedRows.length} onClick={() => create(pickedRows.map(r => r.id))}
+        title={pickedRows.length ? undefined : 'Tick the people to request for first'}>Create {KIND[kind]} Request ({pickedRows.length} items)</button>}>
       <FlowBar here="request" />
-      {error && <Notice tone="red">{error}</Notice>}
       {otherPeople > 0 && <Notice tone="blue">{otherPeople} {otherPeople === 1 ? 'person also has' : 'people also have'} Ready {other === 'salary' ? 'salary' : 'upline incentive'} lines. <Link to={`salary/${other === 'salary' ? 'request' : 'incentives'}`}>Request {other}</Link></Notice>}
       <div style={{ ...cols(220, 14), marginBottom: 16 }}>
-        <Stat icon="payRuns" tone="blue" label={`Ready, not requested`} value={rm(sum(rows, r => r.amount))} sub={`${rows.length} ${rows.length === 1 ? 'person' : 'people'} · ${sum(rows, r => r.lines.length)} line${sum(rows, r => r.lines.length) === 1 ? '' : 's'}`} />
+        <Stat icon="payRuns" tone="blue" label="Ready, not requested" value={rm(ready.sum)} sub={`${plural(ready.distinct, 'person', 'people')} · ${plural(ready.n, 'line')}`} />
         <Stat icon="clock" tone="gray" label="Next pay day" value={date(payOn)} sub={P.describeApprovals(setup.approvals).split(' · ')[1] || 'From Setup'} />
-        {stacked.length > 0 && <Stat icon="wallet" tone="gray" label="Stacked by agents" value={rm(sum(stacked, p => p.amount))}
-          sub={`${new Set(stacked.map(p => p.staffId)).size} agent${new Set(stacked.map(p => p.staffId)).size === 1 ? '' : 's'} keeping it for later. They claim it themselves.`} />}
+        {stacked.n > 0 && <Stat icon="wallet" tone="gray" label="Stacked by agents" value={rm(stacked.sum)}
+          sub={`${plural(stacked.distinct, 'agent')} keeping it for later. They claim it themselves.`} />}
       </div>
       <Card pad={16}>
-        <DataTable columns={columns} rows={rows} rowKey={r => r.staff.id} narrowAt={720} empty={`Nobody has Ready ${kind} lines waiting`}
+        <Toolbar><SearchBox value={q} onChange={setQ} placeholder="Name or staff code" /></Toolbar>
+        {people.error && <Notice tone="red">{people.error}</Notice>}
+        <DataTable columns={columns} rows={people.rows} pageSize={50} narrowAt={720}
+          paged={{ total: people.total, sort, onSort: setSort, onMore: people.more, loading: people.loading }}
+          empty={people.loading ? 'Loading…' : q ? `Nobody with Ready ${kind} lines matches “${q}”` : `Nobody has Ready ${kind} lines waiting`} onClear={q ? () => setQ('') : undefined}
           selection={{ selected: picked, onChange: setPicked }} />
-        <SelectionBar count={picked.size} summary={rm(pickedTotal)} onClear={() => setPicked(new Set())}>
-          <button style={{ ...small, ...btnPrimary, fontSize: 13, padding: '5px 12px' }} onClick={() => create([...picked])}>Create {KIND[kind]} Request</button>
+        <SelectionBar count={pickedRows.length} summary={rm(sum(pickedRows, amountOf))} onClear={() => setPicked(new Set())}>
+          <button style={{ ...small, ...btnPrimary, fontSize: 13, padding: '5px 12px' }} onClick={() => create(pickedRows.map(r => r.id))}>Create {KIND[kind]} Request</button>
         </SelectionBar>
       </Card>
     </Page>
@@ -92,44 +105,64 @@ function CreatorFees() {
 
 const TABS = ['new', 'ready', 'clear', 'invalid', 'all']
 
+// A request's net pay: its lines' gross less withholding tax, unless the person is exempt.
+const netOf = (r, setup) => P.payslipTotals([r.$.gross], setup.dealTypes.whtPct, r.$.staff?.whtExempt).net
+
+// One request's slip: the request, its payee, its lines and totals (as m.slip gives them).
+// Its lines come in one read (a request holds one person's lines for one pay day).
+function useSlip(id) {
+  const { setup } = useErp()
+  const { record: request, loading } = useRecord('requests', id)
+  const lines = useList('payouts', { requestId: id ?? 0, sort: 'date' }, { branch: false, pageSize: 200 })
+  if (!request) return { slip: null, loading }
+  const totals = P.payslipTotals([request.$.gross], setup.dealTypes.whtPct, request.$.staff?.whtExempt)
+  return { slip: { request, staff: request.$.staff || {}, lines: lines.rows, more: lines.total - lines.rows.length, ...totals }, loading }
+}
+
 function AllList({ openId }) {
-  const { m, scoped: d } = useErp()
-  const [tab, setTab] = useState(() => (d.requests.some(r => r.status === 'new') ? 'new' : 'all'))
+  const { m, setup } = useErp()
   const [q, setQ] = useState('')
-  const open = openId && m.requests[openId] ? m.slip(openId) : null
-  const match = useMemo(() => {
-    const words = q.trim().toLowerCase()
-    return d.requests.filter(r => !words || [r.code, m.staff[r.staffId].name, m.staff[r.staffId].short].join(' ').toLowerCase().includes(words))
-  }, [d.requests, q, m])
-  const rows = tab === 'all' ? match : match.filter(r => r.status === tab)
-  const { onOrder, nav } = useRecordNav(open?.request.id, id => `salary/${id}`)
-  const unpaid = d.requests.filter(r => r.status === 'new' || r.status === 'ready')
-  const year = d.requests.filter(r => r.status === 'clear' && r.paidOn?.startsWith(m.year))
+  const [sort, setSort] = useState('-date')
+  const [status, setStatus] = useState('new')
+  const [chosen, setChosen] = useState(false)
+  const list = useList('requests', { q, sort, status: status === 'all' ? '' : status, counts: 'status,unpaid,paidThisYear' })
+  const byStatus = list.counts.status
+  // New requests first, when there are any.
+  if (!chosen && byStatus) { setChosen(true); if (!byStatus.new) setStatus('all') }
+  const pick = k => { setChosen(true); setStatus(k) }
+  const { slip: open, loading: opening } = useSlip(openId)
+  const { onOrder, nav } = useRecordNav(openId, id => `salary/${id}`)
+  const unpaid = list.counts.unpaid || { n: 0, net: 0 }
+  const year = list.counts.paidThisYear || { n: 0, net: 0, wht: 0 }
   const columns = [
-    { key: 'date', label: 'Date', nowrap: true, sort: r => r.date, render: r => date(r.date) },
-    { key: 'staff', label: 'Staff', sort: r => m.staffName(r.staffId), render: r => <Who name={m.staffName(r.staffId)} sub={m.staff[r.staffId].code} size={26} /> },
-    { key: 'bank', label: 'Bank Account', render: r => <span>{m.staff[r.staffId].bank}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{maskAcc(m.staff[r.staffId].account)}</span></span> },
+    { key: 'date', label: 'Date', nowrap: true, sortKey: 'date', render: r => date(r.date) },
+    { key: 'staff', label: 'Staff', render: r => <Who name={r.$.staff?.short || r.$.staff?.name} sub={r.$.staff?.code} size={26} /> },
+    { key: 'bank', label: 'Bank Account', render: r => <span>{r.$.staff?.bank}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{maskAcc(r.$.staff?.account)}</span></span> },
     { key: 'type', label: 'Type', render: r => KIND[r.kind] },
-    { key: 'amount', label: 'Amount', align: 'right', render: r => <b>{rm(m.slip(r.id).net)}</b> },
-    { key: 'status', label: 'Status', sort: r => r.status, render: r => <Status of={REQUEST_STATUS} value={r.status} /> },
+    { key: 'amount', label: 'Amount', align: 'right', render: r => <b>{rm(netOf(r, setup))}</b> },
+    { key: 'status', label: 'Status', sortKey: 'status', render: r => <Status of={REQUEST_STATUS} value={r.status} /> },
     { key: 'reason', label: 'Reasons', render: r => <span style={{ fontSize: 12.5, color: r.remark ? C.err : C.muted }}>{r.remark || '—'}</span> },
-    { key: 'code', label: 'Salary ID', sort: r => r.id, render: r => <b style={mono}>{r.code}</b> },
+    { key: 'code', label: 'Salary ID', sortKey: 'code', render: r => <b style={mono}>{r.code}</b> },
   ]
   return (
     <Page title="Pay requests" help={PAGE.payRequests} sub="Salary and incentive requests (S.A.P list). Payment Clear pays the case lines in the request.">
       <FlowBar here="pay" />
       <div style={{ ...cols(220, 14), marginBottom: 16 }}>
-        <Stat icon="payRuns" tone="amber" label="New Request and Payment Ready" value={rm(sum(unpaid, r => m.slip(r.id).net))} sub={`${unpaid.length} requests`} onClick={() => setTab('ready')} on={tab === 'ready'} />
-        <Stat icon="check" tone="green" label={`Payment Clear in ${m.year}`} value={rm(sum(year, r => m.slip(r.id).net))} sub={`Tax withheld ${rm(sum(year, r => m.slip(r.id).wht))}`} onClick={() => setTab('clear')} on={tab === 'clear'} />
+        <Stat icon="payRuns" tone="amber" label="New Request and Payment Ready" value={rm(unpaid.net)} sub={plural(unpaid.n, 'request')} onClick={() => pick('ready')} on={status === 'ready'} />
+        <Stat icon="check" tone="green" label={`Payment Clear in ${m.year}`} value={rm(year.net)} sub={`Tax withheld ${rm(year.wht)}`} onClick={() => pick('clear')} on={status === 'clear'} />
       </div>
       <Card pad={16}>
-        <Tabs value={tab} onChange={setTab} tabs={TABS.map(k => ({ key: k, label: k === 'all' ? 'All List' : REQUEST_STATUS[k].label, count: k === 'all' ? match.length : match.filter(r => r.status === k).length }))} />
+        <Tabs value={status} onChange={pick} tabs={TABS.map(k => ({ key: k, label: k === 'all' ? 'All List' : REQUEST_STATUS[k].label,
+          count: k === 'all' ? Object.values(byStatus || {}).reduce((t, n) => t + n, 0) : byStatus?.[k] || 0 }))} />
         <Toolbar><SearchBox value={q} onChange={setQ} placeholder="Salary ID or staff" /></Toolbar>
-        <DataTable columns={columns} rows={rows} onRow={r => go(`salary/${r.id}`)} defaultSort={{ key: 'code', dir: 'desc' }} pageSize={20} narrowAt={940}
-          empty={q ? `No requests match “${q}”` : 'No requests here'} onClear={q ? () => setQ('') : undefined} onOrder={onOrder} />
+        {list.error && <Notice tone="red">{list.error}</Notice>}
+        <DataTable columns={columns} rows={list.rows} onRow={r => go(`salary/${r.id}`)} pageSize={20} narrowAt={940}
+          paged={{ total: list.total, sort, onSort: setSort, onMore: list.more, loading: list.loading }}
+          empty={list.loading ? 'Loading…' : q ? `No requests match “${q}”` : 'No requests here'} onClear={q ? () => setQ('') : undefined} onOrder={onOrder} />
       </Card>
-      <Drawer open={!!open} onClose={() => go('salary')} width={760} title={open ? `${KIND[open.request.kind]} · ${open.staff.short}` : ''} sub={open?.request.code}
+      <Drawer open={openId != null} onClose={() => go('salary')} width={760} title={open ? `${KIND[open.request.kind]} · ${open.staff.short}` : opening ? 'Loading…' : 'Not found'} sub={open?.request.code}
         nav={nav} footer={open && <RequestActions key={open.request.id} slip={open} next={nav?.next} />}>
+        {!open && !opening && <Notice tone="amber">This request was not found, or it is not one you can see.</Notice>}
         {open && <Slip slip={open} />}
       </Drawer>
     </Page>
@@ -178,7 +211,8 @@ function RequestActions({ slip, next }) {
 }
 
 // The salary slip, laid out like the current printout (SAL-YYYY-MM-NNNNN).
-export function Slip({ slip }) {
+// slip: useSlip(id).slip; each line carries its E-Form as $.deal.
+function Slip({ slip }) {
   const { m, setup } = useErp()
   const { staff: s, request: r } = slip
   const co = setup.company
@@ -207,12 +241,12 @@ export function Slip({ slip }) {
       {narrow ? (
         <div style={{ borderTop: `1px solid ${C.border}` }}>
           {slip.lines.map(l => {
-            const deal = m.deals[l.dealId]
+            const deal = l.$.deal || {}
             return (
               <div key={l.id} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: `1px solid ${C.border}`, fontSize: 12.5 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <Link to={`deals/${deal.id}`} style={mono}>{deal.code}</Link> <span style={{ color: C.muted }}>· {date(l.date, { short: true })}</span>
-                  <div>{deal.property.title}</div>
+                  <Link to={`deals/${l.dealId}`} style={mono}>{deal.code}</Link> <span style={{ color: C.muted }}>· {date(l.date, { short: true })}</span>
+                  <div>{deal['property.title']}</div>
                   <div style={{ color: C.muted }}>{m.commType(l)} · {pct(l.pct)} of {rm(l.base)}</div>
                 </div>
                 <b style={{ whiteSpace: 'nowrap', ...tabular }}>{rm(l.amount)}</b>
@@ -229,12 +263,12 @@ export function Slip({ slip }) {
           </thead>
           <tbody>
             {slip.lines.map(l => {
-              const deal = m.deals[l.dealId]
+              const deal = l.$.deal || {}
               return (
                 <tr key={l.id}>
                   <td style={{ ...cell, whiteSpace: 'nowrap' }}>{date(l.date, { short: true })}</td>
-                  <td style={cell}><Link to={`deals/${deal.id}`} style={{ ...mono, fontSize: 12 }}>{deal.code}</Link></td>
-                  <td style={cell}>{deal.property.title}</td>
+                  <td style={cell}><Link to={`deals/${l.dealId}`} style={{ ...mono, fontSize: 12 }}>{deal.code}</Link></td>
+                  <td style={cell}>{deal['property.title']}</td>
                   <td style={cell}>{m.staffName(deal.agentId)}</td>
                   <td style={cell}>{deal.holderId != null ? m.staffName(deal.holderId) : '—'}</td>
                   <td style={cell}>{m.commType(l)}</td>
@@ -247,6 +281,7 @@ export function Slip({ slip }) {
           </tbody>
         </table>
       )}
+      {slip.more > 0 && <p style={{ fontSize: 12, color: C.muted, margin: '8px 0 0' }}>And {plural(slip.more, 'more line')}: the totals count them all.</p>}
       <div style={{ marginLeft: 'auto', maxWidth: 300, marginTop: 12, fontSize: 13.5 }}>
         {[['Sub-total', rm(slip.gross)], [s.whtExempt ? 'Withholding tax (exempt)' : `Withholding tax ${setup.dealTypes.whtPct}%`, `− ${rm(slip.wht)}`]].map(([k, v]) => (
           <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: C.muted }}>{k}</span><span style={tabular}>{v}</span></div>

@@ -41,8 +41,10 @@ function valuesFor(rule, records) {
 }
 
 function cases(key, spec, records) {
-  // counts=0: a later page, without the counts.
+  // counts=0: a later page, without the counts; counts=a,b: only those.
   const out = [{}, { size: 7, page: 2 }, { size: 7, page: 2, counts: '0' }];
+  const asked = Object.keys(spec.counts || {}).slice(-2);
+  if (asked.length) out.push({ counts: asked.join(',') });
   // A word from each search field (own or through another record).
   for (const f of spec.search || []) {
     const first = records.find(r => String(searchText(r, f) ?? '').length > 3);

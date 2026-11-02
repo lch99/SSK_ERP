@@ -4,6 +4,7 @@
 // (from records.js). The searches, filters, sorts, counts and extras themselves
 // come from shared/lists.js, so the demo and the server page the same way.
 const SHARED = require('../../../shared/lists.js');
+const { loadSetup } = require('./setupStore');
 const { MODELS, parseJson } = require('./records');
 const { teamIds } = require('./list');
 
@@ -31,8 +32,24 @@ const CLEARED = "(select coalesce(sum(m.amount), 0) from money_in m where m.deal
 const CLOSED = '(select coalesce(sum(c.claim), 0) from closes c where c.deal_id = deals.id)';
 const GOT = `(case when ${CLEARED} < deals.billed then ${CLEARED} else deals.billed end)`;
 
+const STAFF_SCOPE = { branch: (b, v) => inBranch(b, v, 'staff.branch_id'), team: (b, v) => b.whereIn('staff.id', v.team) };
+
 const SERVER = {
-  staff: { table: 'staff', scope: { branch: (b, v) => inBranch(b, v, 'staff.branch_id'), team: (b, v) => b.whereIn('staff.id', v.team) } },
+  staff: { table: 'staff', scope: STAFF_SCOPE },
+  payees: {
+    table: 'staff', scope: STAFF_SCOPE,
+    custom: {
+      // shared/lists.js readyPay: has a Ready line not requested, archived or stacked, of that kind (incentives have an upline level).
+      readyPay: {
+        apply: (b, v) => {
+          if (v !== 'salary' && v !== 'incentives') return b.whereRaw('1 = 0');
+          return b.whereIn('staff.id', sub => sub.select('p.staff_id').from('payout_lines as p').where('p.status', 'approved')
+            .whereNull('p.request_id').whereNull('p.archive_id').where(x => x.whereNull('p.stacked').orWhere('p.stacked', 0))
+            .where(x => (v === 'incentives' ? x.whereNotNull('p.role') : x.whereNull('p.role'))));
+        },
+      },
+    },
+  },
   listings: { table: 'listings', scope: { branch: inBranch, team: either(['holder_id', 'creator_id']) } },
   customers: { table: 'customers', scope: { branch: inBranch, team: (b, v) => b.whereIn('owner_id', v.team) } },
   deals: {
@@ -68,7 +85,20 @@ const SERVER = {
       },
     },
   },
-  requests: { table: 'pay_requests', scope: byStaff },
+  requests: {
+    table: 'pay_requests', scope: byStaff,
+    counts: {
+      // shared/lists.js CUSTOM_COUNTS.payslips: each request's gross (its lines) and the person's tax exemption, then the same sums.
+      payslips: async (q, b) => {
+        const rows = await q('pay_requests').join('staff', 'staff.id', 'pay_requests.staff_id')
+          .leftJoin('payout_lines', 'payout_lines.request_id', 'pay_requests.id')
+          .whereIn('pay_requests.id', b.select('pay_requests.id'))
+          .groupBy('pay_requests.id', 'staff.wht_exempt').select('pay_requests.id', { exempt: 'staff.wht_exempt' }).sum({ gross: 'payout_lines.amount' });
+        const setup = await loadSetup(q);
+        return SHARED.addSlips(rows.map(r => ({ amounts: [Number(r.gross) || 0], exempt: !!Number(r.exempt) })), setup);
+      },
+    },
+  },
   archives: { table: 'archives' },
   moneyOut: { table: 'money_out', scope: { branch: viaDeal, team: viaDeal }, columns: { 'payee.name': 'payee_name' } },
   vendorRequests: { table: 'vendor_requests', scope: { branch: inBranch, team: viaListing } },
@@ -161,7 +191,7 @@ function extraOf(key, e) {
   }
   if (e.from) return { key, from: e.from, table: m.table, fieldCol: col(e.field) };
   return {
-    key, table: m.table, model: m, by: e.by, byCol: col(e.by), sumCol: e.sum ? col(e.sum) : null, pick: e.pick,
+    key, table: m.table, model: m, by: e.by, byCol: col(e.by), sumCol: e.sum ? col(e.sum) : null, count: !!e.count, pick: e.pick,
     where: Object.entries(e.where || {}).map(([f, vals]) => [col(f), vals]),
     not: Object.entries(e.not || {}).map(([f, vals]) => [col(f), vals]),
   };
@@ -174,13 +204,15 @@ function serverSpec(key) {
   const searchOf = f => (typeof f === 'string' ? col(f)
     : { via: col(f.via), table: MODELS[f.of].table, cols: f.fields.map(g => columnOf(MODELS[f.of], g)) });
   return {
-    key, area: shared.area, readers: shared.readers || {}, table: server.table, model, scope: server.scope, download: shared.download,
+    key, area: shared.area, readers: shared.readers || {}, fields: shared.fields, table: server.table, model, scope: server.scope, download: shared.download,
     search: (shared.search || []).map(searchOf),
     filters: Object.fromEntries(Object.entries(shared.filters || {}).map(([k, rule]) => [k, filterOf(rule, col, server)])),
     sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, col(f)])),
     sort: shared.sort,
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
-      typeof c === 'string' ? { col: col(c) } : c.only ? { only: c.only, sum: col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct) } : c])),
+      typeof c === 'string' ? { col: col(c) }
+        : c.only ? { only: c.only, sum: c.sum && col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct), custom: c.custom && server.counts[c.custom] }
+          : c])),
     extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => extraOf(k, e)) : null,
   };
 }

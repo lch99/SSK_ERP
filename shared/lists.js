@@ -24,15 +24,20 @@
 //         { set: { key: value } | ctx => …, ignores? }   n with those filters set as well
 //         { only: ctx => { key: value }, sum: field, keep?, distinct? }   { n, sum } over these filters alone (and of the page's, those it keeps);
 //                                with distinct: field, also how many different values it has ({ n, sum, distinct })
+//         { only, custom: name, keep? }   CUSTOM_COUNTS below here over those records, and the same on the server
+//         ?counts=a,b asks for those counts only; ?counts=0 for none (a later page)
 // extras (on each row as `$`):
-//         { sum: field, of: kind, by: field, where?: { field: [values] }, not?: { field: [values] } } → a number
+//         { sum: field, of: kind, by: field, where?: { field: [values] }, not?: { field: [values] } } → a number (null in values: empty)
+//         { count: true, of: kind, by: field, where?, not? }   how many → a number
 //         { pick: [fields], of: kind, by: field }   the records of that kind that point at this one, by id
 //         { field, of: kind, from: field }          one field of the record this one points at
 //         { pick: [fields], of: kind, from: field }  some of its fields ({ … } or null)
 //         `from` may start with '$.' to go on from an extra worked out above it (the agent on a payment's E-Form)
 // download: { file, sheet, widths?, columns: [[label, field | row => value]] }   the Excel download (downloadRows)
 // readers: { area: record => record }   other areas that may read the list too, with what they may not see taken out
+// fields: [fields]               the rows carry only these (a list over another kind that needs a few of its fields)
 import { teamOf } from './access.js'
+import { payslipTotals } from './payout.js'
 import { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS } from './labels.js'
 
 export const DEFAULT_SIZE = 50
@@ -61,6 +66,12 @@ export function withoutParties(d) {
   const blank = { name: '', ic: '', phone: '', address: '', email: '' }
   return { ...d, buyer: blank, owner: blank, otherBuyers: [], otherOwners: [], referral: null, coBroke: d.coBroke && { agency: d.coBroke.agency } }
 }
+
+// A Ready payout line not requested yet (Request salary / incentives; agents claim or stack their own).
+const OPEN_LINE = { status: 'approved', requested: 'false', archived: 'false' }
+// A person's own lines (salary) have no upline level; incentives (from their downline's deals) have one.
+const READY_PAY = kind => ({ of: 'payouts', by: 'staffId', where: { status: ['approved'], requestId: [null], archiveId: [null], ...(kind === 'salary' && { role: [null] }) },
+  not: { stacked: [true], ...(kind === 'incentives' && { role: [null] }) } })
 
 const DEAL_CASH = {
   cleared: { sum: 'amount', of: 'moneyIn', by: 'dealId', where: { status: ['cleared'] } },
@@ -212,6 +223,8 @@ export const LISTS = {
       branchId: viaDeal({ eq: 'branchId' }), agentTeam: viaDeal({ team: ['agentId'] }),
       // The close it came from: full, partial or balance (closeType in src/erp/model.js).
       closeType: { custom: 'closeType', values: ['full', 'partial', 'balance'] },
+      // An upline incentive (true) or the person's own salary line (false); the earner's branch.
+      incentive: { notNull: 'role' }, staffBranch: { via: 'staffId', of: 'staff', rule: { eq: 'branchId' } },
     },
     sorts: { date: 'date', amount: 'amount', code: 'code', status: 'status', close: 'closeId' },
     sort: '-date',
@@ -223,21 +236,53 @@ export const LISTS = {
       ready: { only: () => ({ status: 'approved', requested: 'false', archived: 'false' }), sum: 'amount', distinct: 'staffId', keep: ['branchId'] },
       // What the next weekly archive takes (shared/erpActions.js archiveCases): every branch.
       due: { only: () => ({ status: 'approved,paid', requested: 'true', archived: 'false' }), sum: 'amount' },
+      // Request salary / incentives: Ready lines not requested, for how many people (by the earner's branch);
+      // the ones agents stacked wait for them to claim.
+      salaryReady: { only: () => ({ ...OPEN_LINE, incentive: 'false', stacked: 'false' }), sum: 'amount', distinct: 'staffId', keep: ['staffBranch'] },
+      incentivesReady: { only: () => ({ ...OPEN_LINE, incentive: 'true', stacked: 'false' }), sum: 'amount', distinct: 'staffId', keep: ['staffBranch'] },
+      salaryStacked: { only: () => ({ ...OPEN_LINE, incentive: 'false', stacked: 'true' }), sum: 'amount', distinct: 'staffId', keep: ['staffBranch'] },
+      incentivesStacked: { only: () => ({ ...OPEN_LINE, incentive: 'true', stacked: 'true' }), sum: 'amount', distinct: 'staffId', keep: ['staffBranch'] },
     },
     extras: {
       close: { pick: ['date', 'claim', 'net', 'full', 'partNo'], of: 'closes', from: 'closeId' },
-      deal: { pick: ['code', 'type', 'price', 'branchId', 'agentId', 'property.title', 'money.billed'], of: 'deals', from: 'dealId' },
+      deal: { pick: ['code', 'type', 'price', 'branchId', 'agentId', 'holderId', 'property.title', 'money.billed'], of: 'deals', from: 'dealId' },
       requestStatus: { field: 'status', of: 'requests', from: 'requestId' },
     },
   },
 
+  // People with Ready pay not requested yet (Request salary / incentives), with what waits for each.
+  payees: {
+    area: 'salary', of: 'staff', fields: ['id', 'code', 'name', 'short', 'branchId', 'status', 'type', 'bank', 'account', 'whtExempt'],
+    search: ['name', 'short', 'code'],
+    filters: { branchId: { eq: 'branchId' }, ready: { custom: 'readyPay', values: ['salary', 'incentives'] } },
+    sorts: { name: 'short', code: 'code' }, sort: 'name',
+    extras: {
+      salary: { sum: 'amount', ...READY_PAY('salary') }, salaryLines: { count: true, ...READY_PAY('salary') },
+      incentives: { sum: 'amount', ...READY_PAY('incentives') }, incentivesLines: { count: true, ...READY_PAY('incentives') },
+    },
+  },
+
+  // Salary and incentive requests (Pay requests).
   requests: {
     area: 'salary',
-    search: ['code'],
-    filters: { status: { eq: 'status' }, kind: { eq: 'kind' }, staffId: { eq: 'staffId' }, from: { from: 'date' }, to: { to: 'date' } },
-    sorts: { date: 'date', payOn: 'payOn', code: 'code' },
+    search: ['code', { via: 'staffId', of: 'staff', fields: ['name', 'short'] }],
+    filters: { status: { eq: 'status' }, kind: { eq: 'kind' }, staffId: { eq: 'staffId' }, from: { from: 'date' }, to: { to: 'date' },
+      paidFrom: { from: 'paidOn' }, paidTo: { to: 'paidOn' },
+      // The person's branch (the top bar's).
+      branchId: { via: 'staffId', of: 'staff', rule: { eq: 'branchId' } } },
+    sorts: { date: 'date', payOn: 'payOn', code: 'code', status: 'status' },
     sort: '-date',
-    counts: { status: 'status', kind: 'kind' },
+    counts: {
+      status: 'status', kind: 'kind',
+      // New Request and Payment Ready: what is still to pay; Payment Clear this year, with the tax withheld.
+      unpaid: { only: () => ({ status: 'new,ready' }), custom: 'payslips', keep: ['branchId'] },
+      paidThisYear: { only: ctx => ({ status: 'clear', paidFrom: `${ctx.today.slice(0, 4)}-01-01`, paidTo: `${ctx.today.slice(0, 4)}-12-31` }), custom: 'payslips', keep: ['branchId'] },
+    },
+    extras: {
+      gross: { sum: 'amount', of: 'payouts', by: 'requestId' },
+      // The payee, as the salary slip prints them.
+      staff: { pick: ['name', 'short', 'code', 'ic', 'renNo', 'phone', 'email', 'bank', 'account', 'whtExempt'], of: 'staff', from: 'staffId' },
+    },
   },
 
   archives: {
@@ -317,6 +362,9 @@ export const LISTS = {
   },
 }
 
+// A row as the list sends it: only its `fields`, when it names them (the server does the same).
+export const trimmed = (spec, r) => (spec.fields ? { ...Object.fromEntries(spec.fields.filter(f => f in r).map(f => [f, r[f]])), ...(r.$ && { $: r.$ }) } : r)
+
 // The records a list pages through, in the demo store's data.
 export const recordsOf = (data, key) => (key === 'v1Eforms' ? data.v1?.eforms : key === 'v1Overrides' ? data.v1?.overrides : data[LISTS[key]?.of || key]) || []
 
@@ -348,7 +396,34 @@ export const closeKind = c => (!c.full ? 'partial' : c.partNo > 1 ? 'balance' : 
 const CUSTOM = {
   readyToClose: (r, v, ctx) => truthy(v) === (readyLeft(r, ctx.cash().get(r.id), ctx.setup) > 0),
   closeType: (r, v, ctx) => { const c = ctx.byId('closes').get(r.closeId); return !!c && closeKind(c) === v },
+  readyPay: (r, v, ctx) => !!ctx.once(`readyPay:${v}`, () => {
+    const has = new Set()
+    if (v === 'salary' || v === 'incentives') for (const p of ctx.data?.payouts || []) if (isReady(p) && !p.stacked && !!p.role === (v === 'incentives')) has.add(p.staffId)
+    return has
+  }).has(r.id),
 }
+const isReady = p => p.status === 'approved' && p.requestId == null && p.archiveId == null
+
+// Counts worked out in code (the server runs the same on the rows its SQL finds).
+export const CUSTOM_COUNTS = {
+  // Each request's slip (payslipTotals: gross, withholding tax unless the person is exempt, net), added up.
+  payslips: (hits, ctx) => {
+    const gross = new Map()
+    const ids = new Set(hits.map(r => r.id))
+    for (const p of ctx.data?.payouts || []) if (ids.has(p.requestId)) gross.set(p.requestId, [...(gross.get(p.requestId) || []), p.amount])
+    return addSlips(hits.map(r => ({ amounts: gross.get(r.id) || [], exempt: !!ctx.byId('staff').get(r.staffId)?.whtExempt })), ctx.setup)
+  },
+}
+// { n, gross, wht, net } of slips [{ amounts, exempt }].
+export function addSlips(slips, setup) {
+  const t = slips.map(x => payslipTotals(x.amounts, setup?.dealTypes?.whtPct, x.exempt))
+  const add = k => r2(t.reduce((a, x) => a + x[k], 0))
+  return { n: t.length, gross: add('gross'), wht: add('wht'), net: add('net') }
+}
+
+// The counts a request asks for: ?counts=0 none, ?counts=a,b those, otherwise all.
+export const countsWanted = (spec, params) => Object.entries(spec.counts || {})
+  .filter(([k]) => (params.counts === '0' ? false : !params.counts || many(params.counts).includes(k)))
 
 function test(rule, r, v, ctx) {
   if (rule.eq) {
@@ -393,13 +468,13 @@ function extrasOf(defs, rows, data) {
     const linked = new Map()
     for (const x of data[e.of] || []) {
       const to = get(x, e.by)
-      if (!ids.has(to) || !Object.entries(e.where || {}).every(([f, vals]) => vals.includes(get(x, f)))
-        || !Object.entries(e.not || {}).every(([f, vals]) => !vals.includes(get(x, f)))) continue
+      if (!ids.has(to) || !Object.entries(e.where || {}).every(([f, vals]) => vals.includes(get(x, f) ?? null))
+        || !Object.entries(e.not || {}).every(([f, vals]) => !vals.includes(get(x, f) ?? null))) continue
       linked.set(to, [...(linked.get(to) || []), x])
     }
     for (const r of rows) {
       const mine = linked.get(r.id) || []
-      out.get(r.id)[key] = e.sum ? r2(mine.reduce((t, x) => t + Number(get(x, e.sum) || 0), 0))
+      out.get(r.id)[key] = e.sum ? r2(mine.reduce((t, x) => t + Number(get(x, e.sum) || 0), 0)) : e.count ? mine.length
         : [...mine].sort((a, b) => a.id - b.id).map(x => Object.fromEntries(e.pick.map(f => [f, get(x, f) ?? null])))
     }
   }
@@ -422,10 +497,11 @@ export const listAll = (records, spec, params = {}, ctx = {}) => run(records, sp
 
 function run(records, spec, params, ctx, all) {
   // Teams, E-Form cash and lookups by id are worked out once per call, not once per record.
-  const teams = new Map(), byKind = new Map()
+  const teams = new Map(), byKind = new Map(), memo = new Map()
   let cashByDeal = null
   const c = {
     ...ctx,
+    once: (key, fn) => { if (!memo.has(key)) memo.set(key, fn()); return memo.get(key) },
     team: id => { if (!teams.has(id)) teams.set(id, ctx.team ? ctx.team(id) : teamOf(id, ctx.data?.staff || [])); return teams.get(id) },
     cash: () => (cashByDeal ||= extrasOf(DEAL_CASH, ctx.data?.deals || [], ctx.data || {})),
     byId: kind => { if (!byKind.has(kind)) byKind.set(kind, new Map((ctx.data?.[kind] || []).map(x => [x.id, x]))); return byKind.get(kind) },
@@ -458,7 +534,7 @@ function run(records, spec, params, ctx, all) {
   const rows = all ? ordered : ordered.slice((page - 1) * size, page * size)
 
   const counts = {}
-  for (const [key, def] of Object.entries(params.counts === '0' ? {} : spec.counts || {})) {
+  for (const [key, def] of countsWanted(spec, params)) {
     if (typeof def === 'string') {
       counts[key] = {}
       for (const r of records) if (pass(r, [key])) { const k = countKey(get(r, def)); counts[key][k] = (counts[key][k] || 0) + 1 }
@@ -466,6 +542,7 @@ function run(records, spec, params, ctx, all) {
       // Its own filters, and of the page's only those it keeps (the chosen branch).
       const set = { ...Object.fromEntries(active.filter(([k]) => (def.keep || []).includes(k)).map(([k]) => [k, params[k]])), ...def.only(c) }
       const hits = records.filter(r => Object.entries(set).every(([k, v]) => test(spec.filters[k], r, v, c)))
+      if (def.custom) { counts[key] = CUSTOM_COUNTS[def.custom](hits, c); continue }
       counts[key] = { n: hits.length, sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)),
         ...(def.distinct && { distinct: new Set(hits.map(r => get(r, def.distinct))).size }) }
     } else {
@@ -475,5 +552,5 @@ function run(records, spec, params, ctx, all) {
   }
 
   const extras = spec.extras ? extrasOf(spec.extras, rows, ctx.data || {}) : null
-  return { rows: extras ? rows.map(r => ({ ...r, $: extras.get(r.id) })) : rows, total: matching.length, counts, page, size }
+  return { rows: (extras ? rows.map(r => ({ ...r, $: extras.get(r.id) })) : rows).map(r => trimmed(spec, r)), total: matching.length, counts, page, size }
 }
