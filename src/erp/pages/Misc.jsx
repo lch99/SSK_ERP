@@ -243,8 +243,8 @@ export function SystemSettings() {
   const fb = useFeedback()
   const [name, setName] = useState('')
   const co = setup.company
-  const counts = {}
-  for (const l of m.data.listings) counts[l.category] = (counts[l.category] || 0) + 1
+  // Listings by property type (a type in use can't be deleted), counted by the server.
+  const counts = useList('listings', { counts: 'category' }, { branch: false, pageSize: 1 }).counts.category || {}
   const types = (m.data.propertyTypes || Object.keys(CATEGORIES).map((n, i) => ({ id: -i - 1, name: n }))).map((t, i) => ({ ...t, no: i + 1, cate: LISTING_CATEGORY[listingCategory({ category: t.name })], n: counts[t.name] || 0 }))
   const add = async () => { if (await fb.run(() => erp.addPropertyType(name), `${name.trim()} added`)) setName('') }
   return (

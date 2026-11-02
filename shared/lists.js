@@ -118,7 +118,7 @@ export const LISTS = {
     },
     sorts: { created: 'created', updated: 'updated', price: 'askPrice', code: 'code', views: 'views' },
     sort: '-created',
-    counts: { status: 'status', type: 'type' },
+    counts: { status: 'status', type: 'type', category: 'category' },
   },
 
   customers: {
