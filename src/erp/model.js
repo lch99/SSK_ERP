@@ -3,7 +3,7 @@
 import * as P from '../../shared/payout.js'
 import { readyLeft } from '../../shared/lists.js'
 // Payment labels: the server writes them in Excel downloads too.
-export { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS } from '../../shared/labels.js'
+export { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from '../../shared/labels.js'
 
 const r2 = n => Math.round(n * 100) / 100
 const sum = (xs, f) => r2((xs || []).reduce((s, x) => s + Number(f(x) || 0), 0))
@@ -35,20 +35,6 @@ export const REQUEST_STATUS = {
   ready: { label: 'Payment Ready', tone: 'blue', help: 'Checked. It is paid on the pay day.' },
   clear: { label: 'Payment Clear', tone: 'green', help: 'Paid. The payout lines in it are marked paid.' },
   invalid: { label: 'Document Not Valid', tone: 'red', help: 'Sent back: a document is missing or wrong (see the reason).' },
-}
-export const MONEY_OUT_STATUS = {
-  new: { label: 'New', tone: 'amber', help: 'Requested. Waiting for approval.' },
-  queried: { label: 'Pending Queries', tone: 'red', help: 'The approver asked a question before paying.' },
-  ready: { label: 'Payment Ready', tone: 'blue', help: 'Approved. Accounts can pay it.' },
-  paid: { label: 'Payment Clear', tone: 'green', help: 'Paid out of the account.' },
-}
-export const MONEY_OUT_TYPES = {
-  balance: 'Balance to Vendor',
-  transfer: 'Transfer Deposit to Other',
-  refund: 'Abort Case',
-  cobroke: 'Cheque to Co-Bro',
-  referral: 'Introducer Fees',
-  ta: 'Tenancy Agreement Fees',
 }
 export const LISTING_STATUS = {
   active: { label: 'Active', tone: 'green', help: 'On the market and on the website.' },

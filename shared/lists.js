@@ -39,7 +39,7 @@
 // fields: [fields]               the rows carry only these (a list over another kind that needs a few of its fields)
 import { teamOf } from './access.js'
 import { payslipTotals } from './payout.js'
-import { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS } from './labels.js'
+import { MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
 
 export const DEFAULT_SIZE = 50
 export const MAX_SIZE = 200
@@ -297,14 +297,32 @@ export const LISTS = {
     sorts: { date: 'date' }, sort: '-date',
   },
 
+  // Payments out (request forms).
   moneyOut: {
     area: 'moneyOut',
-    search: ['voucherNo', 'payee.name'],
+    search: ['voucherNo', 'payee.name', { via: 'dealId', of: 'deals', fields: ['code'] }],
     filters: { status: { eq: 'status' }, type: { eq: 'type' }, dealId: { eq: 'dealId' }, branchId: { eq: 'branchId' }, staffId: { eq: 'staffId' },
       from: { from: 'date' }, to: { to: 'date' } },
-    sorts: { date: 'date', amount: 'amount', voucherNo: 'voucherNo' },
+    sorts: { date: 'date', amount: 'amount', voucherNo: 'voucherNo', paidOn: 'paidOn', status: 'status', type: 'type' },
     sort: '-date',
-    counts: { status: 'status', type: 'type' },
+    counts: {
+      status: 'status', type: 'type',
+      // Not paid yet, and Payment Ready (what Accounts can pay now).
+      unpaid: { only: () => ({ status: 'new,queried,ready' }), sum: 'amount', keep: ['branchId'] },
+      ready: { only: () => ({ status: 'ready' }), sum: 'amount', keep: ['branchId'] },
+    },
+    extras: {
+      deal: { pick: ['code', 'type', 'property.title'], of: 'deals', from: 'dealId' },
+      staff: { pick: ['short', 'name'], of: 'staff', from: 'staffId' },
+    },
+    download: {
+      file: 'request-forms', sheet: 'Request forms', widths: [14, 24, 12, 14, 18, 26, 16, 20, 22, 14, 14, 16, 13, 22, 28],
+      columns: [
+        ['No.', 'voucherNo'], ['Type', x => MONEY_OUT_TYPES[x.type]], ['Date', 'date'], ['Form', '$.deal.code'], ['Staff', x => x.$.staff?.short || x.$.staff?.name || ''],
+        ['Pay to', 'payee.name'], ['IC', 'payee.ic'], ['Bank', 'payee.bank'], ['Bank Account Number', 'payee.account'], ['Amount', 'amount'], ['Cheque No.', 'chequeNo'],
+        ['Status', x => MONEY_OUT_STATUS[x.status]?.label], ['Payment Date', 'paidOn'], ['Receipt', 'receipt'], ['Reasons', 'query'],
+      ],
+    },
   },
 
   vendorRequests: {

@@ -13,3 +13,19 @@ export const MONEY_IN_STATUS = {
 export const PURPOSES = { deposit: 'Cash Deposit', commission: 'Balance Commission', rental: 'Balance Rent', other: 'Others' }
 export const METHODS = { online: 'Online Transfer', cheque: 'Cheque', cash: 'Cash' }
 export const CASH_METHODS = { cashtocompany: 'Cash to Company', cashbankin: 'Cash Bank In' }
+
+// Payments out (request forms): New → Pending Queries → Payment Ready → Payment Clear.
+export const MONEY_OUT_STATUS = {
+  new: { label: 'New', tone: 'amber', help: 'Requested. Waiting for approval.' },
+  queried: { label: 'Pending Queries', tone: 'red', help: 'The approver asked a question before paying.' },
+  ready: { label: 'Payment Ready', tone: 'blue', help: 'Approved. Accounts can pay it.' },
+  paid: { label: 'Payment Clear', tone: 'green', help: 'Paid out of the account.' },
+}
+export const MONEY_OUT_TYPES = {
+  balance: 'Balance to Vendor',
+  transfer: 'Transfer Deposit to Other',
+  refund: 'Abort Case',
+  cobroke: 'Cheque to Co-Bro',
+  referral: 'Introducer Fees',
+  ta: 'Tenancy Agreement Fees',
+}

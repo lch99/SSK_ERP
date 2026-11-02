@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
-import { MONEY_OUT_STATUS, MONEY_OUT_TYPES, PARTY, sum } from '../model.js'
+import { useList, useRecord, useListDownload } from '../useList.js'
+import { MONEY_OUT_STATUS, MONEY_OUT_TYPES, PARTY, isAgent } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Link, Drawer, KV, Block, Notice, Stat, TextArea, FormField, FileInput, cols, go, mono, field, useRecordNav } from '../ui.jsx'
 import { BANKS } from './options.js'
 import { PAGE } from '../help.js'
@@ -9,64 +10,72 @@ import { useFeedback } from '../feedback.jsx'
 import { rm, date, maskAcc } from '../format.js'
 import { useCan } from '../access.jsx'
 
-// Request Form: money paid out of the client account or to other parties.
+// Request Form: money paid out of the client account or to other parties. A page at a time (useList).
 const TABS = ['new', 'queried', 'ready', 'paid', 'all']
+const plural = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`
+// Who the money goes to, by the request's type and its E-Form's type.
+const payeeOf = x => ({ balance: PARTY[x.$.deal?.type]?.owner, transfer: 'Stakeholder', refund: PARTY[x.$.deal?.type]?.buyer, cobroke: 'Co-bro agency', referral: 'Introducer', ta: 'Solicitor' })[x.type]
 
 export default function MoneyOut({ parts }) {
   const erp = useErp()
   const { m, scoped: d, setup } = erp
-  const [tab, setTab] = useState(() => (d.moneyOut.some(x => x.status === 'new') ? 'new' : 'all'))
+  const fb = useFeedback()
+  const openId = Number(parts[1]) || null
   const [q, setQ] = useState('')
   const [type, setType] = useState('')
   const [who, setWho] = useState('')
-  const open = parts[1] ? d.moneyOut.find(x => x.id === Number(parts[1])) : null
-
-  const match = useMemo(() => {
-    const words = q.trim().toLowerCase()
-    return d.moneyOut.filter(x => (!type || x.type === type) && (!who || x.staffId === Number(who)) &&
-      (!words || [x.voucherNo, x.payee.name, m.deals[x.dealId].code].join(' ').toLowerCase().includes(words)))
-  }, [d.moneyOut, q, type, who, m])
-  const rows = tab === 'all' ? match : match.filter(x => x.status === tab)
-  const pending = d.moneyOut.filter(x => x.status !== 'paid')
-  const ready = d.moneyOut.filter(x => x.status === 'ready')
-  const people = [...new Set(d.moneyOut.map(x => x.staffId))].map(id => m.staff[id]).filter(Boolean).sort((a, b) => a.short.localeCompare(b.short))
-  const { onOrder, nav } = useRecordNav(open?.id, id => `money-out/${id}`)
+  const [sort, setSort] = useState('-date')
+  const [status, setStatus] = useState('new')
+  const [chosen, setChosen] = useState(false)
+  const params = { q, type, staffId: who, sort, status: status === 'all' ? '' : status }
+  const list = useList('moneyOut', params)
+  const saveExcel = useListDownload('moneyOut')
+  const { record: open, loading: opening } = useRecord('moneyOut', openId)
+  const byStatus = list.counts.status
+  // New requests first, when there are any.
+  if (!chosen && byStatus) { setChosen(true); if (!byStatus.new) setStatus('all') }
+  const pick = k => { setChosen(true); setStatus(k) }
+  const unpaid = list.counts.unpaid || { n: 0, sum: 0 }
+  const ready = list.counts.ready || { n: 0, sum: 0 }
+  const byType = list.counts.type || {}
+  const people = d.staff.filter(s => isAgent(s) && s.status !== 'pending').sort((a, b) => a.short.localeCompare(b.short))
+  const { onOrder, nav } = useRecordNav(openId, id => `money-out/${id}`)
   const set = [type, who].filter(Boolean).length
   const clear = () => { setQ(''); setType(''); setWho('') }
 
-  const payeeOf = x => ({ balance: PARTY[m.deals[x.dealId].type].owner, transfer: 'Stakeholder', refund: PARTY[m.deals[x.dealId].type].buyer, cobroke: 'Co-bro agency', referral: 'Introducer', ta: 'Solicitor' })[x.type]
   const columns = [
-    { key: 'no', label: 'No. · Date', sort: x => x.id, render: x => <span><b style={mono}>{x.voucherNo}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(x.date)}</span></span> },
-    { key: 'type', label: 'Type · Form', sort: x => x.type, render: x => <span>{MONEY_OUT_TYPES[x.type]}<span style={{ display: 'block', fontSize: 12 }}><Link to={`deals/${x.dealId}`} style={mono}>{m.deals[x.dealId].code}</Link></span></span> },
-    { key: 'staff', label: 'Staff', sort: x => m.staffName(x.staffId), render: x => m.staffName(x.staffId) },
-    { key: 'payee', label: 'Pay to · Bank Account', sort: x => x.payee.name, render: x => <span>{x.payee.name}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{payeeOf(x)} · {x.payee.bank} {maskAcc(x.payee.account)}</span></span> },
-    { key: 'amount', label: 'Amount', align: 'right', sort: x => x.amount, render: x => <b>{rm(x.amount)}</b> },
-    { key: 'paid', label: 'Payment Date', nowrap: true, sort: x => x.paidOn || '', render: x => (x.paidOn ? date(x.paidOn) : <span style={{ color: C.muted }}>—</span>) },
-    { key: 'status', label: 'Status', sort: x => x.status, render: x => <Status of={MONEY_OUT_STATUS} value={x.status} /> },
+    { key: 'no', label: 'No. · Date', sortKey: 'date', render: x => <span><b style={mono}>{x.voucherNo}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(x.date)}</span></span> },
+    { key: 'type', label: 'Type · Form', sortKey: 'type', render: x => <span>{MONEY_OUT_TYPES[x.type]}<span style={{ display: 'block', fontSize: 12 }}><Link to={`deals/${x.dealId}`} style={mono}>{x.$.deal?.code}</Link></span></span> },
+    { key: 'staff', label: 'Staff', render: x => x.$.staff?.short || x.$.staff?.name || '—' },
+    { key: 'payee', label: 'Pay to · Bank Account', render: x => <span>{x.payee.name}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{payeeOf(x)} · {x.payee.bank} {maskAcc(x.payee.account)}</span></span> },
+    { key: 'amount', label: 'Amount', align: 'right', sortKey: 'amount', render: x => <b>{rm(x.amount)}</b> },
+    { key: 'paid', label: 'Payment Date', nowrap: true, sortKey: 'paidOn', render: x => (x.paidOn ? date(x.paidOn) : <span style={{ color: C.muted }}>—</span>) },
+    { key: 'status', label: 'Status', sortKey: 'status', render: x => <Status of={MONEY_OUT_STATUS} value={x.status} /> },
   ]
   return (
     <Page title="Payments out" help={PAGE.moneyOut} sub={<>Request forms for money paid out of the clients account and to other parties. Abort Case refunds are approved by the {setup.approvals?.refundApprover === 'boss' ? 'boss' : 'branch manager'}.</>}>
       <div style={{ ...cols(220, 14), marginBottom: 16 }}>
-        <Stat icon="moneyOut" tone="amber" label="Not paid yet" value={rm(sum(pending, x => x.amount))} sub={`${pending.length} request${pending.length === 1 ? '' : 's'}`} onClick={() => setTab('new')} on={tab === 'new'} />
-        <Stat icon="check" tone="blue" label="Payment Ready" value={rm(sum(ready, x => x.amount))} sub={`${ready.length} request${ready.length === 1 ? '' : 's'}`} onClick={() => setTab('ready')} on={tab === 'ready'} />
+        <Stat icon="moneyOut" tone="amber" label="Not paid yet" value={rm(unpaid.sum)} sub={plural(unpaid.n, 'request')} onClick={() => pick('new')} on={status === 'new'} />
+        <Stat icon="check" tone="blue" label="Payment Ready" value={rm(ready.sum)} sub={plural(ready.n, 'request')} onClick={() => pick('ready')} on={status === 'ready'} />
       </div>
       <Card pad={16}>
-        <Tabs value={tab} onChange={setTab} tabs={TABS.map(k => ({ key: k, label: k === 'all' ? 'All' : MONEY_OUT_STATUS[k].label, count: k === 'all' ? match.length : match.filter(x => x.status === k).length }))} />
+        <Tabs value={status} onChange={pick} tabs={TABS.map(k => ({ key: k, label: k === 'all' ? 'All' : MONEY_OUT_STATUS[k].label,
+          count: k === 'all' ? Object.values(byStatus || {}).reduce((t, n) => t + n, 0) : byStatus?.[k] || 0 }))} />
         <Toolbar fold onClear={clear}>
           <SearchBox value={q} onChange={setQ} placeholder="Voucher, payee or form" />
-          <Select label="Type" value={type} onChange={setType} options={[{ value: '', label: 'All six types' }, ...Object.entries(MONEY_OUT_TYPES).map(([value, label]) => ({ value, label: `${label} (${d.moneyOut.filter(x => x.type === value).length})` }))]} />
+          <Select label="Type" value={type} onChange={setType} options={[{ value: '', label: 'All six types' }, ...Object.entries(MONEY_OUT_TYPES).map(([value, label]) => ({ value, label: `${label} (${byType[value] || 0})` }))]} />
           <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'All staff' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
           <span style={{ flex: 1 }} />
-          <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={() => downloadCsv(`request-forms-${m.today}.csv`,
-            ['No.', 'Type', 'Date', 'Form', 'Staff', 'Pay to', 'IC', 'Bank', 'Bank Account Number', 'Amount', 'Cheque No.', 'Status', 'Payment Date', 'Receipt', 'Reasons'],
-            rows.map(x => [x.voucherNo, MONEY_OUT_TYPES[x.type], x.date, m.deals[x.dealId].code, m.staffName(x.staffId), x.payee.name, x.payee.ic || '', x.payee.bank, x.payee.account, x.amount,
-              x.chequeNo || '', MONEY_OUT_STATUS[x.status].label, x.paidOn || '', x.receipt || '', x.query || '']))}>Export CSV</button>
+          <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} disabled={!list.total} onClick={() => fb.run(() => saveExcel(params))}>Download Excel</button>
         </Toolbar>
-        <DataTable columns={columns} rows={rows} onRow={x => go(`money-out/${x.id}`)} defaultSort={{ key: 'no', dir: 'desc' }} pageSize={20} narrowAt={900}
-          empty="No request forms here" onClear={set || q ? clear : undefined} onOrder={onOrder} />
+        {list.error && <Notice tone="red">{list.error}</Notice>}
+        <DataTable columns={columns} rows={list.rows} onRow={x => go(`money-out/${x.id}`)} pageSize={20} narrowAt={900}
+          paged={{ total: list.total, sort, onSort: setSort, onMore: list.more, loading: list.loading }}
+          empty={list.loading ? 'Loading…' : q ? `No request forms match “${q}”` : 'No request forms here'} onClear={set || q ? clear : undefined} onOrder={onOrder} />
       </Card>
-      <Drawer open={!!open} onClose={() => go('money-out')} title={open ? `${MONEY_OUT_TYPES[open.type]} · ${rm(open.amount)}` : ''} sub={open ? `${open.voucherNo} · to ${open.payee.name}` : ''}
+      <Drawer open={openId != null} onClose={() => go('money-out')} title={open ? `${MONEY_OUT_TYPES[open.type]} · ${rm(open.amount)}` : opening ? 'Loading…' : 'Not found'} sub={open ? `${open.voucherNo} · to ${open.payee.name}` : ''}
         nav={nav} footer={open && <Actions key={open.id} x={open} erp={erp} next={nav?.next} />}>
+        {!open && !opening && <Notice tone="amber">This request form was not found, or it is not one you can see.</Notice>}
         {open && (
           <>
             {open.query && <Notice tone="red"><b>Pending Queries:</b> {open.query}</Notice>}
@@ -76,14 +85,14 @@ export default function MoneyOut({ parts }) {
                 ['Pay to', open.payee.name], ['Bank', open.payee.bank], ['Bank Account Number', open.payee.account],
                 ['Method', open.method === 'cheque' ? `Cheque ${open.chequeNo}` : 'Online transfer'],
                 ['Paid from', (() => { const a = m.bankAccount(open.from); return a ? `${a.bank} ${maskAcc(a.accountNo)}` : '—' })()],
-                ['Requested by', m.staffName(open.staffId)], open.approvedBy && ['Approved by', open.approvedBy], open.paidOn && ['Payment Date', date(open.paidOn)],
+                ['Requested by', open.$.staff?.short || open.$.staff?.name || '—'], open.approvedBy && ['Approved by', open.approvedBy], open.paidOn && ['Payment Date', date(open.paidOn)],
               ]} />
             </Block>
             <PaymentDetails key={open.id} x={open} erp={erp} />
             <Block title="E-Form">
               <KV min={170} items={[
-                ['Form', <Link to={`deals/${open.dealId}`} style={mono}>{m.deals[open.dealId].code}</Link>],
-                ['Property', m.deals[open.dealId].property.title], ['Branch', m.branchName(open.branchId)],
+                ['Form', <Link to={`deals/${open.dealId}`} style={mono}>{open.$.deal?.code}</Link>],
+                ['Property', open.$.deal?.['property.title']], ['Branch', m.branchName(open.branchId)],
               ]} />
             </Block>
           </>
@@ -93,10 +102,6 @@ export default function MoneyOut({ parts }) {
   )
 }
 
-function downloadCsv(name, head, rows) {
-  const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`
-  save(name, [head, ...rows].map(r => r.map(cell).join(',')).join('\n'), 'text/csv')
-}
 function save(name, text, type = 'text/plain') {
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([text], { type })), download: name })
   a.click()
