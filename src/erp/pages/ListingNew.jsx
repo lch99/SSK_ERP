@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { LISTING_SETTINGS, CATEGORIES } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
+import { useList, useRecord } from '../useList.js'
 import { isAgent } from '../model.js'
 import { Page, Card, Notice, FormField, FileInput, go, field } from '../ui.jsx'
 import { PAGE } from '../help.js'
@@ -12,17 +13,25 @@ import ListingPreview from './ListingPreview.jsx'
 import { STATES } from './options.js'
 import { savePreviews } from '../photos.jsx'
 
-// Add Property List: the current form's fields, in the same order.
+// Add Property List: the current form's fields, in the same order. "Create Listing"
+// on an owner request (#/listing-new?vr=<id>) fills in what the owner told us, so
+// the form waits for that request (and its area's state) first.
 export default function ListingNew() {
+  const vrId = Number(new URLSearchParams(window.location.hash.split('?')[1] || '').get('vr')) || null
+  const { record: vr, loading } = useRecord('vendorRequests', vrId)
+  const areas = useList('areas', { q: vr?.area || '', counts: '0' }, { branch: false, pageSize: 20, skip: !vr })
+  if (vrId && (loading || (vr && areas.loading))) return <Page title="Add a listing" back={{ to: 'listings', label: 'All listings' }}><Card><p style={{ margin: 0, color: C.muted }}>Loading the owner request…</p></Card></Page>
+  return <ListingForm vr={vr} state={areas.rows.find(a => a.name === vr?.area)?.state} />
+}
+
+function ListingForm({ vr, state }) {
   const erp = useErp()
   const fb = useFeedback()
   const review = useReview()
   const { scoped: d, m } = erp
   // Product handlers are agents (office staff don't hold listings).
   const holders = d.staff.filter(s => isAgent(s) && s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
-  // "Create Listing" on an owner request (#/listing-new?vr=<id>) fills in what the owner told us.
-  const vr = m.data.vendorRequests.find(v => v.id === Number(new URLSearchParams(window.location.hash.split('?')[1] || '').get('vr')))
-  const [f, setF] = useState(() => ({ type: vr?.forType === 'Rent' ? 'rental' : 'sale', state: vr ? m.data.areas.find(a => a.name === vr.area)?.state || 'Selangor' : 'Selangor',
+  const [f, setF] = useState(() => ({ type: vr?.forType === 'Rent' ? 'rental' : 'sale', state: vr ? state || 'Selangor' : 'Selangor',
     category: vr?.category && CATEGORIES[vr.category] ? vr.category : 'Condominium', tenure: 'Freehold', race: 'cina', furnishing: 'Partly furnished',
     flags: [], holderId: String((vr?.handledBy && holders.find(s => s.id === vr.handledBy)?.id) || holders[0]?.id || ''),
     ...(vr ? { area: vr.area, askPrice: String(vr.price), ownerName: vr.name, ownerPhone: vr.phone } : {}) }))
@@ -33,8 +42,9 @@ export default function ListingNew() {
   const [busy, setBusy] = useState(false)
   const set = k => e => setF({ ...f, [k]: e.target.value })
   const toggle = flag => setF({ ...f, flags: f.flags.includes(flag) ? f.flags.filter(x => x !== flag) : [...f.flags, flag] })
-  const areas = [...new Set(m.data.areas.map(a => a.name))].sort()
-  const titles = [...new Set(m.data.titles.filter(t => !f.area || t.area === f.area).map(t => t.name))].sort()
+  // Suggestions as you type: areas by name, and the buildings in the area picked (searched on the server).
+  const areas = [...new Set(useList('areas', { q: f.area || '', sort: 'name', counts: '0' }, { branch: false, pageSize: 30 }).rows.map(a => a.name))]
+  const titles = [...new Set(useList('titles', { q: f.title || '', area: f.area || '', sort: 'name', counts: '0' }, { branch: false, pageSize: 30 }).rows.map(t => t.name))]
   // Before publishing: how it will look on the website, and the private details.
   async function preview() {
     const gaps = missing([['Area', f.area], ['Title (building / taman)', f.title], ['Advertised Price', f.askPrice], ['Unit Number & Jalan', f.unit], ['Owner Name', f.ownerName], ['Owner Contact', f.ownerPhone]])
