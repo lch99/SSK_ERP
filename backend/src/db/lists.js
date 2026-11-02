@@ -4,11 +4,12 @@
 // (from records.js). The searches, filters, sorts, counts and extras themselves
 // come from shared/lists.js, so the demo and the server page the same way.
 const SHARED = require('../../../shared/lists.js');
-const { buildingRankings } = require('../../../shared/listings.js');
+const LR = require('../../../shared/listings.js');
+const { buildingRankings } = LR;
 const { loadSetup } = require('./setupStore');
-const { MODELS, KINDS, parseJson } = require('./records');
+const { MODELS, KINDS, parseJson, toRecords } = require('./records');
 const { localToday } = require('./days');
-const { teamIds } = require('./list');
+const { teamIds, rawRows } = require('./list');
 
 // Records reached through their E-Form (payments, closes, request forms).
 const viaDeal = (b, v, col = 'deal_id') => b.whereIn(col, sub => {
@@ -34,6 +35,104 @@ const CLEARED = "(select coalesce(sum(m.amount), 0) from money_in m where m.deal
 const CLOSED = '(select coalesce(sum(c.claim), 0) from closes c where c.deal_id = deals.id)';
 const GOT = `(case when ${CLEARED} < deals.billed then ${CLEARED} else deals.billed end)`;
 
+// ── Listing rules in SQL (shared/listings.js; the demo runs them on the records) ──
+const isMysql = b => /mysql/.test(b.client.config.client);
+// A JSON array column holds `value`, as each database searches JSON: [sql, bindings].
+const jsonHas = (b, col, value) => (isMysql(b)
+  ? [`json_contains(coalesce(${col}, '[]'), ?)`, [JSON.stringify(value)]]
+  : [`exists (select 1 from json_each(coalesce(${col}, '[]')) where json_each.value = ?)`, [value]]);
+// Text holding a word, case and all (categoryGroup).
+const hasWord = (b, col, w) => (isMysql(b) ? [`cast(${col} as binary) like ?`, [`%${w}%`]] : [`instr(${col}, ?) > 0`, [w]]);
+const any = parts => [`(${parts.map(p => p[0]).join(' or ')})`, parts.flatMap(p => p[1])];
+const all = parts => [`(${parts.map(p => p[0]).join(' and ')})`, parts.flatMap(p => p[1])];
+// Prices in whole sen, as priceRating compares them.
+const ASK = 'round(listings.ask_price * 100)', MV = 'round(listings.market_value * 100)', BEST = 'round(listings.best_price * 100)';
+const RATED = ['(listings.ask_price > 0 and listings.market_value > 0)', []];
+// The band's edges: under a, a to b, b to c, c and over (% above market value).
+const band = name => {
+  const [a, b, c] = LR.LISTING_RULES.ratingSteps;
+  const [lo, hi] = { red: [null, a], orange: [a, b], green: [b, c], blue: [c, null] }[name] || [];
+  if (lo === undefined) return ['1 = 0', []];
+  const over = `(${ASK} - ${MV}) * 100`;
+  return all([RATED, ...(lo != null ? [[`${over} >= ? * ${MV}`, [lo]]] : []), ...(hi != null ? [[`${over} < ? * ${MV}`, [hi]]] : [])]);
+};
+const HOT = {
+  hotSale: b => all([['listings.type = ?', ['sale']], any([all([band('red'), any([jsonHas(b, 'listings.flags', LR.KEY_FLAG), jsonHas(b, 'listings.flags', 'Vacant'), jsonHas(b, 'listings.flags', 'Friendly Tenant')])]),
+    all([band('orange'), jsonHas(b, 'listings.flags', LR.KEY_FLAG)])])]),
+  superHot: () => [`(listings.type = 'sale' and listings.market_value > 0 and listings.best_price > 0 and listings.ask_price > listings.best_price and ${BEST} * 100 <= ${MV} * ?)`, [100 + LR.LISTING_RULES.superHotPct]],
+  rentKing: b => all([['listings.type = ?', ['rental']], RATED, jsonHas(b, 'listings.flags', LR.KEY_FLAG)]),
+};
+const raw = (b, [sql, bindings]) => b.whereRaw(sql, bindings);
+const LATEST_ACTION = '(select f.action from listing_follow_ups f where f.listing_id = listings.id order by f.id desc limit 1)';
+
+const LISTING_RULES = {
+  categoryGroup: {
+    apply: (b, v) => {
+      const three = any(LR.GROUP_WORDS[3].map(w => hasWord(b, 'listings.category', w)));
+      const two = any(LR.GROUP_WORDS[2].map(w => hasWord(b, 'listings.category', w)));
+      const not = ([sql, x]) => [`not ${sql}`, x];
+      const rule = { 3: three, 2: all([not(three), two]), 1: all([not(three), not(two)]) }[v];
+      return rule ? raw(b, rule) : b.whereRaw('1 = 0');
+    },
+  },
+  priceBand: { apply: (b, v) => raw(b, band(v)) },
+  hotList: {
+    apply: (b, v) => {
+      const lists = v === 'any' ? Object.keys(HOT) : HOT[v] ? [v] : [];
+      if (!lists.length) return b.whereRaw('1 = 0');
+      return raw(b, all([["listings.status = 'active' and listings.photo_count > 0", []], any(lists.map(k => HOT[k](b)))]));
+    },
+  },
+  marketValue: {
+    apply: (b, v) => (v === 'complete' ? b.where('listings.market_value', '<>', 0).whereNotNull('listings.market_value')
+      : v === 'incomplete' ? b.where(x => x.whereNull('listings.market_value').orWhere('listings.market_value', 0)) : b),
+  },
+  flag: { apply: (b, v) => raw(b, jsonHas(b, 'listings.flags', v)) },
+  followedUp: { apply: (b, v) => b.whereRaw(`${truthy(v) ? '' : 'not '}exists (select 1 from listing_follow_ups f where f.listing_id = listings.id)`) },
+  lastFollowUp: { apply: (b, v) => b.whereRaw(`${LATEST_ACTION} = ?`, [valueOf(v)]) },
+  favouriteOf: {
+    prepare: async (q, v) => {
+      const row = personId(v) == null ? null : await q('favourites').where('viewer_id', personId(v)).first();
+      return parseJson(row?.listings) || [];
+    },
+    apply: (b, v, ids) => (ids.length ? b.whereIn('listings.id', ids) : b.whereRaw('1 = 0')),
+  },
+  // shared/lists.js areaManagers: under this person, down to (and with) the next area manager.
+  areaManagerOf: {
+    prepare: async (q, v) => {
+      const code = [...((await loadSetup(q)).roles || [])].reverse()[1]?.code;
+      const me = personId(v) == null ? null : await q('staff').where('id', personId(v)).first('position');
+      if (!code || me?.position !== code) return [];
+      const rows = rawRows(await q.raw(
+        'with recursive under(id, pos) as (select id, position from staff where upline_id = ? union select s.id, s.position from staff s join under u on s.upline_id = u.id where u.pos is null or u.pos <> ?) select id from under',
+        [personId(v), code]));
+      return rows.map(r => r.id);
+    },
+    apply: (b, v, ids) => (ids.length ? b.whereIn('listings.holder_id', ids) : b.whereRaw('1 = 0')),
+  },
+  fromOwnerRequest: {
+    apply: (b, v) => b[truthy(v) ? 'whereIn' : 'whereNotIn']('listings.id', sub => sub.select('listing_id').from('vendor_requests').whereNotNull('listing_id')),
+  },
+};
+
+// The Whole agency: the owner and unit of a listing outside the viewer's reach stay hidden unless they are
+// tied to it (erpGuard seesOwner, as the whole-state read does), from the uplines and buildings of the page's rows.
+async function hideOwners(q, rows, v) {
+  if (v.scope === 'all') return rows;
+  const inReach = l => (v.scope === 'branch' ? l.branchId === v.branchId : v.team.includes(l.holderId) || v.team.includes(l.creatorId));
+  const others = rows.filter(l => !inReach(l));
+  if (!others.length) return rows;
+  const holders = [...new Set(others.map(l => l.holderId).filter(x => x != null))];
+  const staff = holders.length ? rawRows(await q.raw(
+    `with recursive up(id) as (select id from staff where id in (${holders.map(() => '?').join(', ')}) union select s.upline_id from staff s join up on s.id = up.id where s.upline_id is not null)
+     select staff.id, staff.upline_id from staff join up on staff.id = up.id`, holders)).map(r => ({ id: r.id, uplineId: r.upline_id })) : [];
+  const titleIds = [...new Set(others.map(l => l.titleId).filter(x => x != null))];
+  const titles = titleIds.length ? await toRecords(q, MODELS.titles, await q('titles').whereIn('id', titleIds)) : [];
+  const { seesOwner } = require('./erpGuard');
+  return rows.map(l => (inReach(l) || seesOwner(l, v, { staff, titles }) ? l
+    : { ...l, owner: { name: '', ic: '', phone: '' }, address: LR.hideAddress(l), remarks: null, ownerViews: [] }));
+}
+
 const STAFF_SCOPE = { branch: (b, v) => inBranch(b, v, 'staff.branch_id'), team: (b, v) => b.whereIn('staff.id', v.team) };
 
 const SERVER = {
@@ -52,7 +151,15 @@ const SERVER = {
       },
     },
   },
-  listings: { table: 'listings', scope: { branch: inBranch, team: either(['holder_id', 'creator_id']) } },
+  listings: { table: 'listings', scope: { branch: inBranch, team: either(['holder_id', 'creator_id']) }, custom: LISTING_RULES },
+  agency: {
+    table: 'listings', custom: LISTING_RULES, rows: hideOwners,
+    // Their reach, and every active listing.
+    scope: {
+      branch: (b, v) => b.where(x => x.where('listings.branch_id', v.branchId).orWhere('listings.status', 'active')),
+      team: (b, v) => b.where(x => x.whereIn('listings.holder_id', v.team).orWhereIn('listings.creator_id', v.team).orWhere('listings.status', 'active')),
+    },
+  },
   customers: { table: 'customers', scope: { branch: inBranch, team: (b, v) => b.whereIn('owner_id', v.team) } },
   deals: {
     table: 'deals', scope: { branch: inBranch, team: either(['agent_id', 'holder_id']) },
@@ -230,9 +337,9 @@ function extraOf(key, e, own) {
   const m = MODELS[e.of];
   const col = f => columnOf(m, f);
   if (e.from && e.pick) {
-    // Only the picked columns, read as the record would read them.
+    // Only the picked columns, read as the record would read them; whole records when a field has none (kept in `more`).
     const picks = e.pick.map(path => ({ path, ...fieldOf(m, path) }));
-    if (picks.some(p => !p.col)) throw new Error(`${m.name}: no column for a field in ${JSON.stringify(e.pick)}`);
+    if (picks.some(p => !p.col)) return { key, from: e.from, table: m.table, model: m, pickRecords: e.pick };
     return { key, from: e.from, table: m.table, picks };
   }
   if (e.from) return { key, from: e.from, table: m.table, fieldCol: col(e.field) };
@@ -243,6 +350,12 @@ function extraOf(key, e, own) {
   };
 }
 
+function lastOf(model, f, table) {
+  const child = model.children[f.last];
+  const field = child.fields.find(x => x.key === f.field);
+  return { last: { table: child.table, fk: child.fk, col: field.col, of: table } };
+}
+
 function serverSpec(key) {
   const shared = SHARED.LISTS[key], server = SERVER[key], model = MODELS[shared.of || key];
   const col = path => columnOf(model, path, server.columns, server.table);
@@ -250,12 +363,16 @@ function serverSpec(key) {
   const searchOf = f => (typeof f === 'string' ? col(f) : f.digits ? { digits: col(f.digits) }
     : { via: col(f.via), table: MODELS[f.of].table, cols: f.fields.map(g => columnOf(MODELS[f.of], g)) });
   return {
-    key, area: shared.area, readers: shared.readers || {}, fields: shared.fields, mine: shared.mine, table: server.table, model, scope: server.scope, download: shared.download,
+    key, area: shared.area, readers: shared.readers || {}, fields: shared.fields, mine: shared.mine, rows: server.rows,
+    // Filters the server fills with the viewer's own key (their favourites, their unread).
+    viewerFilters: Object.keys(shared.filters || {}).filter(k => shared.filters[k].viewer), table: server.table, model, scope: server.scope, download: shared.download,
     search: (shared.search || []).map(searchOf),
     filters: Object.fromEntries(Object.entries(shared.filters || {}).map(([k, rule]) => [k, filterOf(rule, col, server)])),
     sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, typeof f === 'string' ? col(f)
       // How many records of that kind point at this one, as a subquery.
-      : { count: MODELS[f.count].table, by: columnOf(MODELS[f.count], f.by), on: col(f.on || 'id') }])),
+      : f.count ? { count: MODELS[f.count].table, by: columnOf(MODELS[f.count], f.by), on: col(f.on || 'id') }
+        // A field of the newest child row (a listing's latest follow-up date).
+        : lastOf(model, f, server.table)])),
     sort: shared.sort,
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
       typeof c === 'string' ? { col: col(c) } : c.set ? c

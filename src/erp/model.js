@@ -2,6 +2,7 @@
 // labels for every status. Pages read from this instead of searching arrays.
 import * as P from '../../shared/payout.js'
 import { readyLeft } from '../../shared/lists.js'
+import { categoryGroup } from '../../shared/listings.js'
 // E-Form and payment labels: the server writes them in Excel downloads too.
 export { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from '../../shared/labels.js'
 
@@ -38,7 +39,7 @@ export const LISTING_STATUS = {
   outdated: { label: 'Outdated', tone: 'amber', help: 'Not updated for a long time. Check it is still available.' },
 }
 export const LISTING_CATEGORY = { 1: 'Residential landed property', 2: 'Residential non landed property', 3: 'Commercial', 4: 'Industrial', 5: 'Land' }
-export const listingCategory = l => (/Shop|Office/.test(l.category) ? 3 : /Condo|Serviced|Apartment|Flat/.test(l.category) ? 2 : 1)
+export const listingCategory = l => categoryGroup(l.category)
 export const CUSTOMER_TRACK = {
   0: { label: 'Active', tone: 'green', help: 'Still looking. Keep following up.' },
   1: { label: 'Closing', tone: 'blue', help: 'Signed an offer through us.' },

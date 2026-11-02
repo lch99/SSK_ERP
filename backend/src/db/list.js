@@ -38,8 +38,12 @@ async function teamIds(q, staffId) {
 // Rows in `order` (parseSort): a column, or how many records of a kind point at each row.
 function ordered(b, order) {
   for (const o of order) {
+    const dir = o.order === 'desc' ? 'desc' : 'asc';
     if (typeof o.column === 'string') b.orderBy(o.column, o.order);
-    else b.orderByRaw(`(select count(*) from ?? where ?? = ??) ${o.order === 'desc' ? 'desc' : 'asc'}`, [o.column.count, o.column.by, o.column.on]);
+    else if (o.column.last) {
+      const c = o.column.last;
+      b.orderByRaw(`(select ?? from ?? where ?? = ?? order by ?? desc limit 1) ${dir}`, [`${c.table}.${c.col}`, c.table, `${c.table}.${c.fk}`, `${c.of}.id`, `${c.table}.id`]);
+    } else b.orderByRaw(`(select count(*) from ?? where ?? = ??) ${o.order === 'desc' ? 'desc' : 'asc'}`, [o.column.count, o.column.by, o.column.on]);
   }
   return b;
 }
@@ -75,7 +79,10 @@ async function extrasFor(q, defs, records) {
       const at = r => get({ ...r, $: out.get(r.id) }, e.from);
       const want = [...new Set(records.map(at).filter(x => x != null))];
       let found;
-      if (e.picks) {
+      if (e.pickRecords) {
+        const linked = want.length ? await toRecords(q, e.model, await q(e.table).whereIn('id', want)) : [];
+        found = new Map(linked.map(x => [x.id, Object.fromEntries(e.pickRecords.map(f => [f, get(x, f) ?? null]))]));
+      } else if (e.picks) {
         const linked = want.length ? await q(e.table).whereIn('id', want).select('id', ...e.picks.map(p => p.col)) : [];
         found = new Map(linked.map(x => [x.id, Object.fromEntries(e.picks.map(p => [p.path, p.kind.read(x[p.col]) ?? null]))]));
       } else found = new Map(want.length ? (await q(e.table).whereIn('id', want).select('id', { v: e.fieldCol })).map(x => [x.id, x.v]) : []);

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import * as L from '../../shared/listings.js'
+import { teamOf } from '../../shared/access.js'
 import { C, btn, btnPrimary } from '../styles.js'
 import { useErp } from './ErpContext.jsx'
 import { useAccess, useCan } from './access.jsx'
@@ -21,6 +22,17 @@ export function useViewer() {
   const { m } = useErp()
   const staffId = a?.who?.staffId ?? null
   return { key: staffId ?? 0, staffId, agentId: a?.agentId ?? null, branchId: (staffId != null ? m?.staff[staffId]?.branchId : null) ?? a?.who?.branchId ?? null }
+}
+
+// Is a listing in the viewer's own reach (their team's or branch's, or any for the
+// office): theirs to work on, not only to view with a customer as the Whole agency's.
+export function useInReach() {
+  const a = useAccess()
+  const { m } = useErp()
+  const v = useViewer()
+  const scope = a?.scope || 'all'
+  const team = useMemo(() => (scope === 'team' ? teamOf(v.staffId, m?.data.staff || []) : null), [scope, v.staffId, m])
+  return l => scope === 'all' || (scope === 'branch' ? l.branchId === v.branchId : team.has(l.holderId) || team.has(l.creatorId))
 }
 
 // What of a listing's owner the viewer may see: 'full' for the product handler

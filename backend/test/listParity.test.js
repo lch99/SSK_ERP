@@ -163,3 +163,18 @@ test('a phone number is found by its digits, whatever dashes or spaces it is wri
   const r = await api.call('GET', `/erp/vendorRequests?q=${q}&size=200`);
   assert.deepEqual(r.body.rows.map(x => x.id), want.rows.map(x => x.id));
 });
+
+test('listings by area manager: the nearest area manager up the holder\'s chain, the same both ways', async () => {
+  const ctx = { data: state.data, today: localToday(), setup: state.setup, viewer: ME };
+  const code = [...state.setup.roles].reverse()[1]?.code;
+  const ams = state.data.staff.filter(s => s.role === code);
+  assert.ok(ams.length, 'the sample has area managers');
+  let found = 0;
+  for (const am of ams) {
+    const want = L.listPage(state.data.listings, L.LISTS.listings, { areaManager: am.id, size: 200 }, ctx);
+    const r = await api.call('GET', `/erp/listings?areaManager=${am.id}&size=200`);
+    assert.deepEqual(r.body.rows.map(x => x.id), want.rows.map(x => x.id), `area manager ${am.short}`);
+    found += want.total;
+  }
+  assert.ok(found > 0, 'some listings have an area manager');
+});

@@ -12,6 +12,7 @@ import Icon from '../Icon.jsx'
 import { useGate } from '../access.jsx'
 import { UPLOADS } from '../../../shared/files.js'
 import { Photo, coverOf, savePreviews } from '../photos.jsx'
+import { useInReach } from '../listingLife.jsx'
 
 // Everything the current ERP lets you do to a listing, from its row or its
 // details: edit, Update Tracking, Listing Settings, Follow-up (with an
@@ -38,6 +39,7 @@ const withCover = list => {
 export default function ListingActions({ l, quiet, onBook }) {
   const erp = useErp()
   const gate = useGate()
+  const inReach = useInReach()
   const { m } = erp
   const fb = useFeedback()
   const [dialog, setDialog] = useState(null)
@@ -92,7 +94,7 @@ export default function ListingActions({ l, quiet, onBook }) {
     ['ownerName', 'Owner Name'], ['ownerPhone', 'Owner Contact'], ['description', 'Full Descriptions'], ['remarks', 'Personal Use Remarks']]) : []
 
   // Listings outside the viewer's own (the whole agency's) can only be viewed with a customer.
-  const mine = erp.scoped.listings.some(x => x.id === l.id)
+  const mine = inReach(l)
   const book = onBook && l.status === 'active' && gate({ label: 'Book a viewing', icon: 'calendar', sub: `With ${m.staffName(l.holderId)}, who confirms with the owner`, onClick: onBook }, 'listings', 'edit')
   if (!mine) return <Menu quiet={quiet} label="Actions" items={[{ section: l.code }, book || { label: 'Book a viewing', icon: 'calendar', disabled: true, why: 'The listing is not on the market' }]} />
   return (

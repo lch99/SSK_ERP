@@ -249,3 +249,26 @@ test('a Sales Agent (Salary but no Payouts access) reads their own payout lines 
   const all = await call('GET', '/erp/payouts?size=200');
   assert.ok(all.body.rows.every(p => team.has(p.staffId)));
 });
+
+test('an agent sees every active listing in the agency, with the owner and unit hidden where they are not tied to it', async () => {
+  const agent = await free(s => s.type === 'staff' && s.status === 'active' && data.listings.some(l => l.holderId === s.id));
+  const call = await signInAs('market1', agent.id);
+  const team = AC.teamOf(agent.id, data.staff);
+  const own = await call('GET', '/erp/listings?size=200');
+  assert.ok(own.body.rows.every(l => team.has(l.holderId) || team.has(l.creatorId)), 'Listings: their reach only');
+  const all = await call('GET', '/erp/agency?size=200&status=active');
+  assert.equal(all.status, 200);
+  assert.equal(all.body.total, data.listings.filter(l => l.status === 'active').length);
+  const theirs = all.body.rows.filter(l => !team.has(l.holderId) && !team.has(l.creatorId) && !(l.share?.coPh || []).some(c => c.staffId === agent.id) && l.share?.pmId !== agent.id);
+  assert.ok(theirs.length > 0, 'some listings are another team\'s');
+  for (const l of theirs) assert.deepEqual([l.owner.phone, l.address], ['', `${l.title}, ${l.area} (unit hidden)`], l.code);
+  // Their own still show the owner; a search never finds another team's unit by its address.
+  assert.ok(all.body.rows.some(l => l.holderId === agent.id && l.owner.phone));
+  const unit = data.listings.find(l => l.status === 'active' && !team.has(l.holderId) && !team.has(l.creatorId));
+  const byAddress = await call('GET', `/erp/agency?q=${encodeURIComponent(unit.address.split(',')[0])}&size=200`);
+  assert.ok(!byAddress.body.rows.some(l => l.id === unit.id && l.title !== unit.address.split(',')[0]) || unit.title.includes(unit.address.split(',')[0]));
+  // Favourites are their own, whatever key the page sends.
+  await db('favourites').insert({ viewer_id: 999999, listings: JSON.stringify([unit.id]), titles: '[]' });
+  const fav = await call('GET', '/erp/agency?fav=999999&size=200');
+  assert.ok(!fav.body.rows.some(l => l.id === unit.id), 'someone else\'s favourites are not read');
+});

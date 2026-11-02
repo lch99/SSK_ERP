@@ -20,8 +20,9 @@
 //   { team: [fields], self }     everyone under that person (and them, unless self: false); any field may match
 //   { custom: name, values? }    CUSTOM below here, and the same rule in SQL on the server (values: what it takes, when not true / false)
 //   { via: field, of: kind, rule }   the record this one points at passes `rule` (a payment's E-Form is in that branch)
-// sorts:  { key: field | { count: kind, by: field, on? } }; ?sort=-key is newest / biggest first; then by id, the same way.
-//         { count } sorts by how many records of that kind point at this one (by its id, or its `on` field)
+// sorts:  { key: field | { count: kind, by: field, on? } | { last: child, field } }; ?sort=-key is newest / biggest first; then by id, the same way.
+//         { count } sorts by how many records of that kind point at this one (by its id, or its `on` field);
+//         { last } by a field of the record's newest child row (a listing's latest follow-up date)
 // counts: 'field'                { value: n } for each value, leaving out the filter of the same name
 //         { set: { key: value } | ctx => …, ignores? }   n with those filters set as well
 //         { only: ctx => { key: value }, sum: field, keep?, distinct? }   { n, sum } over these filters alone (and of the page's, those it keeps);
@@ -43,10 +44,13 @@
 // readers: { area: record => record }   other areas that may read the list too, with what they may not see taken out
 // fields: [fields]               the rows carry only these (a list over another kind that needs a few of its fields)
 // mine: (record, viewer) => bool  each person's own, whatever their role (notifications); viewer: { key, branchId }
+// market: true                   for a team or branch role, their reach and every active listing (the Whole agency);
+//                                the server hides the owner of those they aren't tied to
+// filters { custom, viewer: true }   the server puts the viewer's own key in (their favourites, their unread)
 // area: null                     everyone may read it (their own)
 import { teamOf } from './access.js'
 import { payslipTotals } from './payout.js'
-import { buildingRankings, noticeFor } from './listings.js'
+import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, KEY_FLAG } from './listings.js'
 import { projectDeals, incentiveProgress } from './projects.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
 
@@ -88,6 +92,47 @@ const DEAL_CASH = {
   closed: { sum: 'claim', of: 'closes', by: 'dealId' },
 }
 
+// Listings: the listing rules of shared/listings.js as filters (the server runs the same in SQL).
+const HOLDER = { via: 'holderId', of: 'staff', fields: ['short', 'name'] }
+const LISTINGS = {
+  area: 'listings',
+  filters: {
+    type: { eq: 'type' }, status: { eq: 'status' }, branchId: { eq: 'branchId' }, holderId: { eq: 'holderId' }, creatorId: { eq: 'creatorId' },
+    titleId: { eq: 'titleId' }, area: { eq: 'area' }, category: { eq: 'category' }, draft: { yes: 'draft' },
+    priceFrom: { from: 'askPrice' }, priceTo: { to: 'askPrice' }, createdFrom: { from: 'created' }, createdTo: { to: 'created' },
+    bedsFrom: { from: 'beds' }, photosFrom: { from: 'photos' }, priceChanged: { notNull: 'priceBefore' },
+    // Property type group (1 landed, 2 high-rise, 3 commercial), price against market value, the hot lists ('any' of them).
+    group: { custom: 'categoryGroup', values: ['1', '2', '3'] },
+    band: { custom: 'priceBand', values: ['red', 'orange', 'green', 'blue'] },
+    hot: { custom: 'hotList', values: ['any', 'hotSale', 'superHot', 'rentKing'] },
+    marketValue: { custom: 'marketValue', values: ['complete', 'incomplete'] },
+    // A setting (Key On Agent Hand…), ever followed up, the latest follow-up's action.
+    flag: { custom: 'flag', values: [KEY_FLAG, 'Vacant', 'Process Deal'] },
+    followed: { custom: 'followedUp', values: ['true', 'false'] },
+    lastAction: { custom: 'lastFollowUp', values: ['0', '1', '2', '3'] },
+    // The viewer's favourites (their own: the server puts their key in).
+    fav: { custom: 'favouriteOf', viewer: true, values: ['0'] },
+    // Listing roles: a branch manager's whole team, the listings whose nearest area manager up the
+    // holder's chain is this person, a building's project handler, made from an owner request.
+    holderTeam: { team: ['holderId'] },
+    areaManager: { custom: 'areaManagerOf' },
+    titleHandler: { via: 'titleId', of: 'titles', rule: { eq: 'handlerId' } },
+    fromOwner: { custom: 'fromOwnerRequest', values: ['true', 'false'] },
+  },
+  sorts: { created: 'created', updated: 'updated', price: 'askPrice', priceUpdated: 'priceUpdated', photosOn: 'photosOn', code: 'code', views: 'views',
+    title: 'title', followUp: { last: 'followUps', field: 'date' } },
+  sort: '-updated',
+  counts: {
+    status: 'status', type: 'type', category: 'category',
+    group1: { set: { group: '1' } }, group2: { set: { group: '2' } }, group3: { set: { group: '3' } },
+    hotSale: { set: { hot: 'hotSale' } }, superHot: { set: { hot: 'superHot' } }, rentKing: { set: { hot: 'rentKing' } },
+  },
+  extras: {
+    deal: { pick: ['code', 'date', 'price', 'status'], of: 'deals', from: 'dealId' },
+    title: { pick: ['name', 'managerId', 'handlerId', 'managerPermanent', 'handlerPermanent'], of: 'titles', from: 'titleId' },
+  },
+}
+
 export const LISTS = {
   staff: {
     area: 'staff',
@@ -111,18 +156,12 @@ export const LISTS = {
     },
   },
 
-  listings: {
-    area: 'listings',
-    search: ['code', 'title', 'address', 'area', 'owner.name', 'owner.phone'],
-    filters: {
-      type: { eq: 'type' }, status: { eq: 'status' }, branchId: { eq: 'branchId' }, holderId: { eq: 'holderId' }, creatorId: { eq: 'creatorId' },
-      titleId: { eq: 'titleId' }, area: { eq: 'area' }, category: { eq: 'category' }, draft: { yes: 'draft' },
-      priceFrom: { from: 'askPrice' }, priceTo: { to: 'askPrice' }, createdFrom: { from: 'created' }, createdTo: { to: 'created' },
-    },
-    sorts: { created: 'created', updated: 'updated', price: 'askPrice', code: 'code', views: 'views' },
-    sort: '-created',
-    counts: { status: 'status', type: 'type', category: 'category' },
-  },
+  // Listings (Listings page, Listing roles), in the viewer's reach.
+  listings: { ...LISTINGS, search: ['code', 'title', 'area', 'address', HOLDER] },
+
+  // The Whole agency: a team or branch role's own listings and every active one (agents bring
+  // customers to any of them; pickers and viewings too). The address is not searched: units stay hidden.
+  agency: { ...LISTINGS, of: 'listings', market: true, search: ['code', 'title', 'area', HOLDER] },
 
   customers: {
     area: 'customers',
@@ -395,7 +434,7 @@ export const LISTS = {
   notices: {
     area: null, mine: (n, who) => noticeFor(n, who.key, who.branchId),
     search: ['text'],
-    filters: { cat: { eq: 'cat' }, unread: { custom: 'unreadBy', values: ['0', '1', 'x'] } },
+    filters: { cat: { eq: 'cat' }, unread: { custom: 'unreadBy', viewer: true, values: ['0'] } },
     sorts: { at: 'at' }, sort: '-at',
     counts: { cat: 'cat' },
   },
@@ -475,6 +514,17 @@ export const closeKind = c => (!c.full ? 'partial' : c.partNo > 1 ? 'balance' : 
 const CUSTOM = {
   readyToClose: (r, v, ctx) => truthy(v) === (readyLeft(r, ctx.cash().get(r.id), ctx.setup) > 0),
   closeType: (r, v, ctx) => { const c = ctx.byId('closes').get(r.closeId); return !!c && closeKind(c) === v },
+  categoryGroup: (r, v) => categoryGroup(r.category) === Number(v),
+  priceBand: (r, v) => priceRating(r)?.band === v,
+  hotList: (r, v) => (v === 'any' ? hotLists(r).length > 0 : hotLists(r).includes(v)),
+  marketValue: (r, v) => (v === 'complete' ? !!Number(r.marketValue) : v === 'incomplete' ? !Number(r.marketValue) : true),
+  flag: (r, v) => (r.flags || []).includes(v),
+  followedUp: (r, v) => (r.followUps || []).length > 0 === truthy(v),
+  lastFollowUp: (r, v) => r.followUps?.length > 0 && same(r.followUps.at(-1).action, valueOf(v)),
+  favouriteOf: (r, v, ctx) => (ctx.data?.favourites?.[personId(v)]?.listings || []).includes(r.id),
+  // The nearest upline holding the second-most-senior level (an area manager) of the listing's holder.
+  areaManagerOf: (r, v, ctx) => ctx.once('areaManagers', () => areaManagers(ctx.data?.staff || [], ctx.setup)).get(r.holderId) === personId(v),
+  fromOwnerRequest: (r, v, ctx) => ctx.once('fromOwner', () => new Set((ctx.data?.vendorRequests || []).map(x => x.listingId).filter(x => x != null))).has(r.id) === truthy(v),
   // Not read yet by that person (their key: staff id, 0 = an office account).
   unreadBy: (r, v) => personId(v) != null && !(r.readBy || []).includes(personId(v)),
   readyPay: (r, v, ctx) => !!ctx.once(`readyPay:${v}`, () => {
@@ -482,6 +532,22 @@ const CUSTOM = {
     if (v === 'salary' || v === 'incentives') for (const p of ctx.data?.payouts || []) if (isReady(p) && !p.stacked && !!p.role === (v === 'incentives')) has.add(p.staffId)
     return has
   }).has(r.id),
+}
+// Each person's area manager: the nearest one up their chain at the second-most-senior upline level
+// (src/erp/model.js areaManagerOf). Map(staffId → their area manager's id).
+export function areaManagers(staff, setup) {
+  const code = [...(setup?.roles || [])].reverse()[1]?.code
+  const byId = new Map(staff.map(s => [s.id, s]))
+  const out = new Map()
+  if (!code) return out
+  for (const s of staff) {
+    const seen = new Set([s.id])
+    for (let up = byId.get(s.uplineId); up && !seen.has(up.id); up = byId.get(up.uplineId)) {
+      seen.add(up.id)
+      if (up.role === code) { out.set(s.id, up.id); break }
+    }
+  }
+  return out
 }
 const isReady = p => p.status === 'approved' && p.requestId == null && p.archiveId == null
 
@@ -650,6 +716,7 @@ function run(all_records, spec, params, ctx, all) {
   // A count sort: how many records of that kind point at each one.
   const sortValue = f => {
     if (typeof f === 'string') return r => get(r, f)
+    if (f.last) return r => get(r[f.last]?.at(-1), f.field) ?? null
     const n = c.once(`count:${f.count}:${f.by}`, () => {
       const m = new Map()
       for (const x of ctx.data?.[f.count] || []) { const k = get(x, f.by); m.set(k, (m.get(k) || 0) + 1) }

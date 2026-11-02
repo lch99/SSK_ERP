@@ -20,8 +20,16 @@ function source(erp, access, key, { branch = true } = {}) {
   const extra = { ...((!DEMO || named) && branch && all && erp.branchId != null && spec.filters?.[filter] ? { [filter]: erp.branchId } : {}) }
   // "View the ERP as": the server limits the list to that role and person (the demo's records are limited already).
   if (!DEMO && access?.viewing) Object.assign(extra, { as: access.who.role, asStaff: access.who.staffId ?? '' })
-  // The demo keeps projects in a store of their own (src/demo/projectsApi.js).
-  const records = () => (key === 'projects' && DEMO ? projectsOf(erp.m.data, erp.setup) : recordsOf(branch === true || !all ? erp.scoped : erp.m.data, key))
+  // The demo keeps projects in a store of their own (src/demo/projectsApi.js); the Whole agency is a
+  // team or branch role's own listings and every active one (the server hides the owners it should).
+  const records = () => {
+    if (key === 'projects' && DEMO) return projectsOf(erp.m.data, erp.setup)
+    if (spec.market && !all) {
+      const own = new Set(recordsOf(erp.scoped, key).map(r => r.id))
+      return recordsOf(erp.m.data, key).filter(r => own.has(r.id) || r.status === 'active')
+    }
+    return recordsOf(branch === true || !all ? erp.scoped : erp.m.data, key)
+  }
   // Who is asking, for a list of each person's own (notifications), as the server works it out.
   const staffId = access?.who?.staffId ?? null
   const viewer = { key: staffId ?? 0, branchId: (staffId != null ? erp.m?.staff[staffId]?.branchId : null) ?? access?.who?.branchId ?? null }

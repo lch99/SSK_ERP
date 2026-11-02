@@ -230,14 +230,23 @@ const asReader = (spec, v) => {
   return r => trimmed(spec, strip(r));
 };
 
+// A list's own rows as the viewer may see them: its `rows` step (the Whole agency hides owners), then its reader.
+const shown = async (spec, v, rows) => (spec.rows ? await spec.rows(db, rows, v) : rows).map(asReader(spec, v));
+// The query, with the viewer's own key in the filters that take it (their favourites, their unread).
+const paramsOf = (spec, v, query) => {
+  const p = { ...query };
+  for (const k of spec.viewerFilters) if (p[k] !== undefined && p[k] !== '') p[k] = String(v.staffId ?? 0);
+  return p;
+};
+
 router.get('/:list', wrap(async (req, res, next) => {
   const spec = listOf(req, res);
   if (!spec) return;
   gateOf(spec)(req, res, async () => {
     try {
       const v = await viewerOf(req);
-      const page = await listPage(db, spec, { ...req.query }, scopeFor(spec, v));
-      res.json({ ...page, rows: page.rows.map(asReader(spec, v)) });
+      const page = await listPage(db, spec, paramsOf(spec, v, req.query), scopeFor(spec, v));
+      res.json({ ...page, rows: await shown(spec, v, page.rows) });
     } catch (err) { next(err); }
   });
 }));
@@ -250,10 +259,10 @@ router.get('/:list/download', wrap(async (req, res, next) => {
     try {
       const v = await viewerOf(req);
       // One transaction: the rows are read in chunks from one snapshot, so a save meanwhile can't shift them.
-      const { rows } = await db.transaction(trx => listAll(trx, spec, { ...req.query }, scopeFor(spec, v)));
+      const { rows } = await db.transaction(trx => listAll(trx, spec, paramsOf(spec, v, req.query), scopeFor(spec, v)));
       const d = spec.download;
       // Compressed off the main thread (zlib's pool), so a big file doesn't hold up everyone else.
-      const parts = xlsxParts([{ name: d.sheet, rows: downloadRows(spec, rows.map(asReader(spec, v))), widths: d.widths }]);
+      const parts = xlsxParts([{ name: d.sheet, rows: downloadRows(spec, await shown(spec, v, rows)), widths: d.widths }]);
       const file = zip(await Promise.all(parts.map(async f => ({ ...f, body: await deflateRaw(f.data), crc: zlib.crc32(f.data) }))));
       res.set({ 'Content-Type': XLSX_TYPE, 'Content-Disposition': `attachment; filename="${d.file}-${localToday()}.xlsx"` });
       res.send(Buffer.from(file));
@@ -272,7 +281,7 @@ router.get('/:list/:id', wrap(async (req, res, next) => {
       const id = idOf(req.params.id);
       const v = await viewerOf(req);
       const rec = id == null ? null : await oneRecord(spec, v, id);
-      return rec ? res.json(asReader(spec, v)(rec)) : notFound(res);
+      return rec ? res.json((await shown(spec, v, [rec]))[0]) : notFound(res);
     } catch (err) { next(err); }
   });
 }));

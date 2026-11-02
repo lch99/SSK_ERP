@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { C, btn } from '../../styles.js'
 import { LISTING_SETTINGS, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
+import { DEMO } from '../../api.js'
+import { useList, useRecord } from '../useList.js'
 import { LISTING_STATUS, LISTING_CATEGORY, DEAL_STATUS, listingCategory } from '../model.js'
-import { Page, Card, Tabs, Toolbar, SearchBox, Select, RangeFilter, Chips, Segmented, DataTable, Status, Pill, Who, Link, Drawer, KV, Block, Empty, go, mono, small, useRecordNav } from '../ui.jsx'
+import { Page, Card, Tabs, Toolbar, SearchBox, Select, RangeFilter, Chips, Segmented, DataTable, Status, Pill, Who, Link, Drawer, KV, Block, Empty, Notice, go, mono, small, useRecordNav } from '../ui.jsx'
 import { CARD, COLUMN, PAGE } from '../help.js'
 import { rm, rm0, rmShort, date, num, ago, maskIc } from '../format.js'
 import Icon from '../Icon.jsx'
@@ -12,7 +14,7 @@ import { Photo, coverOf, prunePreviews } from '../photos.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { useCan, useAccess } from '../access.jsx'
 import * as L from '../../../shared/listings.js'
-import { useViewer, useOwnerSight, OwnerContact, FavStar, RatingPill, HotTags, BookViewing } from '../listingLife.jsx'
+import { useViewer, useOwnerSight, useInReach, OwnerContact, FavStar, RatingPill, HotTags, BookViewing } from '../listingLife.jsx'
 import { ListingViewings } from './Viewings.jsx'
 
 // My Property Listing (Property menu) and the same list by role (Listing menu).
@@ -30,6 +32,22 @@ const ROLE_TITLES = {
 const SHADES = { 2: ['#fde2e8', '#f7c4d1'], 1: ['#e3edfb', '#c9dbf5'], 3: ['#efe8fb', '#ddd0f6'] }
 const lastFollow = l => l.followUps[l.followUps.length - 1] || null
 
+// What each tab asks the list for (the listing rules in shared/listings.js, run by the server).
+const VIEW_FILTERS = (view, ctx) => ({
+  all: {}, market: { status: 'active' }, hot: { hot: ctx.hot || 'any' }, fav: { fav: ctx.key }, today: { createdFrom: ctx.today, createdTo: ctx.today },
+  price: { priceChanged: 'true' }, creator: {}, sold: { status: 'sold' }, rent: { status: 'rented' }, outdated: { status: 'outdated' },
+  photos: { photosFrom: '1' }, followup: { followed: 'true' },
+})[view] || {}
+// Each listing role's filter for the person picked (Listing roles): a branch manager's whole team,
+// the nearest area manager up the holder's chain, a building's project handler, the product handler.
+const ROLE_FILTERS = (role, who) => ({
+  bm: { holderTeam: who }, am: { areaManager: who }, project: { titleHandler: who }, product: { holderId: who }, outdated: { status: 'outdated' }, vendor: { fromOwner: 'true' },
+})[role] || {}
+// The default order of each tab.
+const VIEW_SORT = { price: '-priceUpdated', followup: '-followUp', photos: '-photosOn' }
+
+// A page at a time (useList): the viewer's reach, or on the Whole agency tab every
+// active listing in the agency (owners hidden by the server where they aren't tied).
 export default function Listings({ parts }) {
   const { m, scoped: d, setup } = useErp()
   const viewer = useViewer()
@@ -44,8 +62,8 @@ export default function Listings({ parts }) {
   const [maxPrice, setMaxPrice] = useState('')
   const [beds, setBeds] = useState('')
   const [book, setBook] = useState(null)
-  // Once a visit, stored photo previews no listing uses any more are dropped.
-  useEffect(() => { if (m) prunePreviews(m.data.listings) }, [m])
+  // Once a visit, stored photo previews no listing uses any more are dropped (the demo keeps them in this browser).
+  useEffect(() => { if (DEMO && m) prunePreviews(m.data.listings) }, [m])
   const byRole = parts[0] === 'listing-roles'
   const role = byRole ? (ROLES[parts[1]] ? parts[1] : 'bm') : null
   const openId = Number(byRole ? parts[2] : parts[1]) || null
@@ -58,46 +76,37 @@ export default function Listings({ parts }) {
   const [follow, setFollow] = useState('')
   const [track, setTrack] = useState('')
   const [who, setWho] = useState('')
+  const [sort, setSort] = useState(null)
   const [layout, setLayout] = useState('table')
-  const open = openId ? m.listings[openId] : null
   const base = byRole ? `listing-roles/${role}` : 'listings'
 
-  // Whose listings, for the Listing menu: branch manager / area manager / title's project handler / product handler.
-  const ownerOf = l => ({ bm: m.branchManagerOf(l.holderId)?.id, am: m.areaManagerOf(l.holderId)?.id, project: m.titles[l.titleId]?.handlerId, product: l.holderId })[role]
-  const owners = byRole && ['bm', 'am', 'project', 'product'].includes(role)
-    ? [...new Set(d.listings.map(ownerOf).filter(Boolean))].map(id => m.staff[id]).sort((a, b) => a.short.localeCompare(b.short)) : []
-  const fromVendor = new Set(m.data.vendorRequests.filter(v => v.listingId).map(v => v.listingId))
+  // The tab's or role's filters, then the toolbar's; a status from both must agree.
+  const scope = byRole ? ROLE_FILTERS(role, who) : VIEW_FILTERS(view, { hot, key: viewer.key, today: m.today })
+  const status = scope.status && track ? (scope.status === track ? track : 'none') : scope.status || track
+  const order = sort || (!byRole && VIEW_SORT[view]) || '-updated'
+  const params = {
+    ...scope, q, status, sort: order, group: cate, type, marketValue: mv, flag, lastAction: follow, band: rating, priceFrom: minPrice, priceTo: maxPrice, bedsFrom: beds,
+    ...(!byRole && who ? { holderId: who } : {}),
+    counts: `group1,group2,group3${view === 'hot' && !byRole ? ',hotSale,superHot,rentKing' : ''}`,
+  }
+  const list = useList(view === 'market' && !byRole ? 'agency' : 'listings', params, { pageSize: 25 })
+  // The listing opened: through the Whole agency, so one outside the viewer's reach opens with its owner hidden.
+  const open = useRecord('agency', openId).record
+  const counts = list.counts
 
-  const favs = m.data.favourites?.[viewer.key]?.listings || []
-  const source = view === 'market' ? m.data.listings.filter(l => l.status === 'active') : d.listings
-  const scoped = useMemo(() => source.filter(l => {
-    if (byRole) {
-      if (role === 'outdated') return l.status === 'outdated'
-      if (role === 'vendor') return fromVendor.has(l.id)
-      return !who || ownerOf(l) === Number(who)
-    }
-    return { all: true, market: true, hot: L.hotLists(l).length > 0, fav: favs.includes(l.id), today: l.created === m.today, price: !!l.priceBefore, creator: true, sold: l.status === 'sold', rent: l.status === 'rented',
-      outdated: l.status === 'outdated', photos: l.photos > 0, followup: l.followUps.length > 0 }[view]
-  }), [source, byRole, role, who, view, m, favs]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const rows = useMemo(() => {
-    const words = q.trim().toLowerCase()
-    return scoped.filter(l => (!cate || listingCategory(l) === Number(cate)) && (!type || l.type === type) &&
-      (!mv || (mv === 'complete' ? l.marketValue : !l.marketValue)) && (!flag || l.flags.includes(flag)) &&
-      (follow === '' || lastFollow(l)?.action === Number(follow)) && (!track || l.status === track) &&
-      (byRole || !who || l.holderId === Number(who)) && (!hot || L.hotLists(l).includes(hot)) && (!rating || L.priceRating(l)?.band === rating) &&
-      (!minPrice || l.askPrice >= Number(minPrice)) && (!maxPrice || l.askPrice <= Number(maxPrice)) && (!beds || l.beds >= Number(beds)) &&
-      (!words || [l.code, l.title, l.area, sightOf(l).level === 'none' ? '' : l.address, m.staff[l.holderId]?.short].join(' ').toLowerCase().includes(words)))
-  }, [scoped, cate, type, mv, flag, follow, track, who, byRole, q, m, hot, rating, minPrice, maxPrice, beds]) // eslint-disable-line react-hooks/exhaustive-deps
-  const sortKey = { price: 'price', followup: 'follow', creator: 'creator' }[view] || 'updated'
+  // Who to pick for each listing role: branch managers (the top of a chain), area managers, anyone else.
+  const amCode = [...setup.roles].reverse()[1]?.code
+  const active = d.staff.filter(s => s.status !== 'pending' && s.status !== 'inactive').sort((a, b) => a.short.localeCompare(b.short))
+  const owners = !byRole ? [] : role === 'bm' ? active.filter(s => s.role && s.uplineId == null) : role === 'am' ? active.filter(s => s.role === amCode)
+    : ['project', 'product'].includes(role) ? active : []
 
   const columns = [
-    { key: 'updated', label: 'Listing · C.Date / U.Date', help: COLUMN.listingDates, sort: l => (view === 'photos' ? l.photosOn || '' : l.updated), render: l => (
+    { key: 'updated', label: 'Listing · C.Date / U.Date', help: COLUMN.listingDates, sortKey: view === 'photos' ? 'photosOn' : 'updated', render: l => (
       <span><b style={{ ...mono, color: C.primaryDark }}>{l.code}</b>
         <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(l.created, { short: true })} / {date(l.updated, { short: true })}</span>
         {mediaCount(l) && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{mediaCount(l)}{view === 'photos' && l.photos > 0 ? ` · ${date(l.photosOn, { short: true })}` : ''}</span>}</span>
     ) },
-    { key: 'title', label: 'Title · Area · Category', sort: l => l.title, render: l => {
+    { key: 'title', label: 'Title · Area · Category', sortKey: 'title', render: l => {
       const cover = coverOf(photosOf(l))
       return (
         <span style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13 }}>
@@ -109,17 +118,17 @@ export default function Listings({ parts }) {
       )
     } },
     { key: 'unit', label: 'Unit Number / Size', render: l => <span style={{ fontSize: 12.5 }}>{sightOf(l).level === 'none' ? <span style={{ color: C.muted }}>Unit hidden</span> : l.address.split(',')[0]}<span style={{ display: 'block', color: C.muted }}>{num(l.builtUp)} sq ft{l.beds ? ` · ${l.beds}R${l.baths}B` : ''}</span></span> },
-    { key: 'price', label: 'Ad · Best · M. Value', help: COLUMN.listingPrice, align: 'right', sort: l => (view === 'price' ? l.priceUpdated : l.askPrice), render: l => (
+    { key: 'price', label: 'Ad · Best · M. Value', help: COLUMN.listingPrice, align: 'right', sortKey: view === 'price' ? 'priceUpdated' : 'price', render: l => (
       <span style={{ fontSize: 13 }}>{rm0(l.askPrice)}
         {l.priceBefore && view === 'price' && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>was {rm0(l.priceBefore)} · {date(l.priceUpdated, { short: true })}</span>}
         <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm0(l.bestPrice)} · {l.marketValue ? rm0(l.marketValue) : 'no M.V.'}</span>
         <RatingPill l={l} /></span>
     ) },
-    { key: 'creator', label: 'Product Handler · Creator', help: COLUMN.listingHolder, sort: l => m.staffName(l.creatorId), render: l => (
+    { key: 'creator', label: 'Product Handler · Creator', help: COLUMN.listingHolder, render: l => (
       <span style={{ fontSize: 13 }}>{m.staffName(l.holderId)}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{l.creatorId !== l.holderId ? `by ${m.staffName(l.creatorId)}` : 'own listing'}</span></span>
     ) },
     { key: 'owner', label: 'Owner Contact', help: COLUMN.ownerContact, render: l => <OwnerContact l={l} sight={sightOf(l)} /> },
-    { key: 'follow', label: 'Settings · Follow-Up', help: COLUMN.listingFollow, sort: l => lastFollow(l)?.date || '', render: l => (
+    { key: 'follow', label: 'Settings · Follow-Up', help: COLUMN.listingFollow, sortKey: 'followUp', render: l => (
       <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {l.flags.slice(0, 2).map(f => <Pill key={f} tone={f === 'Process Deal' ? 'blue' : 'gray'} dot={false} style={{ fontSize: 11 }}>{f}</Pill>)}
         {lastFollow(l) && <span style={{ fontSize: 12, color: C.muted, width: '100%' }}>{FOLLOW_UP_ACTIONS[lastFollow(l).action]} · {date(lastFollow(l).date, { short: true })}</span>}
@@ -128,8 +137,8 @@ export default function Listings({ parts }) {
     { key: 'status', label: 'Status', render: l => <Status of={LISTING_STATUS} value={l.status} /> },
     { key: 'actions', label: '', card: false, render: l => <ListingActions l={l} quiet onBook={() => setBook(l)} /> },
   ]
-  const cats = Object.entries(LISTING_CATEGORY).map(([k, label]) => ({ k, label, n: scoped.filter(l => listingCategory(l) === Number(k)).length })).filter(c => c.n)
-  const { onOrder, nav } = useRecordNav(open?.id, id => `${base}/${id}`)
+  const cats = Object.entries(LISTING_CATEGORY).map(([k, label]) => ({ k, label, n: counts[`group${k}`] || 0 })).filter(c => c.n || cate === c.k)
+  const { onOrder, nav } = useRecordNav(openId, id => `${base}/${id}`)
   const filters = [cate, type, mv, flag, follow, track, who, rating, minPrice, maxPrice, beds].filter(x => x !== '').length
   const clear = () => { setQ(''); setCate(''); setType(''); setMv(''); setFlag(''); setFollow(''); setTrack(''); setWho(''); setRating(''); setMinPrice(''); setMaxPrice(''); setBeds('') }
   const views = market ? [...VIEWS.slice(0, 1), ['market', 'Whole agency'], ...VIEWS.slice(1)] : VIEWS
@@ -139,26 +148,26 @@ export default function Listings({ parts }) {
     <Page title={title} help={byRole ? PAGE.listingRoles : PAGE.listings} sub={byRole ? 'Property Listings Library by who looks after them' : 'Property Listings Library. Published to the SubSaleKing site.'}
       actions={<button style={btn} onClick={() => go('listing-new')}>Add a listing</button>}>
       <Card pad={16}>
-        {!byRole && <Tabs value={view} onChange={v => { setView(v); setHot('') }} tabs={views.map(([key, label]) => ({ key, label }))} />}
-        {view === 'hot' && (
+        {!byRole && <Tabs value={view} onChange={v => { setView(v); setHot(''); setSort(null) }} tabs={views.map(([key, label]) => ({ key, label }))} />}
+        {view === 'hot' && !byRole && (
           <div style={{ marginBottom: 12 }}>
-            <Chips label="Hot list" value={hot} onChange={setHot} options={[{ key: '', label: 'All hot', count: scoped.length },
-              ...Object.entries(L.HOT_LISTS).map(([key, h]) => ({ key, label: h.label, count: scoped.filter(l => L.hotLists(l).includes(key)).length }))]} />
+            <Chips label="Hot list" value={hot} onChange={setHot} options={[{ key: '', label: 'All hot', count: hot ? undefined : list.total },
+              ...Object.entries(L.HOT_LISTS).map(([key, h]) => ({ key, label: h.label, count: counts[key] ?? 0 }))]} />
             <p style={{ fontSize: 12.5, color: C.muted, margin: '6px 0 0' }}>{hot ? L.HOT_LISTS[hot].help : 'Worked out from each listing: price against market value, photos and the key. They update as listings change.'}</p>
           </div>
         )}
         {view === 'market' && <p style={{ fontSize: 13, color: C.muted, margin: '0 0 12px' }}>Every listing on the market in the agency. Book a viewing for your customer; the product handler confirms it with the owner. Owners' details stay with the people tied to each listing.</p>}
         <Toolbar fold onClear={clear}>
-          <SearchBox value={q} onChange={setQ} placeholder="Listing ID, title, area or holder" />
+          <SearchBox value={q} onChange={setQ} placeholder={view === 'market' ? 'Listing ID, title, area or holder' : 'Listing ID, title, address or holder'} />
           <Select label="Listing type" value={type} onChange={setType} options={[['', 'Sale and rent'], ['sale', 'Sales Listing'], ['rental', 'Rental Listing']].map(([value, label]) => ({ value, label }))} />
-          <Select label="Category" value={cate} onChange={setCate} options={[{ value: '', label: `All categories (${scoped.length})` }, ...cats.map(c => ({ value: c.k, label: `${c.label} (${c.n})` }))]} />
+          <Select label="Category" value={cate} onChange={setCate} options={[{ value: '', label: 'All categories' }, ...cats.map(c => ({ value: c.k, label: `${c.label} (${c.n})` }))]} />
           <RangeFilter label="Ad Price" unit="RM" from={minPrice} to={maxPrice} format={rmShort} onChange={(lo, hi) => { setMinPrice(lo); setMaxPrice(hi) }} />
           <Select label="Bedrooms" value={beds} onChange={setBeds} options={[{ value: '', label: 'Any' }, ...[1, 2, 3, 4, 5].map(n => ({ value: String(n), label: `${n}+` }))]} />
           <Select label="Price vs market" value={rating} onChange={setRating} options={[{ value: '', label: 'Any' }, ...Object.entries(L.RATING).map(([value, r]) => ({ value, label: r.label }))]} />
           <Select label="Status" value={track} onChange={setTrack} options={[{ value: '', label: 'Any status' }, ...Object.entries(LISTING_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
           {(owners.length > 0 || !byRole) && (
             <Select label={byRole ? ROLES[role] : 'Product handler'} value={who} onChange={setWho}
-              options={[{ value: '', label: byRole ? `All ${ROLES[role].toLowerCase()}s` : 'Everyone' }, ...(byRole ? owners : d.staff.filter(s => s.status !== 'pending').sort((a, b) => a.short.localeCompare(b.short)))
+              options={[{ value: '', label: byRole ? `All ${ROLES[role].toLowerCase()}s` : 'Everyone' }, ...(byRole ? owners : active)
                 .map(s => ({ value: String(s.id), label: `${role === 'bm' ? 'B.M ' : ''}${s.short} (${s.code})` }))]} />
           )}
           <Select label="Settings" value={flag} onChange={setFlag} options={[{ value: '', label: 'Any setting' }, ...LISTING_SETTINGS.map(f => ({ value: f, label: f }))]} />
@@ -167,12 +176,14 @@ export default function Listings({ parts }) {
           <span style={{ flex: 1 }} />
           <Segmented label="Layout" value={layout} onChange={setLayout} options={[{ key: 'table', label: 'Table', icon: 'menu' }, { key: 'cards', label: 'Cards', icon: 'listings' }]} />
         </Toolbar>
+        {list.error && <Notice tone="red">{list.error}</Notice>}
         {layout === 'table'
-          ? <DataTable columns={columns} rows={rows} onRow={l => go(`${base}/${l.id}`)} defaultSort={{ key: sortKey, dir: 'desc' }} pageSize={25} narrowAt={1050}
-            empty={view === 'today' ? 'No listings added today' : 'No listings match'} onClear={filters || q ? clear : undefined} onOrder={onOrder} />
-          : <CardGrid rows={rows} m={m} base={base} />}
+          ? <DataTable columns={columns} rows={list.rows} onRow={l => go(`${base}/${l.id}`)} pageSize={25} narrowAt={1050}
+            paged={{ total: list.total, sort: order, onSort: setSort, onMore: list.more, loading: list.loading }}
+            empty={list.loading ? 'Loading…' : view === 'today' ? 'No listings added today' : 'No listings match'} onClear={filters || q ? clear : undefined} onOrder={onOrder} />
+          : <CardGrid list={list} m={m} base={base} />}
       </Card>
-      <Drawer open={!!open} onClose={() => go(base)} width={620} title={open?.title} sub={open ? `${open.code} · ${open.category} · ${open.area}` : ''} nav={layout === 'table' ? nav : null}
+      <Drawer open={openId != null} onClose={() => go(base)} width={620} title={open?.title || 'Loading…'} sub={open ? `${open.code} · ${open.category} · ${open.area}` : ''} nav={layout === 'table' ? nav : null}
         footer={open && <ListingActions key={open.id} l={open} onBook={() => setBook(open)} />}>
         {open && <ListingDetails l={open} m={m} onBook={() => setBook(open)} />}
       </Drawer>
@@ -181,17 +192,17 @@ export default function Listings({ parts }) {
   )
 }
 
-function CardGrid({ rows, m, base }) {
-  const [limit, setLimit] = useState(24)
-  if (!rows.length) return <Empty title="No listings match" />
+function CardGrid({ list, m, base }) {
+  const rows = list.rows
+  if (!rows.length) return <Empty title={list.loading ? 'Loading…' : 'No listings match'} />
   return (
     <>
       <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(250px, 100%), 1fr))' }}>
-        {rows.slice(0, limit).map(l => <ListingCard key={l.id} l={l} m={m} base={base} />)}
+        {rows.map(l => <ListingCard key={l.id} l={l} m={m} base={base} />)}
       </div>
-      {rows.length > limit && (
+      {rows.length < list.total && (
         <div style={{ textAlign: 'center', marginTop: 14, fontSize: 13, color: C.muted }}>
-          Showing {limit} of {rows.length} <button style={{ ...small, marginLeft: 8 }} onClick={() => setLimit(limit + 24)}>Show more</button>
+          Showing {rows.length} of {list.total} <button style={{ ...small, marginLeft: 8 }} disabled={list.loading} onClick={list.more}>Show more</button>
         </div>
       )}
     </>
@@ -265,7 +276,9 @@ function AdPrice({ l }) {
   const erp = useErp()
   const fb = useFeedback()
   // Only on the viewer's own listings (not the rest of the agency's).
-  const editable = useCan()('listings', 'edit') && erp.scoped.listings.some(x => x.id === l.id)
+  const can = useCan()
+  const inReach = useInReach()
+  const editable = can('listings', 'edit') && inReach(l)
   const [v, setV] = useState(String(l.askPrice))
   const changed = Number(v) !== l.askPrice && Number(v) >= 0 && v !== ''
   const save = () => changed && fb.run(() => erp.updateListing(l.id, { askPrice: Number(v) }), `${l.code} Ad Price set to ${rm(Number(v))}`)
@@ -280,8 +293,9 @@ function AdPrice({ l }) {
 }
 
 export function ListingDetails({ l, m, onBook }) {
-  const deal = l.dealId ? m.deals[l.dealId] : null
-  const title = m.titles[l.titleId]
+  // Its E-Form and building come with it ($), or from the records here when it was read some other way.
+  const deal = l.dealId ? (l.$?.deal ? { id: l.dealId, ...l.$.deal } : m.deals?.[l.dealId]) : null
+  const title = l.$?.title ? { id: l.titleId, ...l.$.title } : m.titles?.[l.titleId]
   const share = l.share || { users: [], pmId: null, coPh: [] }
   const sight = useOwnerSight()(l)
   const can = useCan()

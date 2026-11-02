@@ -37,6 +37,12 @@ const plusHours = (stamp, h) => {
 const has = (l, flag) => (l.flags || []).includes(flag)
 export const KEY_FLAG = 'Key On Agent Hand'
 
+// A property type's group: 1 residential landed, 2 residential non-landed (high-rise), 3 commercial
+// (LISTING_CATEGORY in src/erp/model.js names them). The server matches the same words, case and all.
+export const GROUP_WORDS = { 3: ['Shop', 'Office'], 2: ['Condo', 'Serviced', 'Apartment', 'Flat'] }
+export const categoryGroup = category => (GROUP_WORDS[3].some(w => String(category ?? '').includes(w)) ? 3
+  : GROUP_WORDS[2].some(w => String(category ?? '').includes(w)) ? 2 : 1)
+
 // ── Price against market value (the current system's rate colour) ──
 export const RATING = {
   red: { label: 'Hot price', tone: 'red', help: 'Less than 5% above market value, or below it. The best buys: push these first.' },
