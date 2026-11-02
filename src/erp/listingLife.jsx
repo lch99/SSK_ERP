@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import * as L from '../../shared/listings.js'
 import { teamOf } from '../../shared/access.js'
+import { useList } from './useList.js'
 import { C, btn, btnPrimary } from '../styles.js'
 import { useErp } from './ErpContext.jsx'
 import { useAccess, useCan } from './access.jsx'
@@ -119,6 +120,11 @@ const SLOT_TIMES = Array.from({ length: 27 }, (_, i) => { const t = 9 * 60 + i *
 // listing's product handler confirms with the owner. Shows the handler's other
 // viewings that day, so a free time is easy to pick.
 export function BookViewing({ listing, open, onClose }) {
+  if (!open || !listing) return null
+  return <BookForm listing={listing} onClose={onClose} />
+}
+
+function BookForm({ listing, onClose }) {
   const erp = useErp()
   const { m } = erp
   const v = useViewer()
@@ -127,13 +133,13 @@ export function BookViewing({ listing, open, onClose }) {
   const [f, setF] = useState(start)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  if (!open || !listing) return null
   const set = k => e => setF(x => ({ ...x, [k]: e.target ? e.target.value : e }))
   const agents = m.data.staff.filter(s => s.status === 'active' && isAgent(s)).sort((a, b) => a.short.localeCompare(b.short))
-  const customers = f.requestedBy ? m.data.customers.filter(c => c.ownerId === Number(f.requestedBy) && c.track === 0) : []
-  const twins = m.data.listings.filter(x => x.id !== listing.id && x.status === 'active' && x.titleId === listing.titleId && x.type === listing.type)
-  const busyThatDay = (m.data.viewings || []).filter(x => x.handlerId === listing.holderId && x.date === f.date && ['new', 'rescheduled', 'confirmed'].includes(x.status))
-    .sort((a, b) => a.time.localeCompare(b.time))
+  // The agent's active customers; other units in the building on the market; the handler's viewings that day.
+  const customers = useList('customers', { ownerId: f.requestedBy || 0, track: '0', sort: 'name', counts: '0' }, { branch: false, pageSize: 200, skip: !f.requestedBy }).rows
+  const twins = useList('agency', { titleId: listing.titleId ?? 'none', type: listing.type, status: 'active', counts: '0' }, { branch: false, pageSize: 50, skip: listing.titleId == null }).rows
+    .filter(x => x.id !== listing.id)
+  const busyThatDay = useList('viewings', { handlerId: listing.holderId, from: f.date, to: f.date, status: 'new,rescheduled,confirmed', sort: 'time', counts: '0' }, { branch: false, pageSize: 50, skip: !f.date }).rows
   const close = () => { setF(start()); setError(null); onClose() }
   const save = async () => {
     const gaps = missing([['Agent bringing the customer', f.requestedBy], ['Customer', f.customerId || f.customerName], ['Customer phone', f.customerId || f.customerPhone], ['Date', f.date], ['Time', f.time]])
@@ -146,7 +152,7 @@ export function BookViewing({ listing, open, onClose }) {
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
   const pickCustomer = id => {
-    const c = m.data.customers.find(x => x.id === Number(id))
+    const c = customers.find(x => x.id === Number(id))
     setF(x => ({ ...x, customerId: id, customerName: c?.name || '', customerPhone: c?.phone || '' }))
   }
   return (

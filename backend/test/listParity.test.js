@@ -178,3 +178,16 @@ test('listings by area manager: the nearest area manager up the holder\'s chain,
   }
   assert.ok(found > 0, 'some listings have an area manager');
 });
+
+test('a listing\'s viewings: every viewing that includes it, the same both ways', async () => {
+  const ctx = { data: state.data, today: localToday(), setup: state.setup, viewer: ME };
+  const ids = [...new Set(state.data.viewings.flatMap(v => v.listingIds))].slice(0, 8);
+  assert.ok(ids.length, 'the sample has viewings');
+  for (const id of ids) {
+    const want = L.listPage(state.data.viewings, L.LISTS.viewings, { listing: id, size: 200 }, ctx);
+    assert.ok(want.total > 0);
+    const r = await api.call('GET', `/erp/viewings?listing=${id}&size=200`);
+    assert.deepEqual(r.body.rows.map(x => x.id), want.rows.map(x => x.id), `listing ${id}`);
+    assert.deepEqual(tidy(r.body.rows.map(x => x.$)), tidy(want.rows.map(x => x.$)));
+  }
+});

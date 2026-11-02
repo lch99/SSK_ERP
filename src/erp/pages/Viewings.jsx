@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import * as L from '../../../shared/listings.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
+import { useList, useRecord } from '../useList.js'
+import { isAgent } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, Status, Link, Drawer, Block, KV, Who, Modal, FormField, TextArea, Notice, Empty, Stat, Pill, cols, go, mono, small, field } from '../ui.jsx'
 import { PAGE, CARD } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
@@ -20,11 +22,11 @@ const OPEN = ['new', 'rescheduled', 'confirmed']
 const minutesOf = v => { const [a, b] = [v.time, v.end].map(t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3))); return String(Math.max(30, b - a)) }
 const nowStamp = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
 
+// A page at a time (useList): each tab is a filter, counted by the server.
 export default function Viewings({ parts }) {
   const erp = useErp()
   const { m, scoped: d } = erp
   const me = useViewer()
-  const all = useMemo(() => d.viewings || [], [d.viewings])
   const mine = me.agentId
   // Agents start on what waits for them; the office on everything to confirm.
   const [tab, setTab] = useState(mine ? 'mine' : 'confirm')
@@ -32,49 +34,52 @@ export default function Viewings({ parts }) {
   const [who, setWho] = useState('')
   const [book, setBook] = useState(null)
   const openId = Number(parts[1]) || null
-  const open = openId ? (m.data.viewings || []).find(v => v.id === openId) : null
+  const open = useRecord('viewings', openId).record
   const now = nowStamp()
   const overdue = v => L.reviewOverdue(v, now)
   const TABS = [
-    mine && { key: 'mine', label: 'Waiting for me', pick: v => (v.handlerId === mine && (v.status === 'new' || v.status === 'rescheduled')) || (v.requestedBy === mine && v.status === 'review') },
-    { key: 'confirm', label: 'To confirm', pick: v => v.status === 'new' || v.status === 'rescheduled' },
-    { key: 'upcoming', label: 'Confirmed', pick: v => v.status === 'confirmed' },
-    { key: 'review', label: 'To review', pick: v => v.status === 'review' },
-    { key: 'done', label: 'Completed', pick: v => v.status === 'done' },
-    { key: 'off', label: 'Cancelled & expired', pick: v => v.status === 'cancelled' || v.status === 'expired' },
+    mine && { key: 'mine', label: 'Waiting for me', filter: { waitingFor: me.key } },
+    { key: 'confirm', label: 'To confirm', filter: { status: 'new,rescheduled' } },
+    { key: 'upcoming', label: 'Confirmed', filter: { status: 'confirmed' } },
+    { key: 'review', label: 'To review', filter: { status: 'review' } },
+    { key: 'done', label: 'Completed', filter: { status: 'done' } },
+    { key: 'off', label: 'Cancelled & expired', filter: { status: 'cancelled,expired' } },
   ].filter(Boolean)
   const current = TABS.find(t => t.key === tab) || TABS[0]
-  const people = [...new Set(all.flatMap(v => [v.requestedBy, v.handlerId]))].map(id => m.staff[id]).filter(Boolean).sort((a, b) => a.short.localeCompare(b.short))
-  const rows = all.filter(v => current.pick(v) && (!who || v.requestedBy === Number(who) || v.handlerId === Number(who)) && (!q.trim() ||
-    [v.code, v.customer.name, ...v.listingIds.map(id => `${m.listings[id]?.code} ${m.listings[id]?.title}`), m.staffName(v.requestedBy), m.staffName(v.handlerId)].join(' ').toLowerCase().includes(q.trim().toLowerCase())))
   // Upcoming first for what is ahead; newest first for what is behind.
   const ahead = ['mine', 'confirm', 'upcoming'].includes(current.key)
-  rows.sort((a, b) => (ahead ? 1 : -1) * `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))
+  const list = useList('viewings', { ...current.filter, q, staffId: who, sort: ahead ? 'date,time' : '-date,-time', counts: '0' }, { pageSize: 30 })
+  // The tabs' and cards' counts: over the search and agent, whatever tab is open.
+  const counts = useList('viewings', { q, staffId: who, counts: 'status,today,week,done30' }, { pageSize: 1 }).counts
+  const waiting = useList('viewings', { waitingFor: me.key, counts: '0' }, { pageSize: 1, skip: !mine }).total
+  const late = useList('viewings', { reviewDue: now, counts: '0' }, { pageSize: 1 }).total
+  const byStatus = counts.status || {}
+  const n = (...ks) => ks.reduce((t, k) => t + (byStatus[k] || 0), 0)
+  const tabCount = { mine: waiting, confirm: n('new', 'rescheduled'), upcoming: n('confirmed'), review: n('review'), done: n('done'), off: n('cancelled', 'expired') }
+  const people = d.staff.filter(s => s.status === 'active' && isAgent(s)).sort((a, b) => a.short.localeCompare(b.short))
   const days = []
-  for (const v of rows) { const day = days.at(-1); if (day?.date === v.date) day.list.push(v); else days.push({ date: v.date, list: [v] }) }
-  const [limit, setLimit] = useState(12)
-  const today = all.filter(v => v.date === m.today && v.status === 'confirmed').length
-  const week = all.filter(v => v.date >= m.today && v.date <= L.addDays(m.today, 6) && OPEN.includes(v.status)).length
+  for (const v of list.rows) { const day = days.at(-1); if (day?.date === v.date) day.list.push(v); else days.push({ date: v.date, list: [v] }) }
 
   return (
     <Page title="Viewings" help={PAGE.appointments} sub="Agents book viewings of any listing for their customers; the listing's product handler confirms with the owner.">
       <div style={{ ...cols(170, 12), marginBottom: 16 }}>
-        <Stat label="To confirm" value={all.filter(TABS.find(t => t.key === 'confirm').pick).length} tone="amber" onClick={() => setTab('confirm')} on={tab === 'confirm'} />
-        <Stat label="Today" value={today} sub={`${week} in the next 7 days`} tone="blue" onClick={() => setTab('upcoming')} on={tab === 'upcoming'} />
-        <Stat label="To review" value={all.filter(v => v.status === 'review').length} sub={`${all.filter(overdue).length} past 24 hours`} tone="violet" onClick={() => setTab('review')} on={tab === 'review'} />
-        <Stat label="Completed (30 days)" value={all.filter(v => v.status === 'done' && v.date >= L.addDays(m.today, -30)).length} tone="green" onClick={() => setTab('done')} on={tab === 'done'} />
+        <Stat label="To confirm" value={tabCount.confirm} tone="amber" onClick={() => setTab('confirm')} on={tab === 'confirm'} />
+        <Stat label="Today" value={counts.today?.n ?? 0} sub={`${counts.week?.n ?? 0} in the next 7 days`} tone="blue" onClick={() => setTab('upcoming')} on={tab === 'upcoming'} />
+        <Stat label="To review" value={tabCount.review} sub={`${late} past 24 hours`} tone="violet" onClick={() => setTab('review')} on={tab === 'review'} />
+        <Stat label="Completed (30 days)" value={counts.done30?.n ?? 0} tone="green" onClick={() => setTab('done')} on={tab === 'done'} />
       </div>
       <Card pad={16}>
-        <Tabs value={current.key} onChange={k => { setTab(k); setLimit(12) }} tabs={TABS.map(t => ({ key: t.key, label: t.label, count: all.filter(t.pick).length }))} />
+        <Tabs value={current.key} onChange={setTab} tabs={TABS.map(t => ({ key: t.key, label: t.label, count: tabCount[t.key] }))} />
         <Toolbar fold onClear={() => { setWho(''); setQ('') }}>
           <SearchBox value={q} onChange={setQ} placeholder="Viewing no., customer, listing or agent" />
           {!mine && <Select label="Agent" value={who} onChange={setWho} options={[{ value: '', label: 'Everyone' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` }))]} />}
           <span style={{ flex: 1 }} />
           <button style={btn} onClick={() => go('listings')} title="Open a listing, then Actions → Book a viewing"><Icon name="plus" size={15} /> Book from a listing</button>
         </Toolbar>
-        {!rows.length ? <Empty icon="calendar" title={`No viewings ${current.label.toLowerCase()}`} text={current.key === 'mine' ? 'Nothing waits for you. Viewings you host or booked show here when they need you.' : null} /> : (
+        {list.error && <Notice tone="red">{list.error}</Notice>}
+        {!list.rows.length ? <Empty icon="calendar" title={list.loading ? 'Loading…' : `No viewings ${current.label.toLowerCase()}`} text={!list.loading && current.key === 'mine' ? 'Nothing waits for you. Viewings you host or booked show here when they need you.' : null} /> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}>
-            {days.slice(0, limit).map(day => (
+            {days.map(day => (
               <section key={day.date}>
                 <h3 style={{ fontSize: 13, margin: '0 0 6px', color: day.date === m.today ? C.primaryDark : C.muted, textTransform: 'uppercase', letterSpacing: 0.4 }}>
                   {day.date === m.today ? 'Today · ' : day.date === L.addDays(m.today, 1) ? 'Tomorrow · ' : ''}{date(day.date)}
@@ -82,11 +87,11 @@ export default function Viewings({ parts }) {
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>{day.list.map(v => <ViewingRow key={v.id} v={v} overdue={overdue(v)} />)}</div>
               </section>
             ))}
-            {days.length > limit && <div style={{ textAlign: 'center', fontSize: 13, color: C.muted }}>Showing {limit} of {days.length} days <button style={{ ...small, marginLeft: 8 }} onClick={() => setLimit(limit + 12)}>Show more</button></div>}
+            {list.rows.length < list.total && <div style={{ textAlign: 'center', fontSize: 13, color: C.muted }}>Showing {list.rows.length} of {list.total} viewings <button style={{ ...small, marginLeft: 8 }} disabled={list.loading} onClick={list.more}>Show more</button></div>}
           </div>
         )}
       </Card>
-      <Drawer open={!!open} onClose={() => go('appointments')} width={560} title={open ? `${open.code} · ${open.customer.name}` : ''} sub={open ? `${date(open.date)} · ${open.time}–${open.end}` : ''}
+      <Drawer open={openId != null} onClose={() => go('appointments')} width={560} title={open ? `${open.code} · ${open.customer.name}` : 'Loading…'} sub={open ? `${date(open.date)} · ${open.time}–${open.end}` : ''}
         footer={open && <ViewingActions v={open} onBook={setBook} />}>
         {open && <ViewingDetails v={open} />}
       </Drawer>
@@ -97,7 +102,7 @@ export default function Viewings({ parts }) {
 
 function ViewingRow({ v, overdue }) {
   const { m } = useErp()
-  const l = m.listings[v.listingIds[0]]
+  const l = v.$.listings[0]
   return (
     <button onClick={() => go(`appointments/${v.id}`)} className="ssk-lift"
       style={{ all: 'unset', cursor: 'pointer', width: '100%', boxSizing: 'border-box', display: 'flex', flexWrap: 'wrap', gap: '6px 12px', alignItems: 'center', padding: '10px 12px', border: `1px solid ${overdue ? C.err : C.border}`, borderRadius: 10, background: '#fff' }}>
@@ -125,7 +130,7 @@ function ViewingDetails({ v }) {
       </Block>
       <Block title={v.listingIds.length > 1 ? 'Listings' : 'Listing'}>
         <div style={{ display: 'grid', gap: 8 }}>
-          {v.listingIds.map(id => m.listings[id]).filter(Boolean).map(l => (
+          {v.$.listings.map(l => (
             <div key={l.id} style={{ fontSize: 13.5 }}><Link to={`listings/${l.id}`} style={mono}>{l.code}</Link> {l.title}, {l.area}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{l.category} · {l.type === 'sale' ? 'For sale' : 'For rent'}</span></div>
           ))}
         </div>
@@ -189,7 +194,7 @@ function ViewingActions({ v, onBook }) {
   const openWith = (name, values) => { setError(null); setF(values); setDialog(name) }
   const close = () => setDialog(null)
   const run = async (fn, done) => { setError(null); try { await fn(); fb.toast(done); close() } catch (e) { setError(e.message) } }
-  const l = m.listings[v.listingIds[0]]
+  const l = v.$.listings[0]
   const host = me.staffId === v.handlerId || !me.agentId
   const footer = (label, onClick, danger) => <><button style={btn} onClick={close}>Back</button>
     <button style={danger ? { ...btn, background: C.err, borderColor: C.err, color: '#fff' } : btnPrimary} onClick={onClick}>{label}</button></>
@@ -237,10 +242,10 @@ function ViewingActions({ v, onBook }) {
   )
 }
 
-// A listing's viewings, for its details: upcoming ones and the latest few.
+// A listing's viewings, for its details: upcoming ones and the latest few (those the viewer may see).
 export function ListingViewings({ l, onBook }) {
   const { m } = useErp()
-  const list = (m.data.viewings || []).filter(v => v.listingIds.includes(l.id))
+  const list = useList('viewings', { listing: l.id, sort: '-date,-time', counts: '0' }, { branch: false, pageSize: 200 }).rows
   const ahead = list.filter(v => OPEN.includes(v.status)).sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))
   const past = list.filter(v => !OPEN.includes(v.status)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4)
   const done = list.filter(v => v.status === 'done')

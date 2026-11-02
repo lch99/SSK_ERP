@@ -230,6 +230,29 @@ const SERVER = {
   areas: { table: 'areas', scope: { branch: inBranch, team: inBranch } },
   videos: { table: 'videos' },
   propertyTypes: { table: 'property_types' },
+  viewings: {
+    table: 'viewings', columns: { 'listingIds.0': 'listing_id' },
+    // Booked or hosted by someone in the viewer's reach (visibleData).
+    scope: {
+      branch: (b, v) => b.where(x => x.where(y => mine(y, v, 'viewings.requested_by')).orWhere(y => mine(y, v, 'viewings.handler_id'))),
+      team: (b, v) => b.where(x => x.whereIn('viewings.requested_by', v.team).orWhereIn('viewings.handler_id', v.team)),
+    },
+    custom: {
+      viewsListing: { apply: (b, v) => (personId(v) == null ? b.whereRaw('1 = 0') : raw(b, jsonHas(b, 'viewings.listing_ids', personId(v)))) },
+      waitingFor: {
+        apply: (b, v) => (personId(v) == null ? b.whereRaw('1 = 0') : b.where(x => x
+          .where(y => y.where('viewings.handler_id', personId(v)).whereIn('viewings.status', ['new', 'rescheduled']))
+          .orWhere(y => y.where('viewings.requested_by', personId(v)).where('viewings.status', 'review')))),
+      },
+      // shared/listings.js reviewOverdue: in review, and it ended at or before 24 hours before then.
+      reviewDue: {
+        apply: (b, v) => {
+          const ended = isMysql(b) ? "concat(viewings.date, ' ', coalesce(viewings.ends, viewings.time))" : "viewings.date || ' ' || coalesce(viewings.ends, viewings.time)";
+          return b.where('viewings.status', 'review').whereRaw(`${ended} <= ?`, [LR.reviewDueBy(String(v))]);
+        },
+      },
+    },
+  },
   notices: {
     table: 'notices',
     // Every role: the person's own (shared/listings.js noticeFor). An office account is 0.
@@ -339,8 +362,8 @@ function extraOf(key, e, own) {
   if (e.from && e.pick) {
     // Only the picked columns, read as the record would read them; whole records when a field has none (kept in `more`).
     const picks = e.pick.map(path => ({ path, ...fieldOf(m, path) }));
-    if (picks.some(p => !p.col)) return { key, from: e.from, table: m.table, model: m, pickRecords: e.pick };
-    return { key, from: e.from, table: m.table, picks };
+    if (picks.some(p => !p.col)) return { key, from: e.from, many: !!e.many, table: m.table, model: m, pickRecords: e.pick };
+    return { key, from: e.from, many: !!e.many, table: m.table, picks };
   }
   if (e.from) return { key, from: e.from, table: m.table, fieldCol: col(e.field) };
   return {

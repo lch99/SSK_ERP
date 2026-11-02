@@ -77,7 +77,8 @@ async function extrasFor(q, defs, records) {
     const ids = [...new Set(records.map(at).filter(x => x != null))];
     if (e.from) {
       const at = r => get({ ...r, $: out.get(r.id) }, e.from);
-      const want = [...new Set(records.map(at).filter(x => x != null))];
+      // many: `from` holds several ids (a viewing's listings).
+      const want = [...new Set(records.flatMap(r => (e.many ? at(r) || [] : [at(r)])).filter(x => x != null))];
       let found;
       if (e.pickRecords) {
         const linked = want.length ? await toRecords(q, e.model, await q(e.table).whereIn('id', want)) : [];
@@ -86,7 +87,9 @@ async function extrasFor(q, defs, records) {
         const linked = want.length ? await q(e.table).whereIn('id', want).select('id', ...e.picks.map(p => p.col)) : [];
         found = new Map(linked.map(x => [x.id, Object.fromEntries(e.picks.map(p => [p.path, p.kind.read(x[p.col]) ?? null]))]));
       } else found = new Map(want.length ? (await q(e.table).whereIn('id', want).select('id', { v: e.fieldCol })).map(x => [x.id, x.v]) : []);
-      for (const r of records) out.get(r.id)[e.key] = found.get(at(r)) ?? null;
+      for (const r of records) {
+        out.get(r.id)[e.key] = e.many ? (at(r) || []).filter(id => found.has(id)).map(id => ({ id, ...found.get(id) })) : found.get(at(r)) ?? null;
+      }
       continue;
     }
     // null in a value list: empty. Booleans as the tables keep them (0 / 1).

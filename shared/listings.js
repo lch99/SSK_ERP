@@ -219,6 +219,8 @@ export function viewingClock(v, now) {
 }
 // A viewing past its review deadline (24 hours after it ended).
 export const reviewOverdue = (v, now) => v.status === 'review' && plusHours(`${v.date} ${v.end || v.time}`, LISTING_RULES.reviewWithinHours) <= now
+// A viewing in review that ended at or before this time is overdue at `now` (the server compares with it).
+export const reviewDueBy = now => plusHours(now, -LISTING_RULES.reviewWithinHours)
 export const endTime = (time, minutes = 30) => {
   const [h, m] = String(time || '00:00').split(':').map(Number)
   const t = Math.min(23 * 60 + 59, h * 60 + m + Number(minutes || 30))

@@ -36,7 +36,8 @@
 //         { count: true, of: kind, by: field, where?, not? }   how many → a number
 //         { pick: [fields], of: kind, by: field }   the records of that kind that point at this one, by id
 //         { field, of: kind, from: field }          one field of the record this one points at
-//         { pick: [fields], of: kind, from: field }  some of its fields ({ … } or null)
+//         { pick: [fields], of: kind, from: field, many? }  some of its fields ({ … } or null); with many, `from` holds
+//                                several ids and the extra is a list (a viewing's listings)
 //         `from` may start with '$.' to go on from an extra worked out above it (the agent on a payment's E-Form)
 //         sums, counts and picks link on this record's id, or on its `on` field (listings by an area's name)
 //         { custom: name }                CUSTOM_EXTRAS below here for the page's rows, and the same on the server
@@ -50,7 +51,7 @@
 // area: null                     everyone may read it (their own)
 import { teamOf } from './access.js'
 import { payslipTotals } from './payout.js'
-import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, KEY_FLAG } from './listings.js'
+import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, reviewOverdue, KEY_FLAG } from './listings.js'
 import { projectDeals, incentiveProgress } from './projects.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
 
@@ -430,6 +431,30 @@ export const LISTS = {
 
   propertyTypes: { area: 'listings', search: ['name'], sorts: { name: 'name' }, sort: 'name' },
 
+  // Viewings (appointments): those booked or hosted (as the listing's product handler) by someone in the viewer's reach.
+  viewings: {
+    area: 'listings',
+    search: ['code', 'customer.name', { via: 'requestedBy', of: 'staff', fields: ['short', 'name'] }, { via: 'handlerId', of: 'staff', fields: ['short', 'name'] },
+      { via: 'listingIds.0', of: 'listings', fields: ['code', 'title'] }],
+    filters: {
+      status: { eq: 'status' }, staffId: { eq: ['requestedBy', 'handlerId'] }, handlerId: { eq: 'handlerId' }, from: { from: 'date' }, to: { to: 'date' },
+      // The (first) listing's branch (the top bar's); one listing among those viewed.
+      branchId: { via: 'listingIds.0', of: 'listings', rule: { eq: 'branchId' } }, listing: { custom: 'viewsListing' },
+      // Waiting for the viewer: to confirm as the host, or to review as the one who booked (the server puts their key in).
+      waitingFor: { custom: 'waitingFor', viewer: true, values: ['0'] },
+      // A review overdue at this time ('YYYY-MM-DD HH:MM').
+      reviewDue: { custom: 'reviewDue', values: ['2026-11-02 12:00', '2026-12-31 23:59'] },
+    },
+    sorts: { date: 'date', time: 'time' }, sort: 'date,time',
+    counts: {
+      status: 'status',
+      today: { only: ctx => ({ status: 'confirmed', from: ctx.today, to: ctx.today }), keep: ['branchId'] },
+      week: { only: ctx => ({ status: 'new,rescheduled,confirmed', from: ctx.today, to: addDays(ctx.today, 6) }), keep: ['branchId'] },
+      done30: { only: ctx => ({ status: 'done', from: addDays(ctx.today, -30) }), keep: ['branchId'] },
+    },
+    extras: { listings: { pick: ['code', 'title', 'area', 'category', 'type', 'status', 'holderId', 'titleId', 'branchId'], of: 'listings', from: 'listingIds', many: true } },
+  },
+
   // Notifications: each person's own (to them, their branch or everyone), newest first.
   notices: {
     area: null, mine: (n, who) => noticeFor(n, who.key, who.branchId),
@@ -525,6 +550,9 @@ const CUSTOM = {
   // The nearest upline holding the second-most-senior level (an area manager) of the listing's holder.
   areaManagerOf: (r, v, ctx) => ctx.once('areaManagers', () => areaManagers(ctx.data?.staff || [], ctx.setup)).get(r.holderId) === personId(v),
   fromOwnerRequest: (r, v, ctx) => ctx.once('fromOwner', () => new Set((ctx.data?.vendorRequests || []).map(x => x.listingId).filter(x => x != null))).has(r.id) === truthy(v),
+  viewsListing: (r, v) => personId(v) != null && (r.listingIds || []).includes(personId(v)),
+  waitingFor: (r, v) => personId(v) != null && ((r.handlerId === personId(v) && ['new', 'rescheduled'].includes(r.status)) || (r.requestedBy === personId(v) && r.status === 'review')),
+  reviewDue: (r, v) => reviewOverdue(r, String(v)),
   // Not read yet by that person (their key: staff id, 0 = an office account).
   unreadBy: (r, v) => personId(v) != null && !(r.readBy || []).includes(personId(v)),
   readyPay: (r, v, ctx) => !!ctx.once(`readyPay:${v}`, () => {
@@ -633,9 +661,12 @@ function extrasOf(defs, rows, data, ctx) {
     const ids = new Set(rows.map(at))
     if (e.from) {
       const byId = new Map((data[e.of] || []).map(x => [x.id, x]))
+      const picked = x => (x ? Object.fromEntries(e.pick.map(f => [f, get(x, f) ?? null])) : null)
       for (const r of rows) {
-        const x = byId.get(get({ ...r, $: out.get(r.id) }, e.from))
-        out.get(r.id)[key] = e.pick ? (x ? Object.fromEntries(e.pick.map(f => [f, get(x, f) ?? null])) : null) : x?.[e.field] ?? null
+        const at = get({ ...r, $: out.get(r.id) }, e.from)
+        if (e.many) { out.get(r.id)[key] = (at || []).map(id => byId.get(id)).filter(Boolean).map(x => ({ id: x.id, ...picked(x) })); continue }
+        const x = byId.get(at)
+        out.get(r.id)[key] = e.pick ? picked(x) : x?.[e.field] ?? null
       }
       continue
     }
