@@ -13,10 +13,12 @@
 //   extras: [{ key, … }],              — worked out for the page's rows only
 // }
 const { toRecords } = require('./records');
-const { DEFAULT_SIZE, MAX_SIZE, countsWanted } = require('../../../shared/lists.js');
+const { DEFAULT_SIZE, MAX_SIZE, countsWanted, phoneDigits } = require('../../../shared/lists.js');
 const { localToday } = require('./days');
 
 // '!' escapes % and _ in what was typed: a backslash means different things in MySQL and SQLite.
+// A column without - space + ( ), as shared/lists.js phoneDigits.
+const DIGITS = "replace(replace(replace(replace(replace(??, '-', ''), ' ', ''), '+', ''), '(', ''), ')', '')";
 const escapeLike = s => s.replace(/[!%_]/g, c => `!${c}`);
 
 // Raw query results: MySQL gives [rows, fields], SQLite the rows.
@@ -109,9 +111,12 @@ async function whereOf(q, spec, params, scope) {
     scope(b);
     for (const w of words) {
       const pattern = `%${escapeLike(w)}%`;
+      const digits = phoneDigits(w);
       b.where(x => {
         for (const c of spec.search || []) {
           if (typeof c === 'string') like(x, c, pattern);
+          // A phone number by its digits (shared/lists.js phoneDigits: the same characters taken out).
+          else if (c.digits) { if (digits.length >= 3) x.orWhereRaw(`${DIGITS} like ? escape '!'`, [c.digits, `%${escapeLike(digits)}%`]); }
           else x.orWhereIn(c.via, sub => sub.select(`${c.table}.id`).from(c.table).where(y => { for (const col of c.cols) like(y, col, pattern); }));
         }
       });

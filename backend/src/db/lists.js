@@ -201,7 +201,7 @@ function serverSpec(key) {
   const shared = SHARED.LISTS[key], server = SERVER[key], model = MODELS[shared.of || key];
   const col = path => columnOf(model, path, server.columns, server.table);
   // A word in the record this one points at: its id among those whose columns match.
-  const searchOf = f => (typeof f === 'string' ? col(f)
+  const searchOf = f => (typeof f === 'string' ? col(f) : f.digits ? { digits: col(f.digits) }
     : { via: col(f.via), table: MODELS[f.of].table, cols: f.fields.map(g => columnOf(MODELS[f.of], g)) });
   return {
     key, area: shared.area, readers: shared.readers || {}, fields: shared.fields, table: server.table, model, scope: server.scope, download: shared.download,

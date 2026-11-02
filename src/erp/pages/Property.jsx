@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import * as L from '../../../shared/listings.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
+import { useList } from '../useList.js'
 import { VENDOR_STATUS, TITLE_STATUS, AREA_STATUS, LISTING_CATEGORY } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Pill, Who, Link, Menu, Stat, Modal, FormField, TextArea, Notice, SelectionBar, cols, go, mono, small, field } from '../ui.jsx'
 import { CARD, COLUMN, PAGE } from '../help.js'
@@ -13,27 +14,27 @@ import { useCan, useGate } from '../access.jsx'
 import { FavStar } from '../listingLife.jsx'
 
 // ── Vendor Requests: owners who asked us (through the public site) to list ──
+// A page at a time (useList); one search for the ticket id, the owner or their phone number (by its digits).
 export function VendorRequests() {
   const erp = useErp()
   const gate = useGate()
-  const { m, scoped: d } = erp
+  const { m } = erp
   const [status, setStatus] = useState('')
   const [q, setQ] = useState('')
-  // One search for the ticket id or the owner's phone number.
-  const words = q.trim().toUpperCase(), digits = q.replace(/\D/g, '')
-  const rows = d.vendorRequests.filter(v => (status === '' || v.status === Number(status)) &&
-    (!words || v.ticket.includes(words) || (digits.length >= 3 && v.phone.replace(/\D/g, '').includes(digits)) || v.name.toUpperCase().includes(words)))
+  const [sort, setSort] = useState('-date')
+  const list = useList('vendorRequests', { q, status, sort })
+  const byStatus = list.counts.status || {}
   const fb = useFeedback()
   const set = (v, s) => fb.run(() => erp.setVendorRequest(v.id, s), `${v.ticket} set to ${VENDOR_STATUS[s].label}`)
   const columns = [
     { key: 'ticket', label: 'Ticket Id', render: v => <b style={mono}>{v.ticket}</b> },
-    { key: 'date', label: 'Date', nowrap: true, sort: v => v.date, render: v => <span>{date(v.date)}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{ago(v.date, m.today)}</span></span> },
+    { key: 'date', label: 'Date', nowrap: true, sortKey: 'date', render: v => <span>{date(v.date)}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{ago(v.date, m.today)}</span></span> },
     { key: 'from', label: 'From', render: v => <Who name={v.name} sub={v.phone} size={26} /> },
     { key: 'info', label: 'Property Info', render: v => (
       <span style={{ fontSize: 13 }}>{v.category} at {v.area}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>For {v.forType} · asking {rm0(v.price)}{v.forType === 'Rent' ? '/month' : ''}</span></span>
     ) },
     { key: 'handled', label: 'Handled by', render: v => (v.handledBy ? m.staffName(v.handledBy) : <span style={{ color: C.muted }}>Not assigned</span>) },
-    { key: 'status', label: 'Status', render: v => <span>{<Status of={VENDOR_STATUS} value={v.status} />}{v.listingId && <span style={{ display: 'block', fontSize: 12 }}><Link to={`listings/${v.listingId}`} style={mono}>{m.listings[v.listingId]?.code}</Link></span>}</span> },
+    { key: 'status', label: 'Status', render: v => <span>{<Status of={VENDOR_STATUS} value={v.status} />}{v.listingId && <span style={{ display: 'block', fontSize: 12 }}><Link to={`listings/${v.listingId}`} style={mono}>{v.$.listingCode}</Link></span>}</span> },
     { key: 'actions', label: '', render: v => (
       <Menu quiet items={[
         { label: 'Ongoing Follow-Up', icon: 'clock', disabled: v.status === 1, why: 'Already on follow-up', onClick: () => set(v, 1) },
@@ -47,38 +48,43 @@ export function VendorRequests() {
   return (
     <Page title="Owner requests" help={PAGE.vendor} sub="Owners (vendors) who asked us to list their property through the SubSaleKing site. Follow up, then create the listing.">
       <div style={{ ...cols(200, 14), marginBottom: 16 }}>
-        {[0, 1, 2].map(s => <Stat key={s} label={VENDOR_STATUS[s].label} value={d.vendorRequests.filter(v => v.status === s).length} tone={VENDOR_STATUS[s].tone} onClick={() => setStatus(String(s))} />)}
+        {[0, 1, 2].map(s => <Stat key={s} label={VENDOR_STATUS[s].label} value={byStatus[s] || 0} tone={VENDOR_STATUS[s].tone} onClick={() => setStatus(String(s))} on={status === String(s)} />)}
       </div>
       <Card pad={16}>
         <Toolbar>
           <SearchBox value={q} onChange={setQ} placeholder="Ticket Id, owner or phone" />
           <Select label="Status" value={status} onChange={setStatus} options={[{ value: '', label: 'All statuses' }, ...Object.entries(VENDOR_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
         </Toolbar>
-        <DataTable columns={columns} rows={rows} rowKey={v => v.id} defaultSort={{ key: 'date', dir: 'desc' }} narrowAt={900} empty="No vendor requests" />
+        {list.error && <Notice tone="red">{list.error}</Notice>}
+        <DataTable columns={columns} rows={list.rows} rowKey={v => v.id} narrowAt={900} paged={{ total: list.total, sort, onSort: setSort, onMore: list.more, loading: list.loading }}
+          empty={list.loading ? 'Loading…' : q ? `No owner requests match “${q}”` : 'No vendor requests'} onClear={q || status ? () => { setQ(''); setStatus('') } : undefined} />
       </Card>
     </Page>
   )
 }
 
 // ── Check Enquiry: messages from the website and app, with star and trash ──
+// A page at a time (useList): each tab is a filter, counted by the server.
+const ENQUIRY_TABS = { inbox: { trashed: 'false' }, star: { starred: 'true', trashed: 'false' }, trash: { trashed: 'true' } }
 export function Enquiries() {
   const erp = useErp()
   const editable = useCan()('listings', 'edit')
-  const { m, scoped: d } = erp
+  const { m } = erp
   const [tab, setTab] = useState('inbox')
-  const pick = { inbox: e => !e.trashed, star: e => e.starred && !e.trashed, trash: e => e.trashed }
-  const rows = d.enquiries.filter(pick[tab])
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState('-date')
+  const list = useList('enquiries', { q, sort, ...ENQUIRY_TABS[tab] })
   const fb = useFeedback()
   // Star and trash save at once; trash can be undone from the toast.
   const upd = (e, f) => fb.run(() => erp.updateEnquiry(e.id, f),
     'trashed' in f ? (f.trashed ? `Enquiry from ${e.name} moved to Trash` : `Enquiry from ${e.name} restored`) : (f.starred ? 'Starred' : 'Star removed'),
     'trashed' in f ? { action: { label: 'Undo', onClick: () => erp.updateEnquiry(e.id, { trashed: !f.trashed }) } } : undefined)
   const columns = [
-    { key: 'date', label: 'Date', nowrap: true, sort: e => e.date, render: e => <span>{date(e.date)}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{e.via}</span></span> },
+    { key: 'date', label: 'Date', nowrap: true, sortKey: 'date', render: e => <span>{date(e.date)}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{e.via}</span></span> },
     { key: 'from', label: 'From', render: e => <Who name={e.name} sub={e.phone} size={26} /> },
-    { key: 'listing', label: 'Listing', render: e => <span><Link to={`listings/${e.listingId}`} style={mono}>{m.listings[e.listingId]?.code}</Link><span style={{ display: 'block', fontSize: 12.5 }}>{m.listings[e.listingId]?.title}</span></span> },
+    { key: 'listing', label: 'Listing', render: e => <span><Link to={`listings/${e.listingId}`} style={mono}>{e.$.listing?.code}</Link><span style={{ display: 'block', fontSize: 12.5 }}>{e.$.listing?.title}</span></span> },
     { key: 'msg', label: 'Message', render: e => <span style={{ fontSize: 13 }}>{e.message}</span> },
-    { key: 'holder', label: 'Product Handler', render: e => m.staffName(m.listings[e.listingId]?.holderId) },
+    { key: 'holder', label: 'Product Handler', render: e => m.staffName(e.$.listing?.holderId) },
     { key: 'actions', label: '', render: e => editable && (
       <span style={{ display: 'inline-flex', gap: 6 }}>
         <button style={{ ...small, color: e.starred ? '#c98500' : C.muted }} aria-label={e.starred ? 'Unstar' : 'Star'} onClick={() => upd(e, { starred: !e.starred })}><Icon name="star" size={15} /></button>
@@ -89,8 +95,11 @@ export function Enquiries() {
   return (
     <Page title="Enquiries" help={PAGE.enquiries} sub="Enquiries on listings from the SubSaleKing website and app.">
       <Card pad={16}>
-        <Tabs value={tab} onChange={setTab} tabs={[{ key: 'inbox', label: 'Enquiry List', count: d.enquiries.filter(pick.inbox).length }, { key: 'star', label: 'Starred', count: d.enquiries.filter(pick.star).length }, { key: 'trash', label: 'Trash', count: d.enquiries.filter(pick.trash).length }]} />
-        <DataTable columns={columns} rows={rows} defaultSort={{ key: 'date', dir: 'desc' }} narrowAt={900} empty="No enquiries here" />
+        <Tabs value={tab} onChange={setTab} tabs={[{ key: 'inbox', label: 'Enquiry List', count: list.counts.inbox?.n || 0 }, { key: 'star', label: 'Starred', count: list.counts.star?.n || 0 }, { key: 'trash', label: 'Trash', count: list.counts.trash?.n || 0 }]} />
+        <Toolbar><SearchBox value={q} onChange={setQ} placeholder="Name, phone or message" /></Toolbar>
+        {list.error && <Notice tone="red">{list.error}</Notice>}
+        <DataTable columns={columns} rows={list.rows} narrowAt={900} paged={{ total: list.total, sort, onSort: setSort, onMore: list.more, loading: list.loading }}
+          empty={list.loading ? 'Loading…' : q ? `No enquiries match “${q}”` : 'No enquiries here'} onClear={q ? () => setQ('') : undefined} />
       </Card>
     </Page>
   )

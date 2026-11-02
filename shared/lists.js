@@ -7,7 +7,8 @@
 // demo runs it on the records in this browser (listPage below). Both give the
 // same rows, total, counts and extras (backend/test/listParity.test.js).
 //
-// search: [field | { via: field, of: kind, fields: [fields] }]   a word may be in the record or in the one it points at
+// search: [field | { via: field, of: kind, fields: [fields] } | { digits: field }]   a word may be in the record or in the one it points at;
+//                                { digits }: a phone number, by its digits (3 or more), whatever dashes or spaces it is written with
 // of: kind                       the records of another kind (the SST account pages through closes)
 // filters: { key: rule } — the page sends ?key=value
 //   { eq: field | [fields] }     one value or several, comma-separated ('none' = empty); with several fields any may match
@@ -326,20 +327,26 @@ export const LISTS = {
     },
   },
 
+  // Owner requests: owners who asked through the website to list their property.
   vendorRequests: {
     area: 'listings',
-    search: ['ticket', 'name', 'phone', 'area'],
+    search: ['ticket', 'name', 'phone', 'area', { digits: 'phone' }],
     filters: { status: { eq: 'status' }, branchId: { eq: 'branchId' }, listingId: { eq: 'listingId' } },
     sorts: { date: 'date' }, sort: '-date',
     counts: { status: 'status' },
+    extras: { listingCode: { field: 'code', of: 'listings', from: 'listingId' } },
   },
 
+  // Enquiries on listings from the website and app: the inbox, starred and trash.
   enquiries: {
     area: 'listings',
-    search: ['name', 'phone', 'message'],
+    search: ['name', 'phone', 'message', { digits: 'phone' }],
     filters: { listingId: { eq: 'listingId' }, starred: { yes: 'starred' }, trashed: { yes: 'trashed' } },
     sorts: { date: 'date' }, sort: '-date',
-    counts: { trashed: 'trashed', starred: { set: { starred: 'true' } } },
+    counts: {
+      inbox: { only: () => ({ trashed: 'false' }) }, star: { only: () => ({ starred: 'true', trashed: 'false' }) }, trash: { only: () => ({ trashed: 'true' }) },
+    },
+    extras: { listing: { pick: ['code', 'title', 'holderId'], of: 'listings', from: 'listingId' } },
   },
 
   titles: {
@@ -424,6 +431,8 @@ const get = (r, path) => path.split('.').reduce((v, k) => (v == null ? v : v[k])
 export const many = v => String(v).split(',').map(s => s.trim()).filter(Boolean)
 export const valueOf = s => (s === 'none' ? null : /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : s)
 export const truthy = v => v === true || v === 'true' || v === '1' || v === 1
+// A phone number without its dashes, spaces, + and brackets (searching by digits).
+export const phoneDigits = v => String(v ?? '').replace(/[- +()]/g, '')
 // A person's id, or null for anything else (a team filter then matches nobody).
 export const personId = v => (/^\d+$/.test(String(v)) ? Number(v) : null)
 const same = (a, b) => a === b || (a != null && b != null && String(a) === String(b))
@@ -561,10 +570,16 @@ function run(records, spec, params, ctx, all) {
   // The texts a word may be in: the record's own, and those of the records it points at.
   const texts = r => (spec.search || []).flatMap(f => {
     if (typeof f === 'string') return [get(r, f)]
+    if (f.digits) return []
     const x = c.byId(f.of).get(get(r, f.via))
     return x ? f.fields.map(g => get(x, g)) : []
   }).map(v => String(v ?? '').toLowerCase())
-  const found = r => { if (!words.length) return true; const t = texts(r); return words.every(w => t.some(x => x.includes(w))) }
+  const phones = (spec.search || []).filter(f => f.digits)
+  const found = r => {
+    if (!words.length) return true
+    const t = texts(r), p = phones.map(f => phoneDigits(get(r, f.digits)))
+    return words.every(w => t.some(x => x.includes(w)) || (phoneDigits(w).length >= 3 && p.some(x => x.includes(phoneDigits(w)))))
+  }
   const active = Object.entries(spec.filters || {}).filter(([k]) => params[k] !== undefined && params[k] !== '')
   const pass = (r, except = [], extra = {}) => found(r) &&
     active.every(([k, rule]) => except.includes(k) || k in extra || test(rule, r, params[k], c)) &&

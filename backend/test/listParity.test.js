@@ -20,7 +20,7 @@ after(async () => { await api.close(); await db.destroy(); });
 
 const get = (r, path) => path.split('.').reduce((v, k) => (v == null ? v : v[k]), r);
 // A search field's text on a record, through the record it points at for { via, of, fields }.
-const searchText = (r, f) => (typeof f === 'string' ? get(r, f)
+const searchText = (r, f) => (typeof f === 'string' ? get(r, f) : f.digits ? L.phoneDigits(get(r, f.digits)).slice(2, 7)
   : get(L.recordsOf(state.data, f.of).find(x => x.id === get(r, f.via)), f.fields[0]));
 const query = params => new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
 
@@ -148,4 +148,16 @@ test('an E-Form\'s earners\' tier credit from the server is the rule run on ever
     for (const id of [d.agentId, d.holderId]) assert.deepEqual(r.body[id], R.tierCredit(byId.get(id), state.data.closes, year), `${d.code}, staff ${id}`);
   }
   assert.ok(state.data.closes.some(c => deals.some(d => c.sides.some(s => s.staffId === d.agentId))), 'some credit comes from closes');
+});
+
+test('a phone number is found by its digits, whatever dashes or spaces it is written with', async () => {
+  const ctx = { data: state.data, today: localToday(), setup: state.setup };
+  const v = state.data.vendorRequests.find(x => /\d-\d/.test(x.phone));
+  assert.ok(v, 'a request with a dashed phone');
+  const digits = L.phoneDigits(v.phone);
+  const q = digits.slice(digits.indexOf('-') >= 0 ? 0 : 1, 9);
+  const want = L.listPage(state.data.vendorRequests, L.LISTS.vendorRequests, { q, size: 200 }, ctx);
+  assert.ok(want.rows.some(x => x.id === v.id), `${v.phone} found by ${q}`);
+  const r = await api.call('GET', `/erp/vendorRequests?q=${q}&size=200`);
+  assert.deepEqual(r.body.rows.map(x => x.id), want.rows.map(x => x.id));
 });
