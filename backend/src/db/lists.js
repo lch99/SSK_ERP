@@ -36,13 +36,10 @@ const CLOSED = '(select coalesce(sum(c.claim), 0) from closes c where c.deal_id 
 const GOT = `(case when ${CLEARED} < deals.billed then ${CLEARED} else deals.billed end)`;
 
 // ── Listing rules in SQL (shared/listings.js; the demo runs them on the records) ──
-const isMysql = b => /mysql/.test(b.client.config.client);
-// A JSON array column holds `value`, as each database searches JSON: [sql, bindings].
-const jsonHas = (b, col, value) => (isMysql(b)
-  ? [`json_contains(coalesce(${col}, '[]'), ?)`, [JSON.stringify(value)]]
-  : [`exists (select 1 from json_each(coalesce(${col}, '[]')) where json_each.value = ?)`, [value]]);
+// A JSON array column holds `value`: [sql, bindings].
+const jsonHas = (b, col, value) => [`json_contains(coalesce(${col}, '[]'), ?)`, [JSON.stringify(value)]];
 // Text holding a word, case and all (categoryGroup).
-const hasWord = (b, col, w) => (isMysql(b) ? [`cast(${col} as binary) like ?`, [`%${w}%`]] : [`instr(${col}, ?) > 0`, [w]]);
+const hasWord = (b, col, w) => [`cast(${col} as binary) like ?`, [`%${w}%`]];
 const any = parts => [`(${parts.map(p => p[0]).join(' or ')})`, parts.flatMap(p => p[1])];
 const all = parts => [`(${parts.map(p => p[0]).join(' and ')})`, parts.flatMap(p => p[1])];
 // Prices in whole sen, as priceRating compares them.
@@ -137,10 +134,70 @@ async function hideOwners(q, rows, v) {
     : { ...l, owner: { name: '', ic: '', phone: '' }, address: LR.hideAddress(l), remarks: null, ownerViews: [] }));
 }
 
+// ── Tier credit for many people at once (shared/lists.js sidesByStaff and tiersOf) ──
+// Close sides added up per person in SQL (JSON_TABLE over closes.sides): Map(staffId → { total, yearly }).
+async function sidesByStaff(q, year, ids = null) {
+  if (ids && !ids.length) return new Map();
+  const inYear = [`${year}-01-01`, `${year}-12-31`];
+  const only = ids ? ` where side_staff in (${ids.map(() => '?').join(', ')})` : '';
+  const sql = `select side_staff, sum(base) as total, sum(case when date >= ? and date <= ? then base else 0 end) as yearly from (
+      select jt.staff_id as side_staff, jt.base, c.date from closes c,
+      json_table(c.sides, '$[*]' columns (staff_id int path '$.staffId', base decimal(14,2) path '$.base')) jt where jt.staff_id is not null) x${only} group by side_staff`;
+  return new Map(rawRows(await q.raw(sql, [...inYear, ...(ids || [])])).map(r => [Number(r.side_staff), { total: Number(r.total) || 0, yearly: Number(r.yearly) || 0 }]));
+}
+// Everyone's tier today: Map(staffId → { lifetime, yearly, tier, rank }).
+async function tiersNow(q, ids = null) {
+  const b = q('staff').select('id', 'opening_lifetime', 'branch_id', 'tier_floor_id');
+  if (ids) b.whereIn('id', ids);
+  const staff = (await b).map(r => ({ id: r.id, openingLifetime: Number(r.opening_lifetime) || 0, branchId: r.branch_id, tierFloorId: r.tier_floor_id }));
+  return SHARED.tiersOf(staff, await sidesByStaff(q, localToday().slice(0, 4), ids), await loadSetup(q));
+}
+// Under each of `ids` (not counting them), and reporting to each directly.
+async function teamSizes(q, ids) {
+  if (!ids.length) return { team: new Map(), direct: new Map() };
+  const marks = ids.map(() => '?').join(', ');
+  const team = rawRows(await q.raw(
+    `with recursive sub(root, id) as (select id, id from staff where id in (${marks}) union select sub.root, s.id from staff s join sub on s.upline_id = sub.id)
+     select root, count(*) - 1 as n from sub group by root`, ids));
+  const direct = await q('staff').whereIn('upline_id', ids).select('upline_id').count({ n: '*' }).groupBy('upline_id');
+  return { team: new Map(team.map(r => [Number(r.root), Number(r.n)])), direct: new Map(direct.map(r => [Number(r.upline_id), Number(r.n)])) };
+}
+
 const STAFF_SCOPE = { branch: (b, v) => inBranch(b, v, 'staff.branch_id'), team: (b, v) => b.whereIn('staff.id', v.team) };
 
 const SERVER = {
-  staff: { table: 'staff', scope: STAFF_SCOPE },
+  staff: {
+    table: 'staff', scope: STAFF_SCOPE,
+    custom: {
+      expiringBefore: { apply: (b, v) => b.whereNot('staff.status', 'inactive').whereNotNull('staff.expires_on').where('staff.expires_on', '<', v) },
+      tierIs: {
+        prepare: async (q, v) => [...(await tiersNow(q))].filter(([, t]) => t.tier === v).map(([id]) => id),
+        apply: (b, v, ids) => (ids.length ? b.whereIn('staff.id', ids) : b.whereRaw('1 = 0')),
+      },
+    },
+    computed: {
+      lifetime: async q => new Map([...(await tiersNow(q))].map(([id, t]) => [id, t.lifetime])),
+      tierRank: async q => new Map([...(await tiersNow(q))].map(([id, t]) => [id, t.rank])),
+    },
+    counts: {
+      tierCounts: async (q, b) => {
+        const ids = (await b.select('staff.id')).map(r => r.id);
+        const out = {};
+        for (const t of (await tiersNow(q, ids)).values()) if (t.tier) out[t.tier] = (out[t.tier] || 0) + 1;
+        return out;
+      },
+    },
+    extras: {
+      tierCredit: async (q, rows) => {
+        const t = await tiersNow(q, rows.map(r => r.id));
+        return new Map(rows.map(r => [r.id, { lifetime: t.get(r.id)?.lifetime ?? 0, yearly: t.get(r.id)?.yearly ?? 0 }]));
+      },
+      teamSize: async (q, rows) => {
+        const { team, direct } = await teamSizes(q, rows.map(r => r.id));
+        return new Map(rows.map(r => [r.id, { direct: direct.get(r.id) || 0, team: team.get(r.id) || 0 }]));
+      },
+    },
+  },
   payees: {
     table: 'staff', scope: STAFF_SCOPE,
     custom: {
@@ -251,7 +308,7 @@ const SERVER = {
       // shared/listings.js reviewOverdue: in review, and it ended at or before 24 hours before then.
       reviewDue: {
         apply: (b, v) => {
-          const ended = isMysql(b) ? "concat(viewings.date, ' ', coalesce(viewings.ends, viewings.time))" : "viewings.date || ' ' || coalesce(viewings.ends, viewings.time)";
+          const ended = "concat(viewings.date, ' ', coalesce(viewings.ends, viewings.time))";
           return b.where('viewings.status', 'review').whereRaw(`${ended} <= ?`, [LR.reviewDueBy(String(v))]);
         },
       },
@@ -262,14 +319,9 @@ const SERVER = {
     // Every role: the person's own (shared/listings.js noticeFor). An office account is 0.
     scope: { every: (b, v) => b.whereIn('notices.to_whom', [String(v.staffId ?? 0), 'all', ...(v.branchId != null ? [`branch:${v.branchId}`] : [])]) },
     custom: {
-      // Not in read_by (a JSON array of keys), read as MySQL and SQLite each search JSON.
+      // Not in read_by (a JSON array of keys).
       unreadBy: {
-        apply: (b, v) => {
-          const key = personId(v);
-          if (key == null) return b.whereRaw('1 = 0');
-          if (/mysql/.test(b.client.config.client)) return b.whereRaw("not json_contains(coalesce(notices.read_by, '[]'), ?)", [String(key)]);
-          return b.whereRaw("not exists (select 1 from json_each(coalesce(notices.read_by, '[]')) where json_each.value = ?)", [key]);
-        },
+        apply: (b, v) => (personId(v) == null ? b.whereRaw('1 = 0') : b.whereRaw("not json_contains(coalesce(notices.read_by, '[]'), ?)", [String(personId(v))])),
       },
     },
   },
@@ -398,8 +450,10 @@ function serverSpec(key) {
     sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, typeof f === 'string' ? col(f)
       // How many records of that kind point at this one, as a subquery.
       : f.count ? { count: MODELS[f.count].table, by: columnOf(MODELS[f.count], f.by), on: col(f.on || 'id') }
-        // A field of the newest child row (a listing's latest follow-up date).
-        : lastOf(model, f, server.table)])),
+        // A value worked out in code for every record (the server's `computed`).
+        : f.computed ? { computed: server.computed[f.computed] }
+          // A field of the newest child row (a listing's latest follow-up date).
+          : lastOf(model, f, server.table)])),
     sort: shared.sort,
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
       typeof c === 'string' ? { col: col(c) } : c.set ? c

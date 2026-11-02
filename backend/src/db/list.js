@@ -16,12 +16,12 @@ const { toRecords } = require('./records');
 const { DEFAULT_SIZE, MAX_SIZE, countsWanted, phoneDigits } = require('../../../shared/lists.js');
 const { localToday } = require('./days');
 
-// '!' escapes % and _ in what was typed: a backslash means different things in MySQL and SQLite.
+// '!' escapes % and _ in what was typed (a plain escape character, not a backslash).
 // A column without - space + ( ), as shared/lists.js phoneDigits.
 const DIGITS = "replace(replace(replace(replace(replace(??, '-', ''), ' ', ''), '+', ''), '(', ''), ')', '')";
 const escapeLike = s => s.replace(/[!%_]/g, c => `!${c}`);
 
-// Raw query results: MySQL gives [rows, fields], SQLite the rows.
+// Raw query results: MySQL gives [rows, fields].
 const rawRows = r => (Array.isArray(r) && Array.isArray(r[0]) ? r[0] : r);
 const r2 = n => Math.round(n * 100) / 100;
 const get = (r, path) => path.split('.').reduce((v, k) => (v == null ? v : v[k]), r);
@@ -40,12 +40,23 @@ function ordered(b, order) {
   for (const o of order) {
     const dir = o.order === 'desc' ? 'desc' : 'asc';
     if (typeof o.column === 'string') b.orderBy(o.column, o.order);
+    else if (o.values) {
+      // A value worked out in code (prepareOrder): by id, as a case, missing ones lowest.
+      const ids = [...o.values.keys()];
+      if (!ids.length) continue;
+      b.orderByRaw(`case ${o.table}.id ${ids.map(() => 'when ? then ?').join(' ')} else null end ${dir}`, ids.flatMap(id => [id, o.values.get(id)]));
+    }
     else if (o.column.last) {
       const c = o.column.last;
       b.orderByRaw(`(select ?? from ?? where ?? = ?? order by ?? desc limit 1) ${dir}`, [`${c.table}.${c.col}`, c.table, `${c.table}.${c.fk}`, `${c.of}.id`, `${c.table}.id`]);
     } else b.orderByRaw(`(select count(*) from ?? where ?? = ??) ${o.order === 'desc' ? 'desc' : 'asc'}`, [o.column.count, o.column.by, o.column.on]);
   }
   return b;
+}
+
+// Values worked out in code for the sorts that need them (spec.sorts { computed }).
+async function prepareOrder(q, spec, order) {
+  return Promise.all(order.map(async o => (o.column?.computed ? { ...o, values: await o.column.computed(q), table: spec.table } : o)));
 }
 
 function parseSort(param, spec) {
@@ -163,7 +174,7 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
   const size = Math.min(MAX_SIZE, Math.max(1, Number.parseInt(params.size, 10) || DEFAULT_SIZE));
   const page = Math.max(1, Number.parseInt(params.page, 10) || 1);
   const { n } = await where(q(spec.table)).count({ n: '*' }).first();
-  const rows = await ordered(where(q(spec.table)).select(`${spec.table}.*`), parseSort(params.sort, spec)).limit(size).offset((page - 1) * size);
+  const rows = await ordered(where(q(spec.table)).select(`${spec.table}.*`), await prepareOrder(q, spec, parseSort(params.sort, spec))).limit(size).offset((page - 1) * size);
 
   // counts=0: a later page (the first one had the counts).
   const counts = {};
@@ -211,7 +222,7 @@ async function listAll(q, spec, params = {}, scope = () => {}, { max = 50000 } =
   if (Number(n) > max) {
     throw Object.assign(new Error(`That is ${Number(n).toLocaleString('en-MY')} rows. Narrow the search or filters to ${max.toLocaleString('en-MY')} or fewer and download again.`), { status: 400 });
   }
-  const order = parseSort(params.sort, spec);
+  const order = await prepareOrder(q, spec, parseSort(params.sort, spec));
   const out = [];
   for (let at = 0; at < Number(n); at += CHUNK) {
     const records = await toRecords(q, spec.model, await ordered(where(q(spec.table)).select(`${spec.table}.*`), order).limit(CHUNK).offset(at));

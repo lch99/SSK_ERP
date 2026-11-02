@@ -20,7 +20,8 @@
 //   { team: [fields], self }     everyone under that person (and them, unless self: false); any field may match
 //   { custom: name, values? }    CUSTOM below here, and the same rule in SQL on the server (values: what it takes, when not true / false)
 //   { via: field, of: kind, rule }   the record this one points at passes `rule` (a payment's E-Form is in that branch)
-// sorts:  { key: field | { count: kind, by: field, on? } | { last: child, field } }; ?sort=-key is newest / biggest first; then by id, the same way.
+// sorts:  { key: field | { count: kind, by: field, on? } | { last: child, field } | { computed: name } }; ?sort=-key is newest / biggest first; then by id, the same way.
+//         { computed } by a value worked out in code for every record (COMPUTED below here; the server the same)
 //         { count } sorts by how many records of that kind point at this one (by its id, or its `on` field);
 //         { last } by a field of the record's newest child row (a listing's latest follow-up date)
 // counts: 'field'                { value: n } for each value, leaving out the filter of the same name
@@ -50,7 +51,7 @@
 // filters { custom, viewer: true }   the server puts the viewer's own key in (their favourites, their unread)
 // area: null                     everyone may read it (their own)
 import { teamOf } from './access.js'
-import { payslipTotals } from './payout.js'
+import { payslipTotals, tiersFor, computeTierIndex } from './payout.js'
 import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, reviewOverdue, KEY_FLAG } from './listings.js'
 import { projectDeals, incentiveProgress } from './projects.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
@@ -139,7 +140,7 @@ const LISTINGS = {
 export const LISTS = {
   staff: {
     area: 'staff',
-    search: ['name', 'short', 'code', 'phone', 'ic', 'email', 'username'],
+    search: ['name', 'short', 'code', 'phone', 'ic', 'email', 'username', { digits: 'phone' }],
     filters: {
       branchId: { eq: 'branchId' }, status: { eq: 'status' }, type: { eq: 'type' }, position: { eq: 'role' }, tierId: { eq: 'tierFloorId' },
       uplineId: { eq: 'uplineId' }, hasRole: { notNull: 'role' },
@@ -147,19 +148,26 @@ export const LISTS = {
       kind: { oneOf: 'type', sets: { agent: AGENT_TYPES, office: { not: AGENT_TYPES } } },
       teamOf: { team: ['id'], self: false },
       joinedFrom: { from: 'joined' }, joinedTo: { to: 'joined' }, expiresFrom: { from: 'expiresOn' }, expiresBy: { to: 'expiresOn' },
+      // Still working here and the account runs out before this day (renew it).
+      expiringBefore: { custom: 'expiringBefore', values: ['2026-12-01'] },
+      // The tier each is on today (by their commission so far: tierCredit), by its code (T1…).
+      tier: { custom: 'tierIs', values: ['T1', 'T2', 'T3'] },
     },
-    sorts: { name: 'name', code: 'code', joined: 'joined', expiresOn: 'expiresOn', branch: 'branchId', status: 'status' },
+    sorts: { name: 'name', short: 'short', code: 'code', joined: 'joined', expiresOn: 'expiresOn', branch: 'branchId', status: 'status', lastActive: 'lastActive',
+      tier: { computed: 'tierRank' }, closing: { computed: 'lifetime' } },
     sort: 'name',
     counts: {
-      status: 'status',
+      status: 'status', position: 'role', type: 'type',
       leaders: { set: { hasRole: 'true' } },
       joinedThisMonth: { set: ctx => ({ joinedFrom: monthStart(ctx.today) }) },
-      // Registration (expiry date) running out within 30 days.
-      expiring: { set: ctx => ({ expiresFrom: ctx.today, expiresBy: addDays(ctx.today, 30) }) },
+      // Registration (expiry date) running out within 30 days, or run out already.
+      expiring: { set: ctx => ({ expiringBefore: addDays(ctx.today, 30) }) },
+      // How many are on each tier, of everyone in reach (the Tier filter's choices).
+      tiers: { only: () => ({}), custom: 'tierCounts' },
     },
+    extras: { credit: { custom: 'tierCredit' }, team: { custom: 'teamSize' } },
   },
 
-  // Listings (Listings page, Listing roles), in the viewer's reach.
   listings: { ...LISTINGS, search: ['code', 'title', 'area', 'address', HOLDER] },
 
   // The Whole agency: a team or branch role's own listings and every active one (agents bring
@@ -551,6 +559,8 @@ const CUSTOM = {
   favouriteOf: (r, v, ctx) => (ctx.data?.favourites?.[personId(v)]?.listings || []).includes(r.id),
   // The nearest upline holding the second-most-senior level (an area manager) of the listing's holder.
   areaManagerOf: (r, v, ctx) => ctx.once('areaManagers', () => areaManagers(ctx.data?.staff || [], ctx.setup)).get(r.holderId) === personId(v),
+  expiringBefore: (r, v) => r.status !== 'inactive' && r.expiresOn != null && String(r.expiresOn) < String(v),
+  tierIs: (r, v, ctx) => tiersNow(ctx).get(r.id)?.tier === v,
   freeForDeal: (r, v, ctx) => r.dealId == null || same(r.dealId, valueOf(v)) || ctx.byId('deals').get(r.dealId)?.status === 'cancelled',
   fromOwnerRequest: (r, v, ctx) => ctx.once('fromOwner', () => new Set((ctx.data?.vendorRequests || []).map(x => x.listingId).filter(x => x != null))).has(r.id) === truthy(v),
   viewsListing: (r, v) => personId(v) != null && (r.listingIds || []).includes(personId(v)),
@@ -584,6 +594,11 @@ const isReady = p => p.status === 'approved' && p.requestId == null && p.archive
 
 // Counts worked out in code (the server runs the same on the rows its SQL finds).
 export const CUSTOM_COUNTS = {
+  tierCounts: (hits, ctx) => {
+    const out = {}
+    for (const r of hits) { const t = tiersNow(ctx).get(r.id)?.tier; if (t) out[t] = (out[t] || 0) + 1 }
+    return out
+  },
   // Each request's slip (payslipTotals: gross, withholding tax unless the person is exempt, net), added up.
   payslips: (hits, ctx) => {
     const gross = new Map()
@@ -592,8 +607,48 @@ export const CUSTOM_COUNTS = {
     return addSlips(hits.map(r => ({ amounts: gross.get(r.id) || [], exempt: !!ctx.byId('staff').get(r.staffId)?.whtExempt })), ctx.setup)
   },
 }
+// Each person's tier credit (shared/erpRules.js tierCredit, for everyone at once) and the tier it puts
+// them on today (as src/erp/model.js tierInfo): Map(staffId → { lifetime, yearly, tier, rank }).
+// `credit`: Map(staffId → { total, yearly }) of their close sides, without the opening balance.
+export function tiersOf(staff, credit, setup) {
+  const out = new Map()
+  for (const s of staff) {
+    const c = credit.get(s.id) || { total: 0, yearly: 0 }
+    const lifetime = r2((Number(s.openingLifetime) || 0) + c.total), yearly = r2(c.yearly)
+    const tiers = tiersFor(setup, s.branchId)
+    const rank = tiers.length ? computeTierIndex(lifetime, yearly, tiers, Math.max(0, tiers.findIndex(t => t.id === s.tierFloorId))) : -1
+    out.set(s.id, { lifetime, yearly, tier: tiers[rank]?.name ?? null, rank })
+  }
+  return out
+}
+// Close sides added up per person: Map(staffId → { total, yearly }) (the server adds them up in SQL).
+export function sidesByStaff(closes, year) {
+  const out = new Map()
+  for (const c of closes) for (const sd of c.sides || []) {
+    if (sd.staffId == null) continue
+    const x = out.get(sd.staffId) || { total: 0, yearly: 0 }
+    x.total += Number(sd.base) || 0
+    if (String(c.date).startsWith(year)) x.yearly += Number(sd.base) || 0
+    out.set(sd.staffId, x)
+  }
+  return out
+}
+const tiersNow = ctx => ctx.once('tiers', () => tiersOf(ctx.data?.staff || [], sidesByStaff(ctx.data?.closes || [], ctx.today.slice(0, 4)), ctx.setup))
+
+// Values worked out in code for every record, to sort by.
+const COMPUTED = {
+  lifetime: (r, ctx) => tiersNow(ctx).get(r.id)?.lifetime ?? 0,
+  tierRank: (r, ctx) => tiersNow(ctx).get(r.id)?.rank ?? -1,
+}
+
 // Extras worked out in code for the page's rows: Map(id → value) (the server runs the same on the rows it reads).
 const CUSTOM_EXTRAS = {
+  tierCredit: (rows, ctx) => new Map(rows.map(r => { const t = tiersNow(ctx).get(r.id); return [r.id, t ? { lifetime: t.lifetime, yearly: t.yearly } : { lifetime: 0, yearly: 0 }] })),
+  // How many people report to each (direct) and are under them at any depth (team).
+  teamSize: (rows, ctx) => {
+    const kids = ctx.once('downline', () => { const m = new Map(); for (const s of ctx.data?.staff || []) if (s.uplineId != null) m.set(s.uplineId, [...(m.get(s.uplineId) || []), s.id]); return m })
+    return new Map(rows.map(r => [r.id, { direct: (kids.get(r.id) || []).length, team: ctx.team(r.id).size - 1 }]))
+  },
   // Who leads each building: shared/listings.js buildingRankings ({ sale, rental } rankings).
   buildingRanking: (rows, ctx) => {
     const all = ctx.once('buildingRankings', () => buildingRankings({ listings: ctx.data?.listings || [], deals: ctx.data?.deals || [] }))
@@ -751,6 +806,7 @@ function run(all_records, spec, params, ctx, all) {
   const sortValue = f => {
     if (typeof f === 'string') return r => get(r, f)
     if (f.last) return r => get(r[f.last]?.at(-1), f.field) ?? null
+    if (f.computed) return r => COMPUTED[f.computed](r, c)
     const n = c.once(`count:${f.count}:${f.by}`, () => {
       const m = new Map()
       for (const x of ctx.data?.[f.count] || []) { const k = get(x, f.by); m.set(k, (m.get(k) || 0) + 1) }
