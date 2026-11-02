@@ -2,13 +2,13 @@
 // ranges and broken links, and never anyone's personal details.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const knex = require('knex');
+const { legacyTestDb } = require('./helpers');
 const { inspect } = require('../src/legacy/inspect');
 
-const db = knex({ client: 'better-sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true });
-let report;
+let db, report;
 
 before(async () => {
+  db = await legacyTestDb();
   await db.schema.createTable('staff', t => {
     t.increments('id'); t.string('user_name'); t.string('ic_name'); t.string('ic_no'); t.string('phone_number1'); t.string('type');
     t.integer('status'); t.integer('staff_id'); t.string('bank_account'); t.integer('frontend_access'); t.date('birthday'); t.bigInteger('hp');
@@ -34,7 +34,7 @@ before(async () => {
 after(() => db.destroy());
 
 test('codes are shown with their counts', () => {
-  assert.match(report, /`form_status` \| integer.*`0` ×8/);
+  assert.match(report, /`form_status` \| int.*`0` ×8/);
   assert.match(report, /`type` .*`staff` ×24 · `admin-staff` ×6/);
   assert.match(report, /`frontend_access` .*`0` ×15/);
 });

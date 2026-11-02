@@ -14,7 +14,7 @@
 // again with a newer copy replaces the earlier import, so the last copy taken
 // before the old ERP goes read-only is the one the new ERP starts from.
 const M = require('./mapping');
-const { tableNames } = require('./inspect');
+const { tableNames, columnsOf } = require('./inspect');
 const { loadState } = require('../db/setupStore');
 const { parseJson } = require('../db/records');
 const { verify } = require('./verify');
@@ -36,14 +36,9 @@ const HQ_NAME = 'Head office';
 const primaryKeys = {};
 async function readPrimaryKeys(legacy, present) {
   for (const t of present) {
-    let keys = [];
-    if (legacy.client.config.client === 'better-sqlite3') {
-      keys = (await legacy.raw(`pragma table_info(${JSON.stringify(t)})`)).filter(c => c.pk > 0).sort((a, b) => a.pk - b.pk).map(c => c.name);
-    } else {
-      const [rows] = await legacy.raw(`select column_name as c from information_schema.key_column_usage
-        where table_schema = database() and table_name = ? and constraint_name = 'PRIMARY' order by ordinal_position`, [t]);
-      keys = rows.map(r => r.c ?? r.COLUMN_NAME);
-    }
+    const [rows] = await legacy.raw(`select column_name as c from information_schema.key_column_usage
+      where table_schema = database() and table_name = ? and constraint_name = 'PRIMARY' order by ordinal_position`, [t]);
+    const keys = rows.map(r => r.c ?? r.COLUMN_NAME);
     primaryKeys[t] = keys.length ? keys : M.KEYS[t] || null;
   }
 }
@@ -105,7 +100,7 @@ function writer(db, report) {
   async function fit(t, row) {
     const cols = await columns(t);
     for (const [k, v] of Object.entries(row)) {
-      if (typeof v === 'boolean') row[k] = v ? 1 : 0;  // SQLite binds no booleans; MySQL takes 1/0 too
+      if (typeof v === 'boolean') row[k] = v ? 1 : 0;  // MySQL keeps booleans as 1/0
       const max = cols[k]?.maxLength;
       if (typeof v === 'string' && max && v.length > Number(max) && !/json|text/i.test(cols[k].type)) {
         row[k] = v.slice(0, Number(max));
@@ -134,7 +129,8 @@ function writer(db, report) {
 async function checkCopy(legacy) {
   const present = await tableNames(legacy);
   const cols = {};
-  for (const t of present) cols[t] = await legacy(t).columnInfo();
+  // In the order each table has them (a table with no key is read in that order).
+  for (const t of present) cols[t] = await columnsOf(legacy, t);
   const missing = [];
   for (const [t, reads] of Object.entries(M.EXPECTED)) {
     if (cols[t]) for (const c of reads) if (!(c in cols[t])) missing.push(`${t}.${c}`);

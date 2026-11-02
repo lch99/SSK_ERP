@@ -3,21 +3,24 @@
 // add up, and that no password or personal detail leaks into the report.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const knex = require('knex');
-const { db, migrate } = require('./helpers');
+const { db, migrate, legacyTestDb } = require('./helpers');
 const M = require('../src/legacy/mapping');
 const { importLegacy } = require('../src/legacy/import');
 const { verify } = require('../src/legacy/verify');
 
-const legacy = knex({ client: 'better-sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true });
+// The made-up copy, in a test database of its own (it has tables named like ours).
+let legacy;
 
+// Columns the live copy keeps as text although their names look like numbers.
+const TEXT = new Set(['payout_calc_ver', 'ticket_id', 'property_price', 'property_run_id']);
 // A table with the columns the import reads (plus `extra`), typed like the live one.
 async function table(name, extra = []) {
   const cols = [...new Set([...(M.KEYS[name] || []), ...(M.EXPECTED[name] || []), ...(M.TABLES[name]?.optional || []), ...extra])];
   await legacy.schema.createTable(name, t => {
     for (const c of cols) {
-      if (c === (M.KEYS[name] || ['id'])[0] || /(^|_)id$|_status$|^status$|tracking|^year$/.test(c)) t.integer(c);
-      else if (/amount|fees|price|total|claim|payout|_per$|rate|count|balance|deposit/.test(c) && !/_file|_id$/.test(c)) t.float(c);
+      if (TEXT.has(c)) t.string(c);
+      else if (c === (M.KEYS[name] || ['id'])[0] || /(^|_)id$|_status$|^status$|tracking|^year$/.test(c)) t.integer(c);
+      else if (/amount|fees|price|total|claim|payout|_per$|rate|count|balance|deposit/.test(c) && !/_file|_id$|account|_extra/.test(c)) t.decimal(c, 14, 2);
       else t.string(c);
     }
   });
@@ -27,6 +30,7 @@ const rows = (name, list) => legacy(name).insert(list);
 let report, result;
 
 before(async () => {
+  legacy = await legacyTestDb();
   await migrate();
   for (const t of [...Object.keys(M.TABLES), ...Object.keys(M.AFTER), ...Object.keys(M.LOOKUPS)]) await table(t);
   await table('db_login_try', ['try_id', 'try_username_1', 'try_password_1']);

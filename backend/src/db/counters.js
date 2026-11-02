@@ -3,9 +3,8 @@
 // with the row locked on MySQL, so two people saving at once never get the
 // same number and a rolled-back save gives its number back.
 
-const isMysql = q => q.client.config.client === 'mysql2';
-// SELECT … FOR UPDATE on MySQL; SQLite locks the whole file for a write anyway.
-const forUpdate = (q, query) => (isMysql(q) ? query.forUpdate() : query);
+// SELECT … FOR UPDATE: the row stays locked until the saving transaction ends.
+const forUpdate = (q, query) => query.forUpdate();
 
 // Reserves `n` numbers for `key` and returns the first. `atLeast`: numbers
 // already used outside the counter (imported records), so it starts above them.
@@ -23,4 +22,4 @@ async function highestCode(q, table, column, prefix) {
   return Number(String(row?.code || '').slice(prefix.length)) || 0;
 }
 
-module.exports = { take, highestCode, forUpdate, isMysql };
+module.exports = { take, highestCode, forUpdate };

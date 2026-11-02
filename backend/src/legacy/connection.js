@@ -1,12 +1,9 @@
 // The copy of the current ERP's database (a restored dump of production, never
 // the live server). LEGACY_DB_* in backend/.env; use a read-only MySQL account.
-// LEGACY_DB_CLIENT=sqlite + LEGACY_SQLITE_FILE is only for the tests.
+// (The tests use a made-up copy in a test database of their own: test/helpers.js legacyTestDb.)
 const knex = require('knex');
 
 function legacyDb() {
-  if (process.env.LEGACY_DB_CLIENT === 'sqlite') {
-    return knex({ client: 'better-sqlite3', connection: { filename: process.env.LEGACY_SQLITE_FILE || ':memory:' }, useNullAsDefault: true });
-  }
   if (!process.env.LEGACY_DB_NAME) throw new Error('Set LEGACY_DB_NAME (and LEGACY_DB_HOST, LEGACY_DB_USER, LEGACY_DB_PASSWORD) in backend/.env to the restored copy.');
   return knex({
     client: 'mysql2',

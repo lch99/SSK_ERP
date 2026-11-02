@@ -15,7 +15,7 @@ const { tableNames } = require('./inspect');
 const fmt = n => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const near = (a, b, rows) => Math.abs(Number(a) - Number(b)) <= 0.01 + 0.005 * rows;
 
-// SQL that means "not deleted in the old ERP" (`*_stat = '3'`), the same on MySQL and SQLite.
+// SQL that means "not deleted in the old ERP" (`*_stat = '3'`).
 const alive = col => [`coalesce(??, '') <> '3'`, [col]];
 // A deleted_at of '0000-00-00…' is no date, as the import reads it.
 const notDeletedAt = q => q.whereNull('deleted_at').orWhere('deleted_at', 'like', '0000%');

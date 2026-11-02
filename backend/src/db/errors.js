@@ -7,8 +7,7 @@ class ValidationError extends Error {
   }
 }
 
-// A delete refused because other records still point at the row (MySQL 1451, SQLite FK).
-const isInUse = err => err?.errno === 1451 || err?.code === 'ER_ROW_IS_REFERENCED_2'
-  || /FOREIGN KEY constraint failed/i.test(err?.message || '');
+// A delete refused because other records still point at the row (MySQL 1451).
+const isInUse = err => err?.errno === 1451 || err?.code === 'ER_ROW_IS_REFERENCED_2';
 
 module.exports = { ValidationError, isInUse };

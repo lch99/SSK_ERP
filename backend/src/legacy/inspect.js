@@ -26,10 +26,15 @@ const fmt = n => Number(n).toLocaleString('en-US');
 const pct = (part, whole) => (whole ? `${Math.round((part / whole) * 100)}%` : '–');
 const cell = s => String(s).replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
+// A table's columns in the order the table has them (knex columnInfo has no fixed order on
+// MySQL), as { name: { type, maxLength, nullable } }: the first is the key a link is checked against.
+async function columnsOf(db, table) {
+  const [rows] = await db.raw(`select column_name as c, data_type as t, character_maximum_length as l, is_nullable as n from information_schema.columns
+    where table_schema = database() and table_name = ? order by ordinal_position`, [table]);
+  return Object.fromEntries(rows.map(r => [r.c, { type: r.t, maxLength: r.l, nullable: r.n === 'YES' }]));
+}
+
 async function tableNames(db) {
-  if (db.client.config.client === 'better-sqlite3') {
-    return (await db.raw("select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name")).map(r => r.name);
-  }
   const [rows] = await db.raw('show full tables where Table_type = ?', ['BASE TABLE']);
   return rows.map(r => Object.values(r)[0]).sort();
 }
@@ -84,7 +89,7 @@ async function inspect(db, { tables: only = [], when = new Date().toISOString().
   const counts = {};
   for (const t of all) counts[t] = Number((await db(t).count({ n: '*' }).first()).n);
   const columns = {};
-  for (const t of all) columns[t] = await db(t).columnInfo();
+  for (const t of all) columns[t] = await columnsOf(db, t);
 
   const out = [`# The current ERP's database (copy inspected ${when})`, '',
     `${all.length} tables, ${fmt(Object.values(counts).reduce((a, b) => a + b, 0))} rows. Values are shown only for code columns; personal details and free text are counted, never shown.`, '',
@@ -103,7 +108,7 @@ async function inspect(db, { tables: only = [], when = new Date().toISOString().
   return `${out.join('\n')}\n`;
 }
 
-module.exports = { inspect, tableNames, PERSONAL, EXPECTED, showable };
+module.exports = { inspect, tableNames, PERSONAL, EXPECTED, showable, columnsOf };
 
 if (require.main === module) {
   require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
