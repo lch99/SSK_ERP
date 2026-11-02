@@ -1,8 +1,11 @@
 import * as P from '../../../shared/payout.js'
-import { useState } from 'react'
+import { tierCredit } from '../../../shared/erpRules.js'
+import { useEffect, useState } from 'react'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { ROLE_COLORS, AGENT_COLOR, COMPANY_COLOR } from '../../setup/colors.js'
 import { useErp } from '../ErpContext.jsx'
+import { DEMO, getDealCredit } from '../../api.js'
+import { useList, useRecord } from '../useList.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, MONEY_OUT_STATUS, PAYOUT_STATUS, MONEY_OUT_TYPES, PURPOSES, METHODS, PARTY, closeType, sum, r2 } from '../model.js'
 import { Page, Card, KV, Status, Pill, Progress, Who, Link, Empty, Notice, Modal, FormField, FileInput, cols, go, mono, small, tabular } from '../ui.jsx'
 import { useFeedback } from '../feedback.jsx'
@@ -15,23 +18,58 @@ import { useCan } from '../access.jsx'
 
 const OTHER_COLORS = { cobroke: '#c3c7cf', referral: '#d9b38c' }
 
+// One E-Form (GET /api/erp/deals/<id> with its cash), and what the page shows
+// from other records as small reads of their lists.
 export default function DealPage({ id }) {
+  const { record: deal, loading } = useRecord('deals', id)
+  if (!deal) {
+    return (
+      <Page title={loading ? 'Loading…' : 'E-Form not found'} back={{ to: 'deals', label: 'All E-Forms' }}>
+        {!loading && <Empty title="This E-Form no longer exists" text="Or it is not one you can see." />}
+      </Page>
+    )
+  }
+  return <DealView key={deal.id} deal={deal} />
+}
+
+// The E-Form's payments in and out, closes and payout lines, each read only for
+// a role that sees that area; and its earners' tier credit for the payout
+// preview, until the case is closed.
+function useDealRecords(deal) {
+  const { m } = useErp()
+  const can = useCan()
+  const own = { dealId: deal.id, sort: 'date', counts: '0' }
+  const only = (sees, pageSize = 50) => ({ branch: false, pageSize, skip: !sees })
+  const seesCloses = can('payouts', 'view')
+  const payments = useList('moneyIn', own, only(can('moneyIn', 'view')))
+  const outs = useList('moneyOut', own, only(can('moneyOut', 'view')))
+  const closes = useList('closes', own, only(seesCloses))
+  const lines = useList('payouts', own, only(seesCloses || can('salary', 'view'), 200))
+  const preview = !(seesCloses && deal.$.closeIds.length)
+  const [credit, setCredit] = useState(null)
+  useEffect(() => {
+    if (!preview || DEMO) return undefined
+    let live = true
+    getDealCredit(deal.id).then(c => { if (live) setCredit(c) }, () => { if (live) setCredit({}) })
+    return () => { live = false }
+  }, [deal.id, preview, m])
+  // In the demo, from the records in this browser, by the same rule.
+  const creditOf = !preview ? null : DEMO ? sid => tierCredit(m.staff[sid], m.data.closes, m.year) : credit && (sid => credit[sid] || { lifetime: 0, yearly: 0 })
+  return { payments, outs, closes: closes.rows, lines: lines.rows, creditOf, preview }
+}
+
+function DealView({ deal }) {
   const erp = useErp()
   const can = useCan()
   const { m, setup } = erp
   const [busy, setBusy] = useState(false)
-  const deal = m.deals[id]
-  const closeDeal = useCloseDeal(deal || { code: '' })
-  if (!deal) return <Page title="E-Form not found" back={{ to: 'deals', label: 'All E-Forms' }}><Empty title="This E-Form no longer exists" /></Page>
-  const listing = deal.listingId ? m.listings[deal.listingId] : null
+  const closeDeal = useCloseDeal(deal)
+  const recs = useDealRecords(deal)
   const party = PARTY[deal.type]
   const money = deal.money
-  const cleared = m.cleared(deal.id)
+  const { cleared, closed } = deal.$
   const got = Math.min(cleared, money.billed)
   const branch = m.branches[deal.branchId]
-  // Closing pays out the cleared money not yet closed (all of it, unless Setup pays as money comes in).
-  const closedSoFar = sum(m.closesByDeal[deal.id] || [], c => c.claim)
-  const claimable = r2(got - closedSoFar)
 
   const bm = m.branchManagerOf(deal.agentId), am = m.areaManagerOf(deal.agentId)
   const total = r2(money.billed - money.coBroke - money.referral)
@@ -46,13 +84,14 @@ export default function DealPage({ id }) {
 
       {deal.status === 'cancelled' && <Notice tone="red"><b>Abort/Cancel on {date(deal.cancelledOn)}.</b> {deal.cancelReason}</Notice>}
       {deal.status === 'draft' && <Notice tone="amber"><b>This E-Form is a draft.</b> Payments can be recorded once it is submitted. {can('deals', 'edit') && <button style={{ ...small, marginLeft: 6 }} onClick={() => go(`deals/${deal.id}/edit`)}>Edit &amp; submit</button>}</Notice>}
-      {deal.status !== 'cancelled' && <DealProgress deal={deal} busy={busy} onClose={async amount => { setBusy(true); await closeDeal(amount); setBusy(false) }} />}
+      {deal.status !== 'cancelled' && <DealProgress deal={deal} lines={recs.lines} pending={recs.payments.rows.find(t => t.status === 'pending' || t.status === 'draft')}
+        busy={busy} onClose={async amount => { setBusy(true); await closeDeal(amount); setBusy(false) }} />}
 
       <div style={{ ...cols(150, 12), marginBottom: 16 }}>
         <Figure label={deal.type === 'rental' ? 'Rent' : 'Selling Price'} value={rm(deal.price)}
           sub={rent ? `${rent.months}-month tenancy` : deal.property.category} />
         <Figure label="Total Commission" value={rm(total)} sub={`Net Total ${rm(money.net)}`} />
-        <Figure label="Closing Total" value={rm(sum(m.closesByDeal[deal.id] || [], c => c.claim))} sub={`of ${rm(money.billed)} claim from owner`} />
+        <Figure label="Closing Total" value={rm(closed)} sub={`of ${rm(money.billed)} claim from owner`} />
         <Figure label="Transaction Amount" value={deal.status === 'draft' ? '—' : `${rm(cleared)}`}
           sub={deal.status === 'draft' ? 'Not submitted yet' : <Progress value={got / money.billed} tone={got >= money.billed ? 'green' : 'blue'} label="Cleared" />} />
       </div>
@@ -66,14 +105,14 @@ export default function DealPage({ id }) {
               ['Area Manager', am ? <Link to={`staff/${am.id}`} style={{ color: C.text }}>{am.short}</Link> : '—'],
               ['Agent Name (Sale Staff)', <Link to={`staff/${deal.agentId}`} style={{ color: C.text }}>{m.staffName(deal.agentId)}</Link>],
               ['Product Handler', deal.holderId != null ? <Link to={`staff/${deal.holderId}`} style={{ color: C.text }}>{m.staffName(deal.holderId)}</Link> : '—'],
-              ['Listing', listing ? <Link to={`listings/${listing.id}`} style={mono}>{listing.code}</Link> : deal.type === 'project' ? 'Developer project' : '—'],
-              ['Listing Creator', listing ? m.staffName(listing.creatorId) : '—'],
+              ['Listing', deal.listingId ? <Link to={`listings/${deal.listingId}`} style={mono}>{deal.$.listingCode}</Link> : deal.type === 'project' ? 'Developer project' : '—'],
+              ['Listing Creator', deal.$.listingCreator != null ? m.staffName(deal.$.listingCreator) : '—'],
               ['Property Type', deal.property.category], ['Property Address', deal.property.address],
             ]} />
           </Card>
-          <Split deal={deal} m={m} setup={setup} />
-          <MoneyInCard deal={deal} m={m} />
-          <MoneyOutCard deal={deal} m={m} />
+          <Split deal={deal} m={m} setup={setup} recs={recs} />
+          {can('moneyIn', 'view') && <MoneyInCard deal={deal} list={recs.payments} />}
+          <MoneyOutCard list={recs.outs} />
         </div>
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <PartyCard title={party.buyer.toUpperCase()} p={deal.buyer} others={deal.otherBuyers} help={CARD.parties} />
@@ -99,8 +138,8 @@ export default function DealPage({ id }) {
           </Card>
           <Docs deal={deal} />
           {deal.remark && <Card title="Remarks"><p style={{ margin: 0, fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{deal.remark}</p></Card>}
-          <Closes deal={deal} m={m} />
-          <Timeline deal={deal} m={m} />
+          <Closes deal={deal} closes={recs.closes} lines={recs.lines} />
+          <Timeline deal={deal} m={m} recs={recs} />
         </div>
       </div>
     </Page>
@@ -120,13 +159,12 @@ function Figure({ label, value, sub }) {
 }
 
 // Each side's people and amounts: the real payout lines once the deal has
-// closed, otherwise a preview on everyone's tier today. Both use the payout
-// rules in force on the E-Form's date.
-function sidesOf(deal, m, setup) {
+// closed, otherwise a preview on everyone's tier today (creditOf: each
+// earner's tier credit; null while it loads). Both use the payout rules in
+// force on the E-Form's date.
+function sidesOf(deal, m, setup, { closes, lines, creditOf, preview }) {
   const rules = P.rulesAt(setup, deal.date)
-  const closes = m.closesByDeal[deal.id] || []
-  if (closes.length) {
-    const lines = m.payoutsByDeal[deal.id] || []
+  if (!preview && closes.length) {
     return P.dealSides(deal, rules.sideSharePct).map(sd => {
       const parts = closes.flatMap(c => c.sides.filter(s => s.side === sd.side))
       const mine = lines.filter(l => l.side === sd.side)
@@ -142,15 +180,15 @@ function sidesOf(deal, m, setup) {
         totalPct: last.totalPct, retracted: parts.some(p => p.retracted), lines: Object.values(keyed), preview: false }
     })
   }
+  if (!creditOf) return null
   return P.dealSides(deal, rules.sideSharePct).map((sd, i, all) => {
     const base = i === all.length - 1 ? r2(deal.money.net - (all.length > 1 ? r2(deal.money.net * all[0].pct / 100) : 0)) : r2(deal.money.net * sd.pct / 100)
     if (P.sideRetracted(sd, m.staff)) return { ...sd, base, company: base, retracted: true, tierId: null, agentRate: null, totalPct: null, lines: [], preview: true }
     const earner = m.staff[sd.staffId]
-    const info = m.tierInfo(earner.id)
-    // Earlier rules have their own ladder: place the earner on it by the same commission.
+    const credit = creditOf(earner.id)
+    // The ladder of the rules in force on the E-Form's date (earlier rules have their own), by the earner's commission so far.
     const tiers = P.tiersFor(rules, earner.branchId)
-    const tier = rules === setup ? info.tier
-      : tiers[P.computeTierIndex(info.lifetime, info.yearly, tiers, Math.max(0, tiers.findIndex(t => t.id === earner.tierFloorId)))]
+    const tier = tiers[P.computeTierIndex(credit.lifetime, credit.yearly, tiers, Math.max(0, tiers.findIndex(t => t.id === earner.tierFloorId)))]
     const total = P.resolveTotal(rules.totals, { branchId: earner.branchId, dealType: deal.type, tierId: tier.id })
     const holders = P.uplineHolders(m.staff, earner.id, rules.roles)
     const out = P.payoutLines({ amount: base, earnerId: earner.id, agentRate: tier.agentRate, totalPct: total?.pct, holders, splits: rules.splits, roles: rules.roles })
@@ -158,10 +196,11 @@ function sidesOf(deal, m, setup) {
   })
 }
 
-function Split({ deal, m, setup }) {
+function Split({ deal, m, setup, recs }) {
   const money = deal.money
   const rules = P.rulesAt(setup, deal.date)
-  const sides = sidesOf(deal, m, setup)
+  const sides = sidesOf(deal, m, setup, recs)
+  if (!sides) return <Card title="Payout Preview" help={CARD.payoutPreview}><p style={{ margin: 0, fontSize: 13.5, color: C.muted }}>Working out the payout…</p></Card>
   const preview = sides.some(s => s.preview)
   const roleColor = code => ROLE_COLORS[Math.max(0, rules.roles.findIndex(r => r.code === code)) % ROLE_COLORS.length]
   const tierName = (sid, tierId) => {
@@ -175,8 +214,7 @@ function Split({ deal, m, setup }) {
     ...sides.flatMap(s => s.lines.map(l => ({ key: `${s.side}-${l.staffId}-${l.role}`, label: m.staffName(l.staffId), amount: l.amount, color: l.role ? roleColor(l.role) : AGENT_COLOR }))),
     { key: 'co', label: 'Company keeps', amount: sum(sides, s => s.company), color: COMPANY_COLOR },
   ].filter(Boolean).filter(s => s.amount > 0)
-  const total = money.fee
-  const closedPart = sum(m.closesByDeal[deal.id] || [], c => c.claim)
+  const closedPart = deal.$.closed
 
   return (
     <Card title="Payout Preview" help={CARD.payoutPreview} sub={preview
@@ -258,9 +296,10 @@ function Row({ label, value, strong, muted }) {
   )
 }
 
-function MoneyInCard({ deal, m }) {
-  const list = [...(m.moneyInByDeal[deal.id] || [])].sort((a, b) => a.date.localeCompare(b.date))
-  const cleared = m.cleared(deal.id)
+// list: the E-Form's payments, oldest first (useList).
+function MoneyInCard({ deal, list: payments }) {
+  const list = payments.rows
+  const cleared = deal.$.cleared
   if (deal.status === 'draft') return null
   return (
     <Card title="Money in" help={CARD.dealMoneyIn} sub={`${rm(cleared)} clear · ${rm(deal.money.billed)} is the claim from owner (commission + SST)`}
@@ -276,6 +315,7 @@ function MoneyInCard({ deal, m }) {
           <Status of={MONEY_IN_STATUS} value={t.status} />
         </div>
       ))}
+      {payments.rows.length < payments.total && <button style={{ ...small, marginTop: 10 }} disabled={payments.loading} onClick={payments.more}>Show more</button>}
       {cleared > deal.money.billed && (
         <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>{rm(cleared - deal.money.billed)} above the commission is client money and goes back out to the {PARTY[deal.type].owner.toLowerCase()}.</p>
       )}
@@ -283,8 +323,8 @@ function MoneyInCard({ deal, m }) {
   )
 }
 
-function MoneyOutCard({ deal, m }) {
-  const list = m.moneyOutByDeal[deal.id] || []
+function MoneyOutCard({ list: outs }) {
+  const list = outs.rows
   if (!list.length) return null
   return (
     <Card title="Payments out" help={CARD.dealMoneyOut} actions={<Link to="money-out" style={{ fontSize: 13 }}>All payments out</Link>}>
@@ -346,11 +386,10 @@ function Docs({ deal }) {
 }
 
 // Each close of this case, with its case lines: Re-run (Make Close Case Rerun) or delete them.
-function Closes({ deal, m }) {
+function Closes({ deal, closes, lines: all }) {
   const erp = useErp()
   const can = useCan()
   const fb = useFeedback()
-  const closes = m.closesByDeal[deal.id] || []
   if (!closes.length) return null
   const rerun = async c => {
     const ok = await fb.confirm({ title: `Re-run ${closeType(c)} of ${rm(c.claim)}?`, confirmLabel: 'Confirm Re-Run',
@@ -365,7 +404,7 @@ function Closes({ deal, m }) {
   return (
     <Card title="Closes" help={CARD.closes}>
       {closes.map((c, i) => {
-        const lines = (m.payoutsByDeal[deal.id] || []).filter(l => l.closeId === c.id)
+        const lines = all.filter(l => l.closeId === c.id)
         const locked = lines.some(l => l.requestId || l.archiveId || l.status === 'paid')
         const last = i === closes.length - 1
         return (
@@ -385,24 +424,24 @@ function Closes({ deal, m }) {
   )
 }
 
-function Timeline({ deal, m }) {
+function Timeline({ deal, m, recs }) {
   const ev = []
   const add = (d, text, tone = C.muted) => d && ev.push({ d, text, tone })
   add(deal.date, deal.type === 'project' ? 'Booking signed' : 'Letter of offer signed (E-Form date)', C.text)
   add(deal.submittedOn, <>E-Form submitted by <b>{m.staffName(deal.agentId)}</b></>)
-  for (const t of m.moneyInByDeal[deal.id] || []) {
+  for (const t of recs.payments.rows) {
     add(t.date, <>{t.code}: {rm(t.amount)} from {t.payer} ({PURPOSES[t.purpose]})</>)
     if (t.status === 'returned') add(t.clearsOn, <span style={{ color: C.err }}>Cheque returned by the bank</span>)
   }
-  for (const c of m.closesByDeal[deal.id] || []) add(c.date, <>{closeType(c)} of {rm(c.claim)}</>, C.ok)
-  const lines = m.payoutsByDeal[deal.id] || []
+  for (const c of recs.closes) add(c.date, <>{closeType(c)} of {rm(c.claim)}</>, C.ok)
+  const lines = recs.lines
   const approvals = [...new Map(lines.filter(l => l.approvedOn).map(l => [`${l.closeId}`, l])).values()]
   for (const l of approvals) add(l.approvedOn, <>Case lines made Ready by {l.approvedBy.join(' and ')}</>)
   const paid = [...new Map(lines.filter(l => l.paidOn).map(l => [l.paidOn, l])).values()]
   for (const l of paid) add(l.paidOn, <>Salary paid (Payment Clear) for this case</>)
-  const arc = lines.find(l => l.archiveId)
-  if (arc) add(m.archives[arc.archiveId].date, <>Archived in <Link to="payouts/archived">{m.archives[arc.archiveId].code}</Link></>)
-  for (const x of m.moneyOutByDeal[deal.id] || []) if (x.paidOn) add(x.paidOn, <>{MONEY_OUT_TYPES[x.type]} of {rm(x.amount)} paid to {x.payee.name}</>)
+  const arc = lines.find(l => l.$.archive)?.$.archive
+  if (arc) add(arc.date, <>Archived in <Link to="payouts/archived">{arc.code}</Link></>)
+  for (const x of recs.outs.rows) if (x.paidOn) add(x.paidOn, <>{MONEY_OUT_TYPES[x.type]} of {rm(x.amount)} paid to {x.payee.name}</>)
   add(deal.cancelledOn, <span style={{ color: C.err }}>Abort/Cancel: {deal.cancelReason}</span>)
   ev.sort((a, b) => b.d.localeCompare(a.d))
   return (

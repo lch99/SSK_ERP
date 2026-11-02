@@ -135,3 +135,17 @@ test('ready to close: open E-Forms whose cleared cash can be closed now', async 
   const got = await api.call('GET', '/erp/deals?ready=true&size=200');
   assert.deepEqual(got.body.rows.map(x => x.id), want.rows.map(x => x.id));
 });
+
+test('an E-Form\'s earners\' tier credit from the server is the rule run on every close', async () => {
+  const R = require('../../shared/erpRules.js');
+  const year = localToday().slice(0, 4);
+  const byId = new Map(state.data.staff.map(s => [s.id, s]));
+  const deals = state.data.deals.filter(d => d.holderId != null).slice(0, 15);
+  assert.ok(deals.length > 5);
+  for (const d of deals) {
+    const r = await api.call('GET', `/erp/deals/${d.id}/credit`);
+    assert.equal(r.status, 200);
+    for (const id of [d.agentId, d.holderId]) assert.deepEqual(r.body[id], R.tierCredit(byId.get(id), state.data.closes, year), `${d.code}, staff ${id}`);
+  }
+  assert.ok(state.data.closes.some(c => deals.some(d => c.sides.some(s => s.staffId === d.agentId))), 'some credit comes from closes');
+});

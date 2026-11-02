@@ -1,7 +1,7 @@
 import { C, btn, btnPrimary } from '../styles.js'
 import { useNarrow } from '../setup/useNarrow.js'
 import { useErp } from './ErpContext.jsx'
-import { readyToClose, sum } from './model.js'
+import { readyToClose, dealCash, sum } from './model.js'
 import { go, tabular } from './ui.jsx'
 import { rm, date } from './format.js'
 import Icon from './Icon.jsx'
@@ -97,22 +97,22 @@ export function FlowBar({ here }) {
 }
 
 // One deal from submitted to paid, and the one thing to do next.
-export function DealProgress({ deal, onClose, busy }) {
+// lines: the E-Form's payout lines; pending: a payment on it still to check against the bank.
+export function DealProgress({ deal, lines, pending, onClose, busy }) {
   const { m, setup } = useErp()
   const can = useCan()
   const agentId = useAccess()?.agentId ?? null
   const [ref, narrow] = useNarrow(720)
   const billed = deal.money.billed
-  const got = Math.min(m.cleared(deal.id), billed)
-  const closed = sum(m.closesByDeal[deal.id] || [], c => c.claim)
+  const cash = dealCash(deal, m)
+  const got = Math.min(cash.cleared, billed)
+  const closed = cash.closed
   const toClose = readyToClose(deal, m, setup)
-  const lines = (m.payoutsByDeal[deal.id] || [])
   const approved = lines.filter(l => l.status === 'approved' || l.status === 'paid')
   const requested = lines.filter(l => l.requestId)
   const paid = lines.filter(l => l.status === 'paid')
   // An agent's own Ready lines on this case, which they claim or stack themselves.
   const mine = lines.filter(l => l.staffId === agentId && l.status === 'approved' && !l.requestId)
-  const pending = (m.moneyInByDeal[deal.id] || []).find(t => t.status === 'pending' || t.status === 'draft')
   const draft = deal.status === 'draft'
 
   const steps = [

@@ -5,6 +5,7 @@
 //   GET /org/children?of=&branchId=&page=   one level of the org chart, with team sizes
 //   GET /org/trail/:id            the uplines above someone, top first
 //   GET /deals/:id/history        the E-Form update tracker for one E-Form
+//   GET /deals/:id/credit         its agent's and listing holder's tier credit (the payout preview)
 //   GET /:list?q=&sort=&page=&size=&<filters>   { rows, total, counts, page, size }
 //   GET /:list/download?q=&sort=&<filters>      every matching row as an Excel file (lists with a `download`)
 //   GET /:list/:id                one record, with the list's extras
@@ -18,6 +19,7 @@ const db = require('../db/connection');
 const AC = require('../../../shared/access.js');
 const A = require('../../../shared/erpActions.js');
 const J = require('../../../shared/projects.js');
+const R = require('../../../shared/erpRules.js');
 const { requireAuth } = require('../middleware/auth');
 const { viewerOf, needs } = require('../middleware/access');
 const { LISTS, scopeFor } = require('../db/lists');
@@ -193,6 +195,22 @@ router.get('/deals/:id/history', needs('deals'), wrap(async (req, res) => {
   if (id == null || !(await oneRecord(LISTS.deals, v, id))) return notFound(res);
   const rows = await db('audit_log').where({ entity: 'deal', entity_id: String(id) }).orderBy([{ column: 'created_at', order: 'desc' }, { column: 'id', order: 'desc' }]).limit(500);
   res.json({ rows: rows.map(r => ({ at: KINDS.at.read(r.created_at), by: r.username, dealId: id, ...parseJson(r.detail) })) });
+}));
+
+// The tier credit of an E-Form's agent and listing holder (the payout preview
+// before the case closes): { [staffId]: { lifetime, yearly } }, from the closes
+// on their E-Forms (a close side is always the E-Form's agent or holder).
+router.get('/deals/:id/credit', needs('deals'), wrap(async (req, res) => {
+  const v = await viewerOf(req);
+  const id = idOf(req.params.id);
+  const deal = id == null ? null : await oneRecord(LISTS.deals, v, id);
+  if (!deal) return notFound(res);
+  const ids = [...new Set([deal.agentId, deal.holderId].filter(x => x != null))];
+  const staff = await toRecords(db, MODELS.staff, await db('staff').whereIn('id', ids));
+  const closes = await toRecords(db, MODELS.closes, await db('closes')
+    .whereIn('deal_id', sub => sub.select('id').from('deals').whereIn('agent_id', ids).orWhereIn('holder_id', ids)));
+  const year = localToday().slice(0, 4);
+  res.json(Object.fromEntries(staff.map(s => [s.id, R.tierCredit(s, closes, year)])));
 }));
 
 const listOf = (req, res) => {

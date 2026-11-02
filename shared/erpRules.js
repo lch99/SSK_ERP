@@ -52,6 +52,18 @@ export function erpBlockers(setup) {
   return out
 }
 
+// A person's tier credit: their opening balance plus the commission on each
+// close side they earned on (lifetime), and this year's part of it (as Setup →
+// Tiers counts it). `skip`: a close left out (a re-run works it out again).
+export function tierCredit(staff, closes, year, skip = null) {
+  let lifetime = Number(staff?.openingLifetime) || 0, yearly = 0
+  for (const c of closes) if (c.id !== skip) for (const sd of c.sides || []) if (sd.staffId === staff?.id) {
+    lifetime += sd.base
+    if (c.date.startsWith(year)) yearly += sd.base
+  }
+  return { lifetime: r2(lifetime), yearly: r2(yearly) }
+}
+
 // The documents an E-Form needs before its case can close (Supporting Document Attachments).
 export function docNames(type, coBroke) {
   return type === 'sale'

@@ -149,6 +149,7 @@ export const LISTS = {
     },
     extras: {
       listingCode: { field: 'code', of: 'listings', from: 'listingId' },
+      listingCreator: { field: 'creatorId', of: 'listings', from: 'listingId' },
       ...DEAL_CASH,
       received: { sum: 'amount', of: 'moneyIn', by: 'dealId', not: { status: ['invalid', 'returned'] } },
       outs: { pick: ['id', 'type', 'voucherNo', 'amount', 'status'], of: 'moneyOut', by: 'dealId' },
@@ -251,6 +252,7 @@ export const LISTS = {
       close: { pick: ['date', 'claim', 'net', 'full', 'partNo'], of: 'closes', from: 'closeId' },
       deal: { pick: ['code', 'type', 'price', 'branchId', 'agentId', 'holderId', 'property.title', 'money.billed'], of: 'deals', from: 'dealId' },
       requestStatus: { field: 'status', of: 'requests', from: 'requestId' },
+      archive: { pick: ['code', 'date'], of: 'archives', from: 'archiveId' },
     },
   },
 

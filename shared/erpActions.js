@@ -9,7 +9,7 @@ import * as P from './payout.js'
 import { UPLOADS } from './files.js'
 import * as L from './listings.js'
 import * as M from './maintenance.js'
-import { nextPayDate, payoutApprovers, payoutForClose, localToday, docNames } from './erpRules.js'
+import { nextPayDate, payoutApprovers, payoutForClose, tierCredit, localToday, docNames } from './erpRules.js'
 
 const change = fn => fn
 const r2 = n => Math.round(n * 100) / 100
@@ -212,14 +212,7 @@ export const closeDeal = id => change((data, setup, today) => {
   // Each earner's tier credit so far: opening balance + the commission they earned on.
   const staffById = Object.fromEntries(data.staff.map(s => [s.id, s]))
   const year = today.slice(0, 4)
-  const creditOf = sid => {
-    let lifetime = staffById[sid].openingLifetime, yearly = 0
-    for (const c of data.closes) for (const sd of c.sides) if (sd.staffId === sid) {
-      lifetime += sd.base
-      if (c.date.startsWith(year)) yearly += sd.base
-    }
-    return { lifetime: r2(lifetime), yearly: r2(yearly) }
-  }
+  const creditOf = sid => tierCredit(staffById[sid], data.closes, year)
   const closeNet = full ? r2(net - sum(before, c => c.net)) : r2(net * claim / billed)
   const closeSst = full ? r2(sst - sum(before, c => c.sst)) : r2(sst * claim / billed)
   const { sides, lines } = payoutForClose(setup, staffById, deal, closeNet, creditOf)
@@ -596,15 +589,7 @@ export const requestInvoice = id => change((data, setup, today) => {
 // Each earner's tier credit, leaving out one close (for a re-run).
 function creditWithout(data, closeId, today) {
   const staffById = Object.fromEntries(data.staff.map(s => [s.id, s]))
-  const year = today.slice(0, 4)
-  return sid => {
-    let lifetime = staffById[sid].openingLifetime, yearly = 0
-    for (const c of data.closes) if (c.id !== closeId) for (const sd of c.sides) if (sd.staffId === sid) {
-      lifetime += sd.base
-      if (c.date.startsWith(year)) yearly += sd.base
-    }
-    return { lifetime: r2(lifetime), yearly: r2(yearly) }
-  }
+  return sid => tierCredit(staffById[sid], data.closes, today.slice(0, 4), closeId)
 }
 
 // Make Close Case Rerun: works a close's lines out again on today's tiers and

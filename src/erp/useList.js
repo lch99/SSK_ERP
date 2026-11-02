@@ -33,9 +33,10 @@ function source(erp, access, key, { branch = true } = {}) {
 // action) it reads again, as many rows as were shown; also when the top bar's
 // branch, or the person the Superadmin views the ERP as, changes. `branch:
 // false` leaves the top bar's branch out (one E-Form's payments); `branch:
-// '<filter>'` sends it to that filter. `searching`:
+// '<filter>'` sends it to that filter. `skip`: no read (a part of the page the
+// viewer's role doesn't see). `searching`:
 // what was typed hasn't been asked yet (the server waits until typing stops).
-export function useList(key, params, { pageSize = 20, branch = true } = {}) {
+export function useList(key, params, { pageSize = 20, branch = true, skip = false } = {}) {
   const erp = useErp()
   const access = useAccess()
   const { spec, extra, records, ctx } = source(erp, access, key, { branch })
@@ -50,7 +51,7 @@ export function useList(key, params, { pageSize = 20, branch = true } = {}) {
   }
 
   useEffect(() => {
-    if (!erp.m) return undefined
+    if (!erp.m || skip) return undefined
     let live = true
     // The same list after a change to the records: read again as many rows as were shown.
     const shown = out.sig === sig ? Math.min(MAX_SIZE, Math.ceil(Math.max(out.rows.length, 1) / pageSize) * pageSize) : pageSize
@@ -59,8 +60,9 @@ export function useList(key, params, { pageSize = 20, branch = true } = {}) {
       g => { if (live) setOut({ sig, rows: g.rows, total: g.total, counts: g.counts, loading: false, error: null }) },
       e => { if (live) setOut(o => ({ ...o, loading: false, error: e.message })) })
     return () => { live = false }
-  }, [sig, pageSize, erp.m, erp.scoped]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sig, pageSize, erp.m, erp.scoped, skip]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  if (skip) return { rows: [], total: 0, counts: {}, loading: false, error: null, more: () => {}, searching: false }
   const more = () => {
     if (out.loading || out.rows.length >= out.total) return
     setOut(o => ({ ...o, loading: true }))

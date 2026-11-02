@@ -114,6 +114,8 @@ const listQuery = params => new URLSearchParams(Object.entries(params).filter(([
 export const getListPage = (list, params) => request(`/erp/${list}?${listQuery(params)}`)
 // One record of a list, with the list's extras.
 export const getListRecord = (list, id, params = {}) => request(`/erp/${list}/${id}?${listQuery(params)}`)
+// The tier credit of an E-Form's agent and listing holder: { [staffId]: { lifetime, yearly } } (server only).
+export const getDealCredit = id => request(`/erp/deals/${id}/credit`)
 // Every row of a list that matches `params`, as the Excel file the server builds: { bytes, filename }.
 export async function downloadListFile(list, params) {
   const res = await send(`/erp/${list}/download?${listQuery(params)}`)
