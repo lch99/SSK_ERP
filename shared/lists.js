@@ -119,12 +119,17 @@ export const LISTS = {
 
   customers: {
     area: 'customers',
-    search: ['name', 'phone', 'code', 'area'],
+    search: ['name', 'phone', 'code', 'area', 'remarks', { digits: 'phone' }],
     filters: { type: { eq: 'type' }, track: { eq: 'track' }, action: { eq: 'action' }, ownerId: { eq: 'ownerId' }, branchId: { eq: 'branchId' },
       source: { eq: 'from' }, from: { from: 'date' }, to: { to: 'date' } },
-    sorts: { date: 'date', name: 'name' },
+    sorts: { date: 'date', name: 'name', type: 'type', budget: 'budgetMin' },
     sort: '-date',
-    counts: { track: 'track', type: 'type' },
+    counts: {
+      track: 'track', type: 'type',
+      // Active and still on Admin Follow-Up.
+      adminFollowUp: { only: () => ({ track: '0', action: '0' }), keep: ['branchId'] },
+    },
+    extras: { dealCode: { field: 'code', of: 'deals', from: 'dealId' } },
   },
 
   deals: {

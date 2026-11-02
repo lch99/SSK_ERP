@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
+import { useList, useRecord, useListReader } from '../useList.js'
 import { CUSTOMER_TRACK, CUSTOMER_ACTION, CUSTOMER_FROM } from '../model.js'
 import { Page, Card, Toolbar, SearchBox, Select, DataTable, Status, Who, Link, Drawer, KV, Block, Stat, Notice, FormField, TextArea, Modal, cols, go, mono, field, useRecordNav } from '../ui.jsx'
 import { PAGE } from '../help.js'
@@ -16,6 +17,7 @@ export default function Customers({ parts }) {
   return <NameList openId={Number(parts[1]) || null} />
 }
 
+// A page at a time (useList); the drawer reads one customer.
 function NameList({ openId }) {
   const erp = useErp()
   const editable = useCan()('customers', 'edit')
@@ -25,30 +27,27 @@ function NameList({ openId }) {
   const [who, setWho] = useState('')
   const [action, setAction] = useState('')
   const [track, setTrack] = useState('')
-  const open = openId ? d.customers.find(c => c.id === openId) : null
+  const [sort, setSort] = useState('-date')
+  const list = useList('customers', { q, type, ownerId: who, action, track, sort })
+  const { record: open, loading: opening } = useRecord('customers', openId)
   const last = c => c.followUps[c.followUps.length - 1]?.date || c.date
-
-  const rows = useMemo(() => {
-    const words = q.trim().toLowerCase()
-    return d.customers.filter(c => (!type || c.type === type) && (!who || c.ownerId === Number(who)) && (action === '' || c.action === Number(action)) &&
-      (track === '' || c.track === Number(track)) && (!words || [c.name, c.phone, c.area, c.remarks].join(' ').toLowerCase().includes(words)))
-  }, [d.customers, q, type, who, action, track])
+  const byTrack = list.counts.track || {}
   const people = d.staff.filter(s => s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
   const fb = useFeedback()
   // Action and Status save as soon as they change; the toast says so.
   const save = (c, fields) => fb.run(() => erp.updateCustomer(c.id, fields),
     `${c.name}: ${'action' in fields ? `Action set to ${CUSTOMER_ACTION[fields.action]}` : `Status set to ${CUSTOMER_TRACK[fields.track].label}`}`)
   const inline = { ...sel, fontSize: 12.5, padding: '3px 4px', maxWidth: 150 }
-  const { onOrder, nav } = useRecordNav(open?.id, id => `customers/${id}`)
+  const { onOrder, nav } = useRecordNav(openId, id => `customers/${id}`)
   const filters = [type, who, action, track].filter(x => x !== '').length
   const clear = () => { setQ(''); setType(''); setWho(''); setAction(''); setTrack('') }
 
   const columns = [
-    { key: 'date', label: 'Date', nowrap: true, sort: c => c.date, render: c => date(c.date) },
-    { key: 'name', label: 'Name · Phone', sort: c => c.name, render: c => <Who name={c.name} sub={c.phone} size={26} /> },
-    { key: 'type', label: 'Type · Area', sort: c => c.type, render: c => <span>{c.type}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{c.area}</span></span> },
+    { key: 'date', label: 'Date', nowrap: true, sortKey: 'date', render: c => date(c.date) },
+    { key: 'name', label: 'Name · Phone', sortKey: 'name', render: c => <Who name={c.name} sub={c.phone} size={26} /> },
+    { key: 'type', label: 'Type · Area', sortKey: 'type', render: c => <span>{c.type}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{c.area}</span></span> },
     { key: 'from', label: 'From Where', render: c => CUSTOMER_FROM[c.from] || c.from },
-    { key: 'budget', label: 'Min. · Max. Budget', align: 'right', sort: c => c.budgetMin, render: c => <span style={{ fontSize: 13 }}>{rm0(c.budgetMin)}<span style={{ display: 'block', color: C.muted }}>{rm0(c.budgetMax)}</span></span> },
+    { key: 'budget', label: 'Min. · Max. Budget', align: 'right', sortKey: 'budget', render: c => <span style={{ fontSize: 13 }}>{rm0(c.budgetMin)}<span style={{ display: 'block', color: C.muted }}>{rm0(c.budgetMax)}</span></span> },
     { key: 'action', label: 'Action', render: c => (
       <select style={inline} disabled={!editable} value={c.action} aria-label="Action" onClick={e => e.stopPropagation()} onChange={e => save(c, { action: e.target.value })}>
         {Object.entries(CUSTOMER_ACTION).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -65,9 +64,9 @@ function NameList({ openId }) {
     <Page title="Customers" help={PAGE.customers} sub="Buyers and tenants the team is working with. Action and Status save as soon as they are changed."
       actions={editable && <button style={btnPrimary} onClick={() => go('customers/new')}>Add customer</button>}>
       <div style={{ ...cols(200, 14), marginBottom: 16 }}>
-        <Stat icon="customers" tone="green" label="Active" value={d.customers.filter(c => c.track === 0).length} sub={`${d.customers.filter(c => c.track === 0 && c.action === 0).length} on Admin Follow-Up`} onClick={() => setTrack(track === '0' ? '' : '0')} on={track === '0'} />
-        <Stat icon="check" tone="blue" label="Closing" value={d.customers.filter(c => c.track === 1).length} sub="Signed an offer through us" onClick={() => setTrack(track === '1' ? '' : '1')} on={track === '1'} />
-        <Stat icon="close" tone="gray" label="By Other" value={d.customers.filter(c => c.track === 2).length} sub="Bought or rented elsewhere" onClick={() => setTrack(track === '2' ? '' : '2')} on={track === '2'} />
+        <Stat icon="customers" tone="green" label="Active" value={byTrack[0] || 0} sub={`${list.counts.adminFollowUp?.n || 0} on Admin Follow-Up`} onClick={() => setTrack(track === '0' ? '' : '0')} on={track === '0'} />
+        <Stat icon="check" tone="blue" label="Closing" value={byTrack[1] || 0} sub="Signed an offer through us" onClick={() => setTrack(track === '1' ? '' : '1')} on={track === '1'} />
+        <Stat icon="close" tone="gray" label="By Other" value={byTrack[2] || 0} sub="Bought or rented elsewhere" onClick={() => setTrack(track === '2' ? '' : '2')} on={track === '2'} />
       </div>
       <Card pad={16}>
         <Toolbar fold onClear={clear}>
@@ -77,10 +76,13 @@ function NameList({ openId }) {
           <Select label="Action" value={action} onChange={setAction} options={[{ value: '', label: 'Action' }, ...Object.entries(CUSTOMER_ACTION).map(([value, label]) => ({ value, label }))]} />
           <Select label="Status" value={track} onChange={setTrack} options={[{ value: '', label: 'Status' }, ...Object.entries(CUSTOMER_TRACK).map(([value, t]) => ({ value, label: t.label }))]} />
         </Toolbar>
-        <DataTable columns={columns} rows={rows} onRow={c => go(`customers/${c.id}`)} defaultSort={{ key: 'date', dir: 'desc' }} pageSize={25} narrowAt={980}
-          empty="No names match" onClear={filters || q ? clear : undefined} onOrder={onOrder} />
+        {list.error && <Notice tone="red">{list.error}</Notice>}
+        <DataTable columns={columns} rows={list.rows} onRow={c => go(`customers/${c.id}`)} pageSize={25} narrowAt={980}
+          paged={{ total: list.total, sort, onSort: setSort, onMore: list.more, loading: list.loading }}
+          empty={list.loading ? 'Loading…' : 'No names match'} onClear={filters || q ? clear : undefined} onOrder={onOrder} />
       </Card>
-      <Drawer open={!!open} onClose={() => go('customers')} title={open?.name} sub={open ? `#${open.code} · since ${date(open.date)} · last contact ${ago(last(open), m.today)}` : ''} nav={nav}>
+      <Drawer open={openId != null} onClose={() => go('customers')} title={open?.name || (opening ? 'Loading…' : 'Not found')} sub={open ? `#${open.code} · since ${date(open.date)} · last contact ${ago(last(open), m.today)}` : ''} nav={nav}>
+        {!open && !opening && <Notice tone="amber">This customer was not found, or is not one you can see.</Notice>}
         {open && <Details key={open.id} c={open} erp={erp} />}
       </Drawer>
     </Page>
@@ -114,7 +116,7 @@ function Details({ c, erp }) {
           ['Type', c.type], ['Area', c.area], ['Min. Budget', rm0(c.budgetMin)], ['Max. Budget', rm0(c.budgetMax)],
           ['Phone', c.phone], ['From Where', CUSTOMER_FROM[c.from] || c.from], ['Action', CUSTOMER_ACTION[c.action]],
           ['Staff', <Link to={`staff/${c.ownerId}`}>{m.staffName(c.ownerId)}</Link>],
-          c.dealId && ['E-Form', <Link to={`deals/${c.dealId}`} style={mono}>{m.deals[c.dealId]?.code}</Link>],
+          c.dealId && ['E-Form', <Link to={`deals/${c.dealId}`} style={mono}>{c.$?.dealCode}</Link>],
         ]} />
       </Block>
       <Block title="Remarks">
@@ -132,7 +134,7 @@ function Details({ c, erp }) {
                 <span style={{ fontSize: 12, color: C.muted, width: 52, flexShrink: 0 }}>{date(f.date, { short: true })}</span>
                 <span style={{ flex: 1, fontSize: 13.5 }}><b>{f.action}</b> · {f.note}
                   {(f.property || f.listingId || f.price) && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>
-                    {[f.property, f.price ? rm0(f.price) : null].filter(Boolean).join(' · ')}{f.listingId && m.listings[f.listingId] ? <> · <Link to={`listings/${f.listingId}`} style={mono}>{m.listings[f.listingId].code}</Link></> : null}</span>}</span>
+                    {[f.property, f.price ? rm0(f.price) : null].filter(Boolean).join(' · ')}{f.listingId ? <> · <Link to={`listings/${f.listingId}`} style={mono}>{m.listings?.[f.listingId]?.code || 'Listing'}</Link></> : null}</span>}</span>
               </li>
             ))}
           </ol>
@@ -176,6 +178,7 @@ function Details({ c, erp }) {
 // Add New Name: the current entry form.
 function AddName() {
   const erp = useErp()
+  const read = useListReader()
   const { m, scoped: d } = erp
   const [f, setF] = useState({ date: localToday(), type: 'Sale', from: 'iProperty', ownerId: String(d.staff.find(s => s.status === 'active')?.id || '') })
   const [error, setError] = useState(null)
@@ -186,8 +189,10 @@ function AddName() {
   async function preview() {
     const gaps = missing([['Name', f.name], ['Phone', f.phone]])
     if (gaps.length) { setError(needText(gaps)); if (!markGaps(gaps)) window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
+    // Anyone the viewer may see with the same phone number, whatever branch the top bar shows.
     const digits = String(f.phone).replace(/\D/g, '')
-    const same = m.data.customers.filter(c => digits.length >= 7 && String(c.phone || '').replace(/\D/g, '') === digits)
+    const same = digits.length < 7 ? [] : (await read('customers', { q: digits, size: 20, counts: '0' }, { branch: false })).rows
+      .filter(c => String(c.phone || '').replace(/\D/g, '') === digits)
     const budget = [f.budgetMin, f.budgetMax].some(v => Number(v) > 0) ? `${Number(f.budgetMin) > 0 ? rm0(f.budgetMin) : '—'} to ${Number(f.budgetMax) > 0 ? rm0(f.budgetMax) : '—'}` : ''
     return review({
       title: 'Preview the customer', confirmLabel: 'Add customer',
