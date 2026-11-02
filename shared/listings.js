@@ -44,13 +44,18 @@ export const RATING = {
   green: { label: 'Fair price', tone: 'green', help: '10% to 15% above market value.' },
   blue: { label: 'Above market', tone: 'blue', help: '15% or more above market value. Talk the owner down before marketing it hard.' },
 }
+// Money in whole sen: prices are compared with a band's edge exactly (no rounding,
+// no floating-point error), the same way the server compares them.
+export const sen = v => Math.round(Number(v) * 100)
 // { band, pct, diff } for the Ad Price against the market value, or null without one.
+// The band is from the exact price (4.96% above is under 5%); pct is rounded for showing.
 export function priceRating(l) {
   const ask = Number(l.askPrice), mv = Number(l.marketValue)
   if (!(ask > 0) || !(mv > 0)) return null
   const pct = Math.round(((ask - mv) / mv) * 1000) / 10
+  const over = (sen(ask) - sen(mv)) * 100, base = sen(mv)
   const [a, b, c] = LISTING_RULES.ratingSteps
-  return { band: pct < a ? 'red' : pct < b ? 'orange' : pct < c ? 'green' : 'blue', pct, diff: ask - mv }
+  return { band: over < a * base ? 'red' : over < b * base ? 'orange' : over < c * base ? 'green' : 'blue', pct, diff: ask - mv }
 }
 
 // ── Hot lists (the app's home shortcuts), worked out from the listing ──
@@ -65,7 +70,7 @@ export function hotLists(l) {
   const key = has(l, KEY_FLAG)
   const out = []
   if (l.type === 'sale' && r && ((r.band === 'red' && (key || has(l, 'Vacant') || has(l, 'Friendly Tenant'))) || (r.band === 'orange' && key))) out.push('hotSale')
-  if (l.type === 'sale' && l.marketValue > 0 && l.bestPrice > 0 && l.askPrice > l.bestPrice && l.bestPrice <= l.marketValue * (1 + LISTING_RULES.superHotPct / 100)) out.push('superHot')
+  if (l.type === 'sale' && l.marketValue > 0 && l.bestPrice > 0 && l.askPrice > l.bestPrice && sen(l.bestPrice) * 100 <= sen(l.marketValue) * (100 + LISTING_RULES.superHotPct)) out.push('superHot')
   if (l.type === 'rental' && r && key) out.push('rentKing')
   return out
 }
