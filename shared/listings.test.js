@@ -12,6 +12,10 @@ describe('price against market value', () => {
     expect(L.priceRating(listing({ askPrice: 560000, marketValue: 500000 })).band).toBe('green')
     expect(L.priceRating(listing({ askPrice: 575000, marketValue: 500000 })).band).toBe('blue')
     expect(L.priceRating(listing({ marketValue: null }))).toBe(null)
+    // The band is from the exact price: 4.9998% above is under 5%, exactly 5% is not.
+    expect(L.priceRating(listing({ askPrice: 524999, marketValue: 500000 }))).toMatchObject({ band: 'red', pct: 5 })
+    expect(L.priceRating(listing({ askPrice: 525000, marketValue: 500000 })).band).toBe('orange')
+    expect(L.priceRating(listing({ askPrice: 1049.99, marketValue: 1000 })).band).toBe('red')
   })
 })
 
@@ -26,6 +30,9 @@ describe('hot lists', () => {
     expect(L.hotLists(listing({ askPrice: 560000, bestPrice: 520000, marketValue: 500000 }))).toContain('superHot')
     expect(L.hotLists(listing({ askPrice: 560000, bestPrice: 530000, marketValue: 500000 }))).not.toContain('superHot')
     expect(L.hotLists(listing({ askPrice: 520000, bestPrice: 520000, marketValue: 500000 }))).not.toContain('superHot')
+    // Exactly 5% above market value still counts.
+    expect(L.hotLists(listing({ askPrice: 560000, bestPrice: 525000, marketValue: 500000 }))).toContain('superHot')
+    expect(L.hotLists(listing({ askPrice: 560000, bestPrice: 525000.01, marketValue: 500000 }))).not.toContain('superHot')
   })
   it('Rent King: a rental with a market value and the key', () => {
     expect(L.hotLists(listing({ type: 'rental', askPrice: 2000, bestPrice: 1900, marketValue: 1800, flags: [L.KEY_FLAG] }))).toEqual(['rentKing'])
