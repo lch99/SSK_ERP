@@ -130,7 +130,8 @@ const LISTINGS = {
     title: 'title', followUp: { last: 'followUps', field: 'date' } },
   sort: '-updated',
   counts: {
-    status: 'status', type: 'type', category: 'category',
+    // area: where someone's listings are (the Agent Profile's areas of expertise).
+    status: 'status', type: 'type', category: 'category', area: 'area',
     group1: { set: { group: '1' } }, group2: { set: { group: '2' } }, group3: { set: { group: '3' } },
     hotSale: { set: { hot: 'hotSale' } }, superHot: { set: { hot: 'superHot' } }, rentKing: { set: { hot: 'rentKing' } },
   },
@@ -145,7 +146,8 @@ const LISTINGS = {
 const STAFF_KEEP = ['kind', 'branchId']
 const STAFF = {
   area: 'staff',
-  search: ['name', 'short', 'code', 'phone', 'ic', 'email', 'username', { digits: 'phone' }],
+  // A phone or IC number by its digits, however it was typed (the same-person check on Add).
+  search: ['name', 'short', 'code', 'phone', 'ic', 'email', 'username', { digits: 'phone' }, { digits: 'ic' }],
   filters: {
     branchId: { eq: 'branchId' }, status: { eq: 'status' }, type: { eq: 'type' }, position: { eq: 'role' }, tierId: { eq: 'tierFloorId' },
     uplineId: { eq: 'uplineId' }, hasRole: { notNull: 'role' },

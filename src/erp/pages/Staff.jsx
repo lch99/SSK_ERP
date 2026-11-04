@@ -18,7 +18,7 @@ import { useNarrow } from '../../setup/useNarrow.js'
 import { NoAccess, useAccess, useCan, useGate } from '../access.jsx'
 import * as L from '../../../shared/listings.js'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
-import { useList, useRecord, useListDownload } from '../useList.js'
+import { useList, useRecord, useListReader, useListDownload } from '../useList.js'
 import { StaffPicker } from '../pickers.jsx'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
@@ -392,12 +392,20 @@ function StaffFormStart(s) {
 
 // Add / Edit staff, in the sections of the client's new HR form. The old form's
 // extra questions (smoker, transport, previous job…) sit under "More details".
+// An edit starts from the person's record (one read).
 function StaffForm({ id, office = false }) {
+  const { record: s, loading } = useRecord('staff', id ?? null)
+  if (id && !s) return loading ? <Page title="Loading…" back={{ to: 'staff', label: 'All agents' }} /> : <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists, or is not one you can see" /></Page>
+  return <StaffFormFor s={s} office={office} />
+}
+
+function StaffFormFor({ s, office }) {
   const fb = useFeedback()
   const review = useReview()
   const erp = useErp()
+  const read = useListReader()
   const { m, setup } = erp
-  const s = id ? m.staff[id] : null
+  const id = s?.id
   const [f, setF] = useState(() => s ? StaffFormStart(s) : {
     type: office ? 'admin-staff2' : 'staff', tierFloorId: '', branchId: String(setup.branches[0]?.id || ''), uplineId: '', role: '', username: '', password: '', name: '', ic: '', sex: 'male', birthday: '',
     short: '', phone: '', phone2: '', email: '', bio: '', socials: {}, regType: 'REN', regNo: '', bank: '', account: '', accountName: '', docs: {}, awards: [], active: false,
@@ -407,14 +415,12 @@ function StaffForm({ id, office = false }) {
   const [error, setError] = useState(null)
   const [award, setAward] = useState(null)
   const [busy, setBusy] = useState(false)
-  if (id && !s) return <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists" /></Page>
   // Office staff have no tier, upline, public profile or agent features.
   const agentForm = isAgent({ type: f.type })
   const listPath = agentForm ? 'staff' : 'staff/office'
   const set = k => e => setF(v => ({ ...v, [k]: e.target.value }))
   const setX = k => e => setF(v => ({ ...v, extra: { ...v.extra, [k]: e.target.value } }))
   const branchId = Number(f.branchId)
-  const uplines = m.data.staff.filter(x => x.branchId === branchId && x.status !== 'inactive' && x.id !== id).sort((a, b) => (b.role ? 1 : 0) - (a.role ? 1 : 0) || a.short.localeCompare(b.short))
   const tiers = P.tiersFor(setup, branchId)
   const grid = { display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))' }
   const section = (title, sub, children, help) => <Card title={title} sub={sub} help={help}><div style={grid}>{children}</div></Card>
@@ -442,8 +448,11 @@ function StaffForm({ id, office = false }) {
           ['username', 'Username'], ['name', 'Full Name'], ['ic', 'NRIC Number', maskIc], ['short', 'Namecard Name'], ['phone', 'Phone Number'], ['email', 'Email Address'],
           ['bank', 'Bank'], ['account', 'Bank Account', maskAcc], ['accountName', 'Account Holder Name'], ['reg', 'Registration'], ['expiresOn', 'Active Status Expiry', date], ['active', 'Account']]) })
     }
+    // Someone already here with this NRIC or phone number (searched by its digits).
     const digits = v => String(v || '').replace(/\D/g, '')
-    const twin = m.data.staff.find(x => (digits(f.ic).length >= 6 && digits(x.ic) === digits(f.ic)) || (digits(f.phone).length >= 7 && digits(x.phone) === digits(f.phone)))
+    const same = async (k, min) => (digits(f[k]).length < min ? []
+      : (await read('staff', { q: digits(f[k]), size: 20, counts: '0' }, { branch: false })).rows.filter(x => digits(x[k]) === digits(f[k])))
+    const twin = (await same('ic', 6))[0] || (await same('phone', 7))[0]
     const up = f.uplineId ? m.staff[Number(f.uplineId)] : null
     const chain = up ? [...m.chain(up.id)].reverse().concat(up).map(x => `${x.short}${x.role ? ` (${x.role})` : ''}`).join(' › ') : ''
     const on = Object.entries(ACCESS).filter(([k]) => f.access[k]).map(([, label]) => label.replace(/^Enable /, '').replace(/ Features$/, ''))
@@ -500,7 +509,10 @@ function StaffForm({ id, office = false }) {
           {pick('branchId', 'Branch', setup.branches.map(b => ({ value: String(b.id), label: b.name })), { required: true })}
           {agentForm && pick('tierFloorId', 'Rank (position)', [{ value: '', label: `${tiers[0] ? P.tierLabel(tiers[0]) : 'First tier'} (start)` }, ...tiers.slice(1).map(t => ({ value: t.id, label: P.tierLabel(t) }))], { help: 'The tier they start at. They move up as they earn.' })}
           {agentForm && setup.roles.length > 0 && pick('role', 'Upline level they hold', [{ value: '', label: 'None (negotiator)' }, ...setup.roles.map(r => ({ value: r.code, label: `${r.code} · ${r.name}` }))])}
-          {agentForm && pick('uplineId', 'Upline', [{ value: '', label: 'No upline' }, ...uplines.map(x => ({ value: String(x.id), label: `${x.code} (${x.short})${x.role ? ` · ${x.role}` : ''}` }))], { help: 'An existing staff member to be the upline for this agent.' })}
+          {agentForm && <FormField label="Upline" help="An existing staff member to be the upline for this agent.">
+            <StaffPicker block plain label="Upline" all="No upline" value={f.uplineId} onChange={v => setF(x => ({ ...x, uplineId: v }))} not={id ? [id] : []} branch={false}
+              filters={{ kind: 'agent', branchId, status: 'active,pending,suspended,locked' }} show={x => `${x.code} (${x.short})${x.role ? ` · ${x.role}` : ''}`} />
+          </FormField>}
           {text('username', 'Username', { required: true })}
           {!s && text('password', 'Password', { type: 'password', required: true })}
         </>)}
@@ -588,14 +600,18 @@ function StaffForm({ id, office = false }) {
 
 // Marketing Staffs: assistants who may work on this person's customers and listings.
 function MarketingStaffs({ id }) {
+  const { record: s, loading } = useRecord('staff', id)
+  if (!s) return loading ? <Page title="Loading…" back={{ to: `staff/${id}`, label: 'Back' }} /> : <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists, or is not one you can see" /></Page>
+  return <MarketingStaffsOf s={s} />
+}
+
+function MarketingStaffsOf({ s }) {
   const erp = useErp()
   const fb = useFeedback()
   const { m } = erp
-  const s = m.staff[id]
-  const [rows, setRows] = useState(() => (s?.marketing || []).map(r => ({ ...r, staffId: String(r.staffId) })))
+  const id = s.id
+  const [rows, setRows] = useState(() => (s.marketing || []).map(r => ({ ...r, staffId: String(r.staffId) })))
   const [adding, setAdding] = useState('')
-  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists" /></Page>
-  const others = m.data.staff.filter(x => x.id !== id && x.status !== 'inactive' && !rows.some(r => r.staffId === String(x.id))).sort((a, b) => a.short.localeCompare(b.short))
   const dirty = JSON.stringify(rows.map(r => ({ ...r, staffId: Number(r.staffId) }))) !== JSON.stringify(s.marketing || [])
   const flip = (i, k) => setRows(rs => rs.map((r, j) => (j === i ? { ...r, [k]: !r[k] } : r)))
   const check = (r, i, k) => <input type="checkbox" checked={!!r[k]} onChange={() => flip(i, k)} aria-label={k} style={{ accentColor: C.primary, width: 17, height: 17 }} />
@@ -604,7 +620,8 @@ function MarketingStaffs({ id }) {
       actions={<button style={{ ...btnPrimary, opacity: dirty ? 1 : 0.5 }} disabled={!dirty} onClick={() => fb.run(() => erp.setMarketingStaffs(id, rows), 'Marketing staffs saved')}>Save</button>}>
       <Card pad={16}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-          <Select label="Add Staff" value={adding} onChange={setAdding} options={[{ value: '', label: 'Select staff to add' }, ...others.map(x => ({ value: String(x.id), label: `${x.short} (${x.code})` }))]} />
+          <StaffPicker label="Add Staff" all="Select staff to add" value={adding} onChange={setAdding} branch={false} filters={{ status: 'active,pending,suspended,locked' }}
+            not={[id, ...rows.map(r => Number(r.staffId))]} show={x => `${x.short} (${x.code})`} />
           <button style={small} disabled={!adding} onClick={() => { setRows(rs => [...rs, { staffId: adding, customers: true, listings: true, shared: false }]); setAdding('') }}>Add Staff</button>
         </div>
         <DataTable rows={rows.map((r, i) => ({ ...r, i, id: r.staffId }))} narrowAt={560} empty="No staffs found." columns={[
@@ -630,20 +647,25 @@ function StaffChart({ id }) {
     </Page>
   )
 }
-const countTeam = (m, id) => (m.downline[id] || []).filter(k => k.status !== 'inactive').reduce((n, k) => n + 1 + countTeam(m, k.id), 0)
 
 // Agent Profile Generator: a one-page profile with featured listings, to print or save as PDF.
+// Their active listings are a paged read (newest first); areas and categories of expertise
+// are where most of their listings are (counts over every listing they hold).
 function ProfileDoc({ id }) {
   const { m, setup } = useErp()
-  const s = m.staff[id]
-  const own = s ? m.data.listings.filter(l => l.holderId === id && l.status === 'active').sort((a, b) => b.updated.localeCompare(a.updated)) : []
-  const [picked, setPicked] = useState(() => own.slice(0, 4).map(l => l.id))
-  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists" /></Page>
-  const all = m.data.listings.filter(l => l.holderId === id)
-  const areas = [...new Set(all.map(l => l.area))].slice(0, 4)
-  const cats = [...new Set(all.map(l => l.category))].slice(0, 4)
+  const { record: s, loading } = useRecord('staff', id)
+  const mine = { branch: false, pageSize: 30 }
+  const ownList = useList('listings', { holderId: id, status: 'active', sort: '-updated', counts: '0' }, mine)
+  const everyList = useList('listings', { holderId: id, counts: 'area,category' }, { ...mine, pageSize: 1 })
+  const own = ownList.rows
+  const [chosen, setPicked] = useState(null)
+  const picked = chosen ?? own.slice(0, 4).map(l => l.id)
+  if (!s) return loading ? <Page title="Loading…" back={{ to: `staff/${id}`, label: 'Back' }} /> : <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists, or is not one you can see" /></Page>
+  const most = o => Object.entries(o || {}).filter(([k]) => k).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 4).map(([k]) => k)
+  const areas = most(everyList.counts.area)
+  const cats = most(everyList.counts.category)
   const years = Math.max(1, Math.round((new Date(`${m.today}T00:00:00Z`) - new Date(`${s.joined}T00:00:00Z`)) / (365 * 86400000)))
-  const t = m.tierInfo(id)
+  const t = tierStanding(s, s.$?.credit?.lifetime || 0, s.$?.credit?.yearly || 0, setup)
   const featured = own.filter(l => picked.includes(l.id))
   return (
     <Page title="Agent Profile Generator" help={PAGE.profileDoc} back={{ to: `staff/${s.id}`, label: s.short }}
@@ -654,10 +676,11 @@ function ProfileDoc({ id }) {
           {own.map(l => (
             <label key={l.id} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13, border: `1px solid ${picked.includes(l.id) ? C.primary : C.border}`, borderRadius: 8, padding: '5px 9px' }}>
               <input type="checkbox" checked={picked.includes(l.id)} disabled={!picked.includes(l.id) && picked.length >= 6} style={{ accentColor: C.primary }}
-                onChange={() => setPicked(p => (p.includes(l.id) ? p.filter(x => x !== l.id) : [...p, l.id]))} />{l.code} · {l.title}
+                onChange={() => setPicked(picked.includes(l.id) ? picked.filter(x => x !== l.id) : [...picked, l.id])} />{l.code} · {l.title}
             </label>
           ))}
         </div>
+        {own.length < ownList.total && <button style={{ ...small, marginTop: 10 }} disabled={ownList.loading} onClick={ownList.more}>Show more ({num(ownList.total - own.length)})</button>}
       </Card>
       <div style={{ maxWidth: 780, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 'clamp(16px, 4vw, 32px)', boxShadow: C.shadow }}>
         <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', borderBottom: `2px solid ${C.primary}`, paddingBottom: 16 }}>
