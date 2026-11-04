@@ -151,6 +151,8 @@ const STAFF = {
   filters: {
     branchId: { eq: 'branchId' }, status: { eq: 'status' }, type: { eq: 'type' }, position: { eq: 'role' }, tierId: { eq: 'tierFloorId' },
     uplineId: { eq: 'uplineId' }, hasRole: { notNull: 'role' },
+    // These people (ids, comma-separated): the org chart's rows on screen.
+    ids: { eq: 'id' },
     // agent: Agent and Sales Agent accounts; office: everyone else (src/erp/model.js isAgent).
     kind: { oneOf: 'type', sets: { agent: AGENT_TYPES, office: { not: AGENT_TYPES } } },
     teamOf: { team: ['id'], self: false },

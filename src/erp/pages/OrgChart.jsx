@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import * as P from '../../../shared/payout.js'
 import { C } from '../../styles.js'
 import { useNarrow } from '../../setup/useNarrow.js'
 import { useErp } from '../ErpContext.jsx'
@@ -9,10 +10,13 @@ import { rm, num } from '../format.js'
 import { buildOrg, findPeople } from '../org.js'
 import { isAgent } from '../model.js'
 import { RoleTag } from './Staff.jsx'
+import { useListReader } from '../useList.js'
 
 // The org chart, built for agencies with thousands of agents: only what is
 // open is drawn, a big team shows 20 at a time, a search finds anyone, and any
-// leader's team opens on its own with the uplines as a trail back up.
+// leader's team opens on its own with the uplines as a trail back up. Who is
+// under whom comes from the staff directory; each drawn person's tier and
+// commission this year are read for the people on screen (useCredit).
 //   #/org-chart                 every branch
 //   #/org-chart/b<id>           one branch
 //   #/org-chart/<id>            one person and their team
@@ -102,6 +106,16 @@ export function OrgTree({ focus = null, highlight = null }) {
     requestAnimationFrame(() => hlRef.current?.scrollIntoView({ block: 'center' }))
   })
 
+  // Everyone drawn right now: what is open, as far as each list is shown.
+  const drawn = []
+  const walk = (rows, key) => {
+    const limit = rows.length <= FIRST + 5 ? rows.length : limits.get(key) || FIRST
+    const target = highlight ? rows.findIndex(p => org.within(highlight, p.id)) : -1
+    for (const p of [...rows.slice(0, limit), ...(target >= limit ? [rows[target]] : [])]) { drawn.push(p.id); if (open.has(p.id)) walk(kidsOf(p.id), p.id) }
+  }
+  if (root) { drawn.push(root.id); if (open.has(root.id)) walk(kidsOf(root.id), root.id) } else for (const b of branches) if (open.has(`b${b.id}`)) walk(topsOf(b.id), `b${b.id}`)
+  const credit = useCredit(drawn)
+
   const toggle = key => setOpen(o => { const n = new Set(o); if (n.has(key)) n.delete(key); else n.add(key); return n })
   const showMore = (key, total, all) => setLimits(l => new Map(l).set(key, all ? total : Math.min(total, (l.get(key) || FIRST) + MORE)))
 
@@ -147,7 +161,8 @@ export function OrgTree({ focus = null, highlight = null }) {
   const person = (p, depth) => {
     const kids = kidsOf(p.id)
     const isOpen = open.has(p.id)
-    const t = m.tierInfo(p.id)
+    const c = credit.get(p.id)
+    const tier = c && P.tiersFor(setup, p.branchId).find(x => x.name === c.tier)
     const team = org.team(p.id)
     const direct = org.under(p.id).length
     const picked = p.id === highlight
@@ -161,12 +176,12 @@ export function OrgTree({ focus = null, highlight = null }) {
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', lineHeight: 1.35 }}>
               <Link to={`staff/${p.id}`} style={{ color: C.text, fontWeight: 600 }}>{p.short}</Link>
               <RoleTag code={p.role} setup={setup} />
-              <Pill tone="gray" dot={false}>{t.tier.name} · {t.tier.agentRate}%</Pill>
+              {tier && <Pill tone="gray" dot={false}>{tier.name} · {tier.agentRate}%</Pill>}
               {p.status === 'pending' && <Pill tone="amber">New joiner</Pill>}
               {p.status === 'inactive' && <Pill tone="gray">Left</Pill>}
             </div>
             <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.45, ...tabular }}>
-              {[p.role && m.roleName(p.role), team ? `${num(direct)} direct · ${num(team)} in team` : null, `${rm(m.credit(p.id).year)} in ${m.year}`].filter(Boolean).join(' · ')}
+              {[p.role && m.roleName(p.role), team ? `${num(direct)} direct · ${num(team)} in team` : null, c ? `${rm(c.yearly)} in ${m.year}` : null].filter(Boolean).join(' · ')}
             </div>
           </div>
           {team > 0 && p.id !== root?.id && (
@@ -278,6 +293,29 @@ export function OrgTree({ focus = null, highlight = null }) {
       )}
     </div>
   )
+}
+
+// The tier and this year's commission of the people on screen (their tier credit, from
+// the staff list), 200 at a time: Map(id → { tier, yearly }). After a change to the
+// records they are read again (the old figures show until then).
+function useCredit(ids) {
+  const erp = useErp()
+  const read = useListReader()
+  const [by, setBy] = useState(() => new Map())
+  const asked = useRef({ m: null, ids: new Set() })
+  const key = ids.join(',')
+  useEffect(() => {
+    if (asked.current.m !== erp.m) asked.current = { m: erp.m, ids: new Set() }
+    const want = ids.filter(id => !asked.current.ids.has(id))
+    for (const id of want) asked.current.ids.add(id)
+    for (let i = 0; i < want.length; i += 200) {
+      const part = want.slice(i, i + 200)
+      read('staff', { ids: part.join(','), size: 200, counts: '0' }, { branch: false }).then(
+        r => setBy(old => { const n = new Map(old); for (const p of r.rows) n.set(p.id, p.$?.credit); return n }),
+        () => { for (const id of part) asked.current.ids.delete(id) })
+    }
+  }, [key, erp.m]) // eslint-disable-line react-hooks/exhaustive-deps
+  return by
 }
 
 function Toggle({ has, open, onClick, label }) {
