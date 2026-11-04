@@ -38,3 +38,14 @@ export const MONEY_OUT_TYPES = {
   referral: 'Introducer Fees',
   ta: 'Tenancy Agreement Fees',
 }
+
+// Staff accounts: Pending → Active, or Suspended / Locked by the clock, or Inactive (left).
+export const STAFF_STATUS = {
+  active: { label: 'Active', tone: 'green', help: 'Can sign in and be paid.' },
+  pending: { label: 'Pending', tone: 'amber', help: 'New. HR still has to enable them (within 7 days, or the account is suspended).' },
+  suspended: { label: 'Suspended', tone: 'red', help: 'Cannot sign in: not verified within 7 days of joining, or suspended by HR. Their listings went to the next person in line.' },
+  locked: { label: 'Locked', tone: 'red', help: 'Cannot sign in: no activity for 60 days. HR unlocks it; their listings went to the next person in line.' },
+  inactive: { label: 'Inactive', tone: 'gray', help: 'Left or disabled. Cannot sign in.' },
+}
+// Account types (the current ERP's codes). Agent and Sales Agent are agents; the rest are office staff.
+export const ACCOUNT_TYPES = { staff: 'Agent', 'sale-staff': 'Sales Agent', 'admin-staff': 'Admin Level 2', 'admin-staff2': 'Admin Level 1', account: 'Accounting', 'sale-marketing': 'Marketing & Sales' }

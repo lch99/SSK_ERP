@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import * as A from '../../../shared/access.js'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
@@ -14,12 +14,12 @@ import { rm, date, maskIc, maskAcc, num, ago } from '../format.js'
 import { lineRole } from './Payouts.jsx'
 import { BANKS } from './options.js'
 import { OrgTree } from './OrgChart.jsx'
-import { buildOrg } from '../org.js'
 import { useNarrow } from '../../setup/useNarrow.js'
-import { makeXlsx, download, XLSX_TYPE } from '../../setup/sheet.js'
 import { NoAccess, useAccess, useCan, useGate } from '../access.jsx'
 import * as L from '../../../shared/listings.js'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
+import { useList, useListDownload } from '../useList.js'
+import { StaffPicker } from '../pickers.jsx'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
 // Agents (Agents module): position (tier), upline and status. Office staff
@@ -46,12 +46,14 @@ export function RoleTag({ code, setup }) {
   return <span style={{ fontSize: 11.5, fontWeight: 700, padding: '1px 7px', borderRadius: 999, color, background: `${color}14`, border: `1px solid ${color}40`, whiteSpace: 'nowrap' }}>{code}</span>
 }
 
-// Built for thousands of people: counts at the top (each one a filter),
-// filters for upline level, tier and a leader's team, 25 rows at a time, and
-// the whole filtered list as an Excel file.
+// Built for thousands of people: a page at a time from the server (useList),
+// counts at the top (each one a filter, of everyone of the kind), filters for
+// upline level, tier and a leader's team, and the whole filtered list as an
+// Excel file built by the server.
 function StaffList({ office = false }) {
-  const { m, scoped: d, setup } = useErp()
+  const { m, setup } = useErp()
   const can = useCan()
+  const fb = useFeedback()
   const [tab, setTab] = useState('all')
   const [view, setView] = useState('list')
   const [q, setQ] = useState('')
@@ -60,85 +62,57 @@ function StaffList({ office = false }) {
   const [leader, setLeader] = useState('')   // a leader's id: only the people under them
   const [quick, setQuick] = useState('')     // 'new' (joined this month) · 'expiring' (within 30 days)
   const [kind, setKind] = useState('')       // office staff: an account type
+  const [sort, setSort] = useState('code')
   // Phones: the counts sit two by two, without icons, so the list starts on the first screen.
   const [statsBox, narrow] = useNarrow(560)
 
   // Agents or office staff, never both (see isAgent in model.js).
-  const people = useMemo(() => d.staff.filter(s => isAgent(s) !== office), [d.staff, office])
-  const org = useMemo(() => buildOrg(people), [people])
-  const tierOf = useMemo(() => new Map(people.map(s => [s.id, m.tierInfo(s.id).tier])), [people, m])
-  const month = m.today.slice(0, 7)
-  const soon = addDaysIso(m.today, 30)
-  const joinedNow = s => String(s.joined || '').startsWith(month)
-  const expiring = s => s.status !== 'inactive' && !!s.expiresOn && s.expiresOn < soon
-  const leaders = people.filter(s => s.role)
-
-  const match = useMemo(() => {
-    const words = q.trim().toLowerCase()
-    const lead = leader ? Number(leader) : null
-    return people.filter(s => (!words || [s.name, s.short, s.code, s.phone, s.email, s.username, s.ic].join(' ').toLowerCase().includes(words))
-      && (!level || (level === 'leaders' ? !!s.role : level === 'none' ? !s.role : s.role === level))
-      && (!tier || tierOf.get(s.id)?.name === tier)
-      && (lead == null || (s.id !== lead && org.within(s.id, lead)))
-      && (!quick || (quick === 'new' ? joinedNow(s) : expiring(s)))
-      && (!kind || s.type === kind))
-  }, [people, q, level, tier, leader, quick, kind, org, tierOf]) // eslint-disable-line react-hooks/exhaustive-deps
-  const rows = tab === 'all' ? match : match.filter(s => s.status === tab)
+  const key = office ? 'office' : 'staff'
+  const params = {
+    kind: office ? 'office' : 'agent', q, status: tab === 'all' ? '' : tab, type: kind, tier, teamOf: leader, sort,
+    ...(level === 'leaders' ? { hasRole: 'true' } : level === 'none' ? { hasRole: 'false' } : level ? { position: level } : {}),
+    ...(quick === 'new' ? { joinedFrom: `${m.today.slice(0, 7)}-01` } : quick === 'expiring' ? { expiringBefore: addDaysIso(m.today, 30) } : {}),
+  }
+  const list = useList(key, { ...params, counts: office ? 'status,type,everyone,joinedThisMonth,expiring' : 'status,everyone,leaders,joinedThisMonth,expiring,tiers' }, { pageSize: 25 })
+  const saveExcel = useListDownload(key)
+  const counts = list.counts
+  const add = o => Object.values(o || {}).reduce((t, n) => t + n, 0)
+  const everyone = counts.everyone || {}
+  const all = add(everyone)
+  const leaders = add(counts.leaders)
   const set = [level, tier, leader, quick, kind].filter(Boolean).length + (tab !== 'all' ? 1 : 0)
   const clear = () => { setQ(''); setTab('all'); setLevel(''); setTier(''); setLeader(''); setQuick(''); setKind('') }
 
-  const count = (list, f) => list.filter(f).length
+  const byLevel = counts.leaders || {}
   const levelOptions = [{ value: '', label: 'All levels' },
-    ...(setup.roles.length ? [{ value: 'leaders', label: `All leaders (${num(leaders.length)})` }] : []),
-    ...[...setup.roles].reverse().map(r => ({ value: r.code, label: `${r.code} · ${r.name} (${num(count(people, s => s.role === r.code))})` })),
-    ...(setup.roles.length ? [{ value: 'none', label: `No upline level (${num(count(people, s => !s.role))})` }] : [])]
-  const tierNames = [...new Set(people.map(s => tierOf.get(s.id)?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-  const tierOptions = [{ value: '', label: 'All tiers' }, ...tierNames.map(t => ({ value: t, label: `${t} (${num(count(people, s => tierOf.get(s.id)?.name === t))})` }))]
-  const rank = s => setup.roles.findIndex(r => r.code === s.role)
-  const leaderOptions = [{ value: '', label: 'Anyone' }, ...[...leaders].sort((a, b) => rank(b) - rank(a) || a.short.localeCompare(b.short))
-    .map(s => ({ value: String(s.id), label: `${s.short} · ${s.role} (${num(org.team(s.id))})` }))]
-
+    ...(setup.roles.length ? [{ value: 'leaders', label: `All leaders (${num(leaders)})` }] : []),
+    ...[...setup.roles].reverse().map(r => ({ value: r.code, label: `${r.code} · ${r.name} (${num(byLevel[r.code] || 0)})` })),
+    ...(setup.roles.length ? [{ value: 'none', label: `No upline level (${num(all - leaders)})` }] : [])]
+  const byTier = counts.tiers || {}
+  const tierNames = Object.keys(byTier).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const tierOptions = [{ value: '', label: 'All tiers' }, ...tierNames.map(t => ({ value: t, label: `${t} (${num(byTier[t])})` }))]
+  const byType = counts.type || {}
   const kindOptions = [{ value: '', label: 'All account types' }, ...Object.entries(ACCOUNT_TYPES).filter(([k]) => !AGENT_TYPES.includes(k))
-    .map(([value, label]) => ({ value, label: `${label} (${num(count(people, s => s.type === value))})` }))]
-
-  // The filtered list, every row (not just the page on screen), for Excel.
-  const exportRows = () => {
-    if (office) {
-      const head = ['Staff ID', 'Name', 'IC name', 'User name', 'Account type', 'Branch', 'Phone', 'Email', 'IC no.', 'Status', 'Joined', 'Account expiry', 'Last activity']
-      const body = rows.map(s => [s.code, s.short, s.name, s.username, ACCOUNT_TYPES[s.type] || s.type, m.branchName(s.branchId), s.phone, s.email, maskIc(s.ic),
-        STAFF_STATUS[s.status]?.label || s.status, s.joined || '', s.expiresOn || '', s.lastActive ? String(s.lastActive).slice(0, 10) : ''])
-      download(makeXlsx([{ name: 'Office staff', rows: [head, ...body], widths: [14, 22, 26, 14, 18, 16, 14, 28, 18, 10, 12, 14, 14] }]), `office-staff-${m.today}.xlsx`, XLSX_TYPE)
-      return
-    }
-    const head = ['Staff ID', 'Name', 'IC name', 'User name', 'Branch', 'Upline level', 'Tier', 'Agent rate %', 'Upline', 'Upline staff ID',
-      'Direct', 'In team', 'Phone', 'Email', 'IC no.', 'Status', 'Joined', 'Account expiry', 'Closing, lifetime (RM)', `Commission ${m.year} (RM)`, 'Last activity']
-    const body = rows.map(s => {
-      const t = tierOf.get(s.id), up = s.uplineId ? m.staff[s.uplineId] : null
-      return [s.code, s.short, s.name, s.username, m.branchName(s.branchId), s.role ? `${s.role} · ${m.roleName(s.role)}` : '', t?.name || '', t ? Number(t.agentRate) : '',
-        up?.short || '', up?.code || '', org.under(s.id).length, org.team(s.id), s.phone, s.email, maskIc(s.ic), STAFF_STATUS[s.status]?.label || s.status,
-        s.joined || '', s.expiresOn || '', m.credit(s.id).lifetime, m.credit(s.id).year, s.lastActive ? String(s.lastActive).slice(0, 10) : '']
-    })
-    const widths = [14, 22, 26, 14, 16, 24, 8, 10, 22, 14, 8, 8, 14, 28, 18, 10, 12, 14, 18, 18, 14]
-    download(makeXlsx([{ name: 'Agents', rows: [head, ...body], widths }]), `agents-${m.today}.xlsx`, XLSX_TYPE)
-  }
+    .map(([value, label]) => ({ value, label: `${label} (${num(byType[value] || 0)})` }))]
+  const byStatus = counts.status || {}
+  const tierOf = s => P.tiersFor(setup, s.branchId).find(t => t.name === s.$?.credit?.tier)
 
   const columns = [
-    { key: 'who', label: 'Staff-ID · User Name', sort: s => s.code, render: s => <Who name={s.short} sub={`${s.code} · ${s.username}`} size={30} /> },
-    { key: 'ic', label: 'IC Name · IC No', sort: s => s.name, render: s => <span style={{ fontSize: 13 }}>{s.name}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{maskIc(s.ic)}</span></span> },
+    { key: 'who', label: 'Staff-ID · User Name', sortKey: 'code', render: s => <Who name={s.short} sub={`${s.code} · ${s.username}`} size={30} /> },
+    { key: 'ic', label: 'IC Name · IC No', sortKey: 'name', render: s => <span style={{ fontSize: 13 }}>{s.name}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{maskIc(s.ic)}</span></span> },
     { key: 'contact', label: 'Phone 1 · E-Mail', render: s => <span style={{ fontSize: 13 }}>{s.phone}<span style={{ display: 'block', fontSize: 12, color: C.muted, overflowWrap: 'anywhere' }}>{s.email}</span></span> },
-    { key: 'level', label: 'Position Request', help: COLUMN.staffPosition, sort: s => m.tierInfo(s.id).idx, render: s => {
-      const t = m.tierInfo(s.id)
-      return <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><Pill tone="gray" dot={false}>{P.tierLabel(t.tier)}</Pill><RoleTag code={s.role} setup={setup} /></span>
-    } },
-    { key: 'closing', label: 'Closing Amount', help: COLUMN.staffClosing, align: 'right', sort: s => m.credit(s.id).lifetime, render: s => rm(m.credit(s.id).lifetime) },
-    { key: 'upline', label: 'Upline · Branch', sort: s => m.staffName(s.uplineId), render: s => (
-      <span>{s.uplineId ? m.staffName(s.uplineId) : <span style={{ color: C.muted }}>No upline</span>}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{m.branchName(s.branchId)}{org.team(s.id) ? ` · ${num(org.team(s.id))} in team` : ''}</span></span>
+    { key: 'level', label: 'Position Request', help: COLUMN.staffPosition, sortKey: 'tier', render: s => (
+      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><Pill tone="gray" dot={false}>{P.tierLabel(tierOf(s)) || '—'}</Pill><RoleTag code={s.role} setup={setup} /></span>
     ) },
-    { key: 'status', label: 'Status · Expiry', help: COLUMN.staffExpiry, sort: s => s.expiresOn || '', render: s => (
+    { key: 'closing', label: 'Closing Amount', help: COLUMN.staffClosing, align: 'right', sortKey: 'closing', render: s => rm(s.$?.credit?.lifetime || 0) },
+    { key: 'upline', label: 'Upline · Branch', render: s => (
+      <span>{s.$?.upline ? s.$.upline.short || s.$.upline.name : <span style={{ color: C.muted }}>No upline</span>}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{m.branchName(s.branchId)}{s.$?.team?.team ? ` · ${num(s.$.team.team)} in team` : ''}</span></span>
+    ) },
+    { key: 'status', label: 'Status · Expiry', help: COLUMN.staffExpiry, sortKey: 'expiresOn', render: s => (
       <span><Status of={STAFF_STATUS} value={s.status} />
         {s.expiresOn && s.status !== 'inactive' && <span style={{ display: 'block', fontSize: 12, color: s.expiresOn < addDaysIso(m.today, 30) ? C.warn : C.muted, marginTop: 3 }}>until {date(s.expiresOn, { short: true })}</span>}</span>
     ) },
-    { key: 'seen', label: 'Last Login/Activity', sort: s => s.lastActive || '', render: s => {
+    { key: 'seen', label: 'Last Login/Activity', sortKey: 'lastActive', render: s => {
       const idle = s.lastActive ? L.daysBetween(String(s.lastActive).slice(0, 10), m.today) : null
       const left = L.LISTING_RULES.idleDays + 1 - idle
       return <span style={{ fontSize: 12.5, color: C.muted }}>{s.lastActive ? ago(s.lastActive, m.today) : 'Never'}
@@ -146,24 +120,22 @@ function StaffList({ office = false }) {
     } },
     { key: 'actions', label: '', card: false, render: s => <StaffMenu s={s} /> },
   ].flatMap(c => (!office ? [c] : c.key === 'level' ? [
-    { key: 'type', label: 'Account Type', sort: s => ACCOUNT_TYPES[s.type] || '', render: s => <Pill tone="violet" dot={false}>{ACCOUNT_TYPES[s.type] || s.type}</Pill> },
-    { key: 'branch', label: 'Branch', sort: s => m.branchName(s.branchId), render: s => m.branchName(s.branchId) },
+    { key: 'type', label: 'Account Type', sortKey: 'type', render: s => <Pill tone="violet" dot={false}>{ACCOUNT_TYPES[s.type] || s.type}</Pill> },
+    { key: 'branch', label: 'Branch', sortKey: 'branch', render: s => m.branchName(s.branchId) },
   ] : c.key === 'closing' || c.key === 'upline' ? [] : [c]))
-  const active = people.filter(s => s.status === 'active')
-  const newNow = people.filter(joinedNow)
-  const soonList = people.filter(expiring)
-  const levelsLine = [...setup.roles].reverse().map(r => `${num(count(leaders, s => s.role === r.code))} ${r.code}`).join(' · ')
+  const levelsLine = [...setup.roles].reverse().map(r => `${num(byLevel[r.code] || 0)} ${r.code}`).join(' · ')
   const pick = (k, v) => () => { clear(); if (k === 'level') setLevel(v); else if (k === 'quick') setQuick(v) }
+  const expiring = counts.expiring?.n || 0
   return (
     <Page title={office ? 'Office staff' : 'Agents'} help={office ? PAGE.officeStaff : PAGE.staff}
-      sub={office ? <>{num(active.length)} active · admins, accounting and marketing. Their account type sets what they can do (Roles & access).</> : <>{num(active.length)} active · position (tier), upline and pay come from Setup</>}
+      sub={office ? <>{num(everyone.active || 0)} active · admins, accounting and marketing. Their account type sets what they can do (Roles & access).</> : <>{num(everyone.active || 0)} active · position (tier), upline and pay come from Setup</>}
       actions={can('staff', 'edit') && <button style={btnPrimary} onClick={() => go(office ? 'staff/new/office' : 'staff/new')}>{office ? 'Add office staff' : 'Add an agent'}</button>}>
       {(office || view === 'list') && (
         <div ref={statsBox} style={{ ...cols(narrow ? 140 : 210, narrow ? 10 : 14), marginBottom: 16 }}>
-          <Stat icon={narrow ? null : 'staff'} label={office ? 'Office staff' : 'Agents'} value={num(people.length)} sub={`${num(active.length)} active · ${num(count(people, s => s.status === 'inactive'))} left`} onClick={clear} on={!set && !q} />
-          {!office && setup.roles.length > 0 && <Stat icon={narrow ? null : 'crown'} tone="violet" label="Leaders" value={num(leaders.length)} sub={levelsLine || 'No upline levels'} onClick={pick('level', 'leaders')} on={level === 'leaders'} />}
-          <Stat icon={narrow ? null : 'plus'} tone="blue" label="Joined this month" value={num(newNow.length)} sub={`${num(count(people, s => s.status === 'pending'))} waiting for HR to enable`} onClick={pick('quick', 'new')} on={quick === 'new'} />
-          <Stat icon={narrow ? null : 'clock'} tone={soonList.length ? 'amber' : 'gray'} label="Expiring in 30 days" value={num(soonList.length)} sub="Accounts to renew" onClick={pick('quick', 'expiring')} on={quick === 'expiring'} />
+          <Stat icon={narrow ? null : 'staff'} label={office ? 'Office staff' : 'Agents'} value={num(all)} sub={`${num(everyone.active || 0)} active · ${num(everyone.inactive || 0)} left`} onClick={clear} on={!set && !q} />
+          {!office && setup.roles.length > 0 && <Stat icon={narrow ? null : 'crown'} tone="violet" label="Leaders" value={num(leaders)} sub={levelsLine || 'No upline levels'} onClick={pick('level', 'leaders')} on={level === 'leaders'} />}
+          <Stat icon={narrow ? null : 'plus'} tone="blue" label="Joined this month" value={num(counts.joinedThisMonth?.n || 0)} sub={`${num(everyone.pending || 0)} waiting for HR to enable`} onClick={pick('quick', 'new')} on={quick === 'new'} />
+          <Stat icon={narrow ? null : 'clock'} tone={expiring ? 'amber' : 'gray'} label="Expiring in 30 days" value={num(expiring)} sub="Accounts to renew" onClick={pick('quick', 'expiring')} on={quick === 'expiring'} />
         </div>
       )}
       <Card pad={16}>
@@ -175,19 +147,22 @@ function StaffList({ office = false }) {
               {office && <Select label="Account type" value={kind} onChange={setKind} options={kindOptions} />}
               {!office && setup.roles.length > 0 && <Select label="Level" value={level} onChange={setLevel} options={levelOptions} />}
               {!office && tierNames.length > 1 && <Select label="Tier" value={tier} onChange={setTier} options={tierOptions} />}
-              {!office && leaders.length > 0 && <Select label="In the team of" value={leader} onChange={setLeader} options={leaderOptions} />}
+              {!office && leaders > 0 && <StaffPicker label="In the team of" all="Anyone" value={leader} onChange={setLeader} filters={{ kind: 'agent', hasRole: 'true' }}
+                show={s => `${s.short} · ${s.role}${s.$?.team?.team ? ` (${num(s.$.team.team)})` : ''}`} />}
               {quick && <Pill tone={quick === 'new' ? 'blue' : 'amber'}>{quick === 'new' ? 'Joined this month' : 'Expiring in 30 days'}</Pill>}
             </Toolbar>
+            {list.error && <Notice tone="red">{list.error}</Notice>}
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Chips label="Status" value={tab} onChange={setTab} options={['all', 'active', 'inactive', 'pending', 'suspended', 'locked'].filter(k => k === 'all' || k === 'active' || match.some(s => s.status === k)).map(k => ({
-                key: k, label: k === 'all' ? 'All' : STAFF_STATUS[k].label, count: k === 'all' ? match.length : match.filter(s => s.status === k).length }))} />
-              <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={exportRows} disabled={!rows.length}
+              <Chips label="Status" value={tab} onChange={setTab} options={['all', 'active', 'inactive', 'pending', 'suspended', 'locked'].filter(k => k === 'all' || k === 'active' || k === tab || byStatus[k]).map(k => ({
+                key: k, label: k === 'all' ? 'All' : STAFF_STATUS[k].label, count: k === 'all' ? add(byStatus) : byStatus[k] || 0 }))} />
+              <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={() => fb.run(() => saveExcel(params))} disabled={!list.total}
                 title="Every row that matches the filters, not just the page on screen">
-                <Icon name="file" size={15} />Download Excel ({num(rows.length)})
+                <Icon name="file" size={15} />Download Excel ({num(list.total)})
               </button>
             </div>
-            <DataTable columns={columns} rows={rows} onRow={s => go(`staff/${s.id}`)} defaultSort={{ key: 'who', dir: 'asc' }} narrowAt={980}
-              empty={q ? `No one matches “${q}”` : 'No one here'} onClear={q || set ? clear : undefined} />
+            <DataTable columns={columns} rows={list.rows} onRow={s => go(`staff/${s.id}`)} narrowAt={980}
+              paged={{ total: list.total, sort, onSort: setSort, onMore: list.more, loading: list.loading }}
+              empty={list.loading ? 'Loading…' : q ? `No one matches “${q}”` : 'No one here'} onClear={q || set ? clear : undefined} />
           </>
         )}
       </Card>

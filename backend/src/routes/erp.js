@@ -262,7 +262,7 @@ router.get('/:list/download', wrap(async (req, res, next) => {
       const { rows } = await db.transaction(trx => listAll(trx, spec, paramsOf(spec, v, req.query), scopeFor(spec, v)));
       const d = spec.download;
       // Compressed off the main thread (zlib's pool), so a big file doesn't hold up everyone else.
-      const parts = xlsxParts([{ name: d.sheet, rows: downloadRows(spec, await shown(spec, v, rows)), widths: d.widths }]);
+      const parts = xlsxParts([{ name: d.sheet, rows: downloadRows(spec, await shown(spec, v, rows), { setup: await loadSetup(db) }), widths: d.widths }]);
       const file = zip(await Promise.all(parts.map(async f => ({ ...f, body: await deflateRaw(f.data), crc: zlib.crc32(f.data) }))));
       res.set({ 'Content-Type': XLSX_TYPE, 'Content-Disposition': `attachment; filename="${d.file}-${localToday()}.xlsx"` });
       res.send(Buffer.from(file));

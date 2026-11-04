@@ -3,8 +3,8 @@
 import * as P from '../../shared/payout.js'
 import { readyLeft } from '../../shared/lists.js'
 import { categoryGroup } from '../../shared/listings.js'
-// E-Form and payment labels: the server writes them in Excel downloads too.
-export { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from '../../shared/labels.js'
+// E-Form, payment and staff labels: the server writes them in Excel downloads too.
+export { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES, STAFF_STATUS, ACCOUNT_TYPES } from '../../shared/labels.js'
 
 const r2 = n => Math.round(n * 100) / 100
 const sum = (xs, f) => r2((xs || []).reduce((s, x) => s + Number(f(x) || 0), 0))
@@ -47,13 +47,6 @@ export const CUSTOMER_TRACK = {
 }
 export const CUSTOMER_ACTION = { 0: 'Admin Follow-Up', 1: 'Manager Follow-Up', 2: 'Offering', 3: 'Fact Finding' }
 export const CUSTOMER_FROM = { iProperty: 'iProperty', 'Mudah.my': 'Mudah.my', Banner: 'Banner', Intro: 'Intro', others: 'Other' }
-export const STAFF_STATUS = {
-  active: { label: 'Active', tone: 'green', help: 'Can sign in and be paid.' },
-  pending: { label: 'Pending', tone: 'amber', help: 'New. HR still has to enable them (within 7 days, or the account is suspended).' },
-  suspended: { label: 'Suspended', tone: 'red', help: 'Cannot sign in: not verified within 7 days of joining, or suspended by HR. Their listings went to the next person in line.' },
-  locked: { label: 'Locked', tone: 'red', help: 'Cannot sign in: no activity for 60 days. HR unlocks it; their listings went to the next person in line.' },
-  inactive: { label: 'Inactive', tone: 'gray', help: 'Left or disabled. Cannot sign in.' },
-}
 export const VENDOR_STATUS = {
   0: { label: 'Pending Follow-Up', tone: 'amber', help: 'New from the website. Nobody has called the owner yet.' },
   1: { label: 'Ongoing Follow-Up', tone: 'blue', help: 'Someone is talking to the owner.' },
@@ -84,7 +77,6 @@ export const PARTY = {
 }
 // Account types, with the current ERP's codes. Agents sell and earn commission
 // (Agents module); the rest are office staff (System → Users).
-export const ACCOUNT_TYPES = { staff: 'Agent', 'sale-staff': 'Sales Agent', 'admin-staff': 'Admin Level 2', 'admin-staff2': 'Admin Level 1', account: 'Accounting', 'sale-marketing': 'Marketing & Sales' }
 export const AGENT_TYPES = ['staff', 'sale-staff']
 export const isAgent = s => AGENT_TYPES.includes(s?.type || 'staff')
 export const closeType = c => (!c.full ? 'Partial Close' : c.partNo > 1 ? 'Balance Close' : 'Full Close')

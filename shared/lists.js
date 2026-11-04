@@ -27,6 +27,7 @@
 // counts: 'field'                { value: n } for each value, leaving out the filter of the same name
 //         { set: { key: value } | ctx => …, ignores? }   n with those filters set as well
 //         { only: ctx => { key: value }, sum: field, keep?, distinct? }   { n, sum } over these filters alone (and of the page's, those it keeps);
+//                                with by: field, { value: n } for each value of that field instead
 //                                with distinct: field, also how many different values it has ({ n, sum, distinct });
 //                                with range: field, its lowest and highest value ({ …, range: { min, max } })
 //         { only, custom: name, keep? }   CUSTOM_COUNTS below here over those records, and the same on the server
@@ -42,7 +43,7 @@
 //         `from` may start with '$.' to go on from an extra worked out above it (the agent on a payment's E-Form)
 //         sums, counts and picks link on this record's id, or on its `on` field (listings by an area's name)
 //         { custom: name }                CUSTOM_EXTRAS below here for the page's rows, and the same on the server
-// download: { file, sheet, widths?, columns: [[label, field | row => value]] }   the Excel download (downloadRows)
+// download: { file, sheet, widths?, columns: [[label, field | (row, { setup }) => value]] }   the Excel download (downloadRows)
 // readers: { area: record => record }   other areas that may read the list too, with what they may not see taken out
 // fields: [fields]               the rows carry only these (a list over another kind that needs a few of its fields)
 // mine: (record, viewer) => bool  each person's own, whatever their role (notifications); viewer: { key, branchId }
@@ -54,7 +55,7 @@ import { teamOf } from './access.js'
 import { payslipTotals, tiersFor, computeTierIndex } from './payout.js'
 import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, reviewOverdue, KEY_FLAG } from './listings.js'
 import { projectDeals, incentiveProgress } from './projects.js'
-import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES } from './labels.js'
+import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES, STAFF_STATUS, ACCOUNT_TYPES } from './labels.js'
 
 export const DEFAULT_SIZE = 50
 export const MAX_SIZE = 200
@@ -137,35 +138,78 @@ const LISTINGS = {
   },
 }
 
+// Agents and office staff: one staff list, told apart by `kind`. The cards count everyone of
+// that kind (in the chosen branch) whatever else is picked, so they keep only these filters.
+const STAFF_KEEP = ['kind', 'branchId']
+const STAFF = {
+  area: 'staff',
+  search: ['name', 'short', 'code', 'phone', 'ic', 'email', 'username', { digits: 'phone' }],
+  filters: {
+    branchId: { eq: 'branchId' }, status: { eq: 'status' }, type: { eq: 'type' }, position: { eq: 'role' }, tierId: { eq: 'tierFloorId' },
+    uplineId: { eq: 'uplineId' }, hasRole: { notNull: 'role' },
+    // agent: Agent and Sales Agent accounts; office: everyone else (src/erp/model.js isAgent).
+    kind: { oneOf: 'type', sets: { agent: AGENT_TYPES, office: { not: AGENT_TYPES } } },
+    teamOf: { team: ['id'], self: false },
+    joinedFrom: { from: 'joined' }, joinedTo: { to: 'joined' }, expiresFrom: { from: 'expiresOn' }, expiresBy: { to: 'expiresOn' },
+    // Still working here and the account runs out before this day (renew it).
+    expiringBefore: { custom: 'expiringBefore', values: ['2026-12-01'] },
+    // The tier each is on today (by their commission so far: tierCredit), by its code (T1…).
+    tier: { custom: 'tierIs', values: ['T1', 'T2', 'T3'] },
+  },
+  sorts: { name: 'name', short: 'short', code: 'code', joined: 'joined', expiresOn: 'expiresOn', branch: 'branchId', status: 'status', lastActive: 'lastActive',
+    type: 'type', tier: { computed: 'tierRank' }, closing: { computed: 'lifetime' } },
+  sort: 'name',
+  counts: {
+    // By status and account type, with the page's other filters (the Status chips, the Account type filter).
+    status: 'status', type: 'type',
+    // Everyone of this kind by status (the first card: how many, active, left, waiting for HR).
+    everyone: { only: () => ({}), by: 'status', keep: STAFF_KEEP },
+    joinedThisMonth: { only: ctx => ({ joinedFrom: monthStart(ctx.today) }), keep: STAFF_KEEP },
+    // Registration (expiry date) running out within 30 days, or run out already.
+    expiring: { only: ctx => ({ expiringBefore: addDays(ctx.today, 30) }), keep: STAFF_KEEP },
+  },
+}
+const branchOf = (ctx, id) => ctx.setup?.branches?.find(b => b.id === id)?.name || ''
+const maskIc = ic => (ic ? String(ic).replace(/\d{4}$/, '••••') : '')
+const STAFF_CONTACT = [['Phone', 'phone'], ['Email', 'email'], ['IC no.', s => maskIc(s.ic)], ['Status', s => STAFF_STATUS[s.status]?.label || s.status],
+  ['Joined', 'joined'], ['Account expiry', 'expiresOn']]
+const LAST_ACTIVE = ['Last activity', s => (s.lastActive ? String(s.lastActive).slice(0, 10) : '')]
+
 export const LISTS = {
+  // Agents (kind=agent); `office` below is the same list for office staff, with its own Excel columns.
   staff: {
-    area: 'staff',
-    search: ['name', 'short', 'code', 'phone', 'ic', 'email', 'username', { digits: 'phone' }],
-    filters: {
-      branchId: { eq: 'branchId' }, status: { eq: 'status' }, type: { eq: 'type' }, position: { eq: 'role' }, tierId: { eq: 'tierFloorId' },
-      uplineId: { eq: 'uplineId' }, hasRole: { notNull: 'role' },
-      // agent: Agent and Sales Agent accounts; office: everyone else (src/erp/model.js isAgent).
-      kind: { oneOf: 'type', sets: { agent: AGENT_TYPES, office: { not: AGENT_TYPES } } },
-      teamOf: { team: ['id'], self: false },
-      joinedFrom: { from: 'joined' }, joinedTo: { to: 'joined' }, expiresFrom: { from: 'expiresOn' }, expiresBy: { to: 'expiresOn' },
-      // Still working here and the account runs out before this day (renew it).
-      expiringBefore: { custom: 'expiringBefore', values: ['2026-12-01'] },
-      // The tier each is on today (by their commission so far: tierCredit), by its code (T1…).
-      tier: { custom: 'tierIs', values: ['T1', 'T2', 'T3'] },
-    },
-    sorts: { name: 'name', short: 'short', code: 'code', joined: 'joined', expiresOn: 'expiresOn', branch: 'branchId', status: 'status', lastActive: 'lastActive',
-      tier: { computed: 'tierRank' }, closing: { computed: 'lifetime' } },
-    sort: 'name',
+    ...STAFF,
     counts: {
-      status: 'status', position: 'role', type: 'type',
-      leaders: { set: { hasRole: 'true' } },
-      joinedThisMonth: { set: ctx => ({ joinedFrom: monthStart(ctx.today) }) },
-      // Registration (expiry date) running out within 30 days, or run out already.
-      expiring: { set: ctx => ({ expiringBefore: addDays(ctx.today, 30) }) },
-      // How many are on each tier, of everyone in reach (the Tier filter's choices).
-      tiers: { only: () => ({}), custom: 'tierCounts' },
+      ...STAFF.counts,
+      // Leaders of everyone of this kind, by upline level (the Leaders card and the Level filter's choices).
+      leaders: { only: () => ({ hasRole: 'true' }), by: 'role', keep: STAFF_KEEP },
+      // How many are on each tier, of everyone of this kind (the Tier filter's choices).
+      tiers: { only: () => ({}), custom: 'tierCounts', keep: STAFF_KEEP },
     },
-    extras: { credit: { custom: 'tierCredit' }, team: { custom: 'teamSize' } },
+    extras: {
+      credit: { custom: 'tierCredit' }, team: { custom: 'teamSize' },
+      upline: { pick: ['short', 'name', 'code'], of: 'staff', from: 'uplineId' },
+    },
+    download: {
+      file: 'agents', sheet: 'Agents', widths: [14, 22, 26, 14, 16, 24, 8, 10, 22, 14, 8, 8, 14, 28, 18, 10, 12, 14, 18, 18, 14],
+      columns: [
+        ['Staff ID', 'code'], ['Name', 'short'], ['IC name', 'name'], ['User name', 'username'], ['Branch', (s, c) => branchOf(c, s.branchId)],
+        ['Upline level', (s, c) => (s.role ? `${s.role} · ${c.setup?.roles?.find(r => r.code === s.role)?.name || s.role}` : '')], ['Tier', '$.credit.tier'],
+        ['Agent rate %', (s, c) => { const t = tiersFor(c.setup || {}, s.branchId).find(x => x.name === s.$.credit.tier); return t ? Number(t.agentRate) : '' }],
+        ['Upline', s => s.$.upline?.short || s.$.upline?.name || ''], ['Upline staff ID', '$.upline.code'], ['Direct', '$.team.direct'], ['In team', '$.team.team'],
+        ...STAFF_CONTACT, ['Closing, lifetime (RM)', '$.credit.lifetime'], ['Commission this year (RM)', '$.credit.yearly'], LAST_ACTIVE,
+      ],
+    },
+  },
+  office: {
+    ...STAFF, of: 'staff',
+    download: {
+      file: 'office-staff', sheet: 'Office staff', widths: [14, 22, 26, 14, 18, 16, 14, 28, 18, 10, 12, 14, 14],
+      columns: [
+        ['Staff ID', 'code'], ['Name', 'short'], ['IC name', 'name'], ['User name', 'username'], ['Account type', s => ACCOUNT_TYPES[s.type] || s.type],
+        ['Branch', (s, c) => branchOf(c, s.branchId)], ...STAFF_CONTACT, LAST_ACTIVE,
+      ],
+    },
   },
 
   listings: { ...LISTINGS, search: ['code', 'title', 'area', 'address', HOLDER] },
@@ -521,9 +565,10 @@ export const recordsOf = (data, key) => (key === 'v1Eforms' ? data.v1?.eforms : 
 
 // A list's Excel download, as rows of cells: the header, then one row per record
 // (a JS number stays a number, so Excel adds it up). The server and the demo both use it.
-export function downloadRows(spec, rows) {
+// `ctx`: { setup } (a branch's name).
+export function downloadRows(spec, rows, ctx = {}) {
   const cols = spec.download.columns
-  return [cols.map(c => c[0]), ...rows.map(r => cols.map(([, v]) => (typeof v === 'function' ? v(r) : get(r, v)) ?? ''))]
+  return [cols.map(c => c[0]), ...rows.map(r => cols.map(([, v]) => (typeof v === 'function' ? v(r, ctx) : get(r, v)) ?? ''))]
 }
 
 // ── The demo's engine: a description run on records in this browser ─────────
@@ -643,7 +688,7 @@ const COMPUTED = {
 
 // Extras worked out in code for the page's rows: Map(id → value) (the server runs the same on the rows it reads).
 const CUSTOM_EXTRAS = {
-  tierCredit: (rows, ctx) => new Map(rows.map(r => { const t = tiersNow(ctx).get(r.id); return [r.id, t ? { lifetime: t.lifetime, yearly: t.yearly } : { lifetime: 0, yearly: 0 }] })),
+  tierCredit: (rows, ctx) => new Map(rows.map(r => { const t = tiersNow(ctx).get(r.id); return [r.id, t ? { lifetime: t.lifetime, yearly: t.yearly, tier: t.tier } : { lifetime: 0, yearly: 0, tier: null }] })),
   // How many people report to each (direct) and are under them at any depth (team).
   teamSize: (rows, ctx) => {
     const kids = ctx.once('downline', () => { const m = new Map(); for (const s of ctx.data?.staff || []) if (s.uplineId != null) m.set(s.uplineId, [...(m.get(s.uplineId) || []), s.id]); return m })
@@ -835,6 +880,7 @@ function run(all_records, spec, params, ctx, all) {
       const set = { ...Object.fromEntries(active.filter(([k]) => (def.keep || []).includes(k)).map(([k]) => [k, params[k]])), ...def.only(c) }
       const hits = records.filter(r => Object.entries(set).every(([k, v]) => test(spec.filters[k], r, v, c)))
       if (def.custom) { counts[key] = CUSTOM_COUNTS[def.custom](hits, c); continue }
+      if (def.by) { counts[key] = {}; for (const r of hits) { const k = countKey(get(r, def.by)); counts[key][k] = (counts[key][k] || 0) + 1 } continue }
       counts[key] = addUp(hits, def)
     } else if (def.set) {
       const set = typeof def.set === 'function' ? def.set(c) : def.set

@@ -190,7 +190,7 @@ const SERVER = {
     extras: {
       tierCredit: async (q, rows) => {
         const t = await tiersNow(q, rows.map(r => r.id));
-        return new Map(rows.map(r => [r.id, { lifetime: t.get(r.id)?.lifetime ?? 0, yearly: t.get(r.id)?.yearly ?? 0 }]));
+        return new Map(rows.map(r => [r.id, { lifetime: t.get(r.id)?.lifetime ?? 0, yearly: t.get(r.id)?.yearly ?? 0, tier: t.get(r.id)?.tier ?? null }]));
       },
       teamSize: async (q, rows) => {
         const { team, direct } = await teamSizes(q, rows.map(r => r.id));
@@ -343,6 +343,8 @@ const SERVER = {
   v1Eforms: { table: 'v1_eforms', scope: byStaff },
   v1Overrides: { table: 'v1_overrides', scope: byStaff },
 };
+// Office staff: the same list as agents (shared/lists.js), with its own Excel columns.
+SERVER.office = SERVER.staff;
 
 // ── From a shared description to SQL ────────────────────────────────────────
 const { many, valueOf, truthy, personId } = SHARED;
@@ -457,7 +459,7 @@ function serverSpec(key) {
     sort: shared.sort,
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
       typeof c === 'string' ? { col: col(c) } : c.set ? c
-        : { only: c.only, found: !c.only, sum: c.sum && col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct),
+        : { only: c.only, found: !c.only, sum: c.sum && col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct), by: c.by && col(c.by),
           range: c.range && { col: col(c.range), read: fieldOf(model, c.range).kind.read }, custom: c.custom && server.counts?.[c.custom] }])),
     extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => (e.custom ? { key: k, custom: server.extras[e.custom] } : extraOf(k, e, col))) : null,
   };

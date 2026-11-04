@@ -57,3 +57,17 @@ export function ListingPicker({ value, onChange, type, dealId, chosen }) {
     options={[{ value: '', label: 'Select the listing' }, ...rows.map(l => ({ value: String(l.id), label: `${l.code} · ${l.title}, ${l.area} · RM ${Number(l.askPrice || 0).toLocaleString('en-MY')} · ${m.staffName(l.holderId)}` }))]}
     more={Math.max(0, list.total - list.rows.length)} loading={list.loading || list.searching} />
 }
+
+// A person, by name, code or phone, from the staff list (`filters`: its filters,
+// e.g. { kind: 'agent', hasRole: 'true' } for leaders). `all`: the empty choice;
+// `show(person)`: an option's text (people carry the list's extras as `$`).
+export function StaffPicker({ value, onChange, filters = {}, label = 'Staff', all = 'Anyone', show = s => `${s.short} · ${s.code}`, block, plain }) {
+  const [q, setQ] = useState('')
+  const list = useList('staff', { q, ...filters, sort: 'short', counts: '0' }, { pageSize: 50 })
+  const chosen = useRecord('staff', Number(value) || null).record
+  // The chosen one stays in the list until something is typed.
+  const rows = chosen && !q.trim() && !list.rows.some(x => x.id === chosen.id) ? [chosen, ...list.rows] : list.rows
+  return <Select block={block} plain={plain} label={label} value={value} onChange={onChange} onSearch={setQ}
+    options={[...(all != null ? [{ value: '', label: all }] : []), ...rows.map(s => ({ value: String(s.id), label: show(s) }))]}
+    more={Math.max(0, list.total - list.rows.length)} loading={list.loading || list.searching} />
+}

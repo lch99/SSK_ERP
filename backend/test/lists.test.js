@@ -85,11 +85,16 @@ test('search: every word must match, and % or _ are plain characters', async () 
 });
 
 test('agents and office staff: counts that act as filters', async () => {
+  const add = o => Object.values(o).reduce((t, n) => t + n, 0);
   const r = await api.call('GET', '/erp/staff?kind=agent&size=5');
   const agents = data.staff.filter(s => ['staff', 'sale-staff'].includes(s.type));
   assert.equal(r.body.total, agents.length);
-  assert.equal(r.body.counts.leaders, agents.filter(s => s.role).length);
-  const office = await api.call('GET', '/erp/staff?kind=office');
+  assert.equal(add(r.body.counts.leaders), agents.filter(s => s.role).length);
+  // The cards count everyone of the kind, whatever else is picked.
+  const some = await api.call('GET', `/erp/staff?kind=agent&status=inactive&q=${encodeURIComponent(agents[0].short)}`);
+  assert.equal(add(some.body.counts.everyone), agents.length);
+  assert.equal(some.body.counts.everyone.active, agents.filter(s => s.status === 'active').length);
+  const office = await api.call('GET', '/erp/office?kind=office');
   assert.equal(office.body.total, data.staff.length - agents.length);
   const leader = agents.find(s => s.role && data.staff.some(x => x.uplineId === s.id));
   const team = await api.call(`GET`, `/erp/staff?teamOf=${leader.id}&size=200`);

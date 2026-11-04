@@ -103,7 +103,7 @@ test('an Excel download has the rows the demo would write, for the same filters'
     const records = L.recordsOf(state.data, key);
     const status = records[0]?.status;
     for (const params of [{}, { sort: 'amount' }, ...(status ? [{ status }] : [])]) {
-      const want = L.downloadRows(spec, L.listAll(records, spec, params, ctx).rows).map(row => row.map(cell));
+      const want = L.downloadRows(spec, L.listAll(records, spec, params, ctx).rows, ctx).map(row => row.map(cell));
       const r = await api.raw('GET', `/erp/${key}/download?${query(params)}`);
       assert.equal(r.status, 200, `${key}/download?${query(params)}`);
       assert.match(r.headers.get('content-disposition'), new RegExp(`${spec.download.file}-\\d{4}-\\d{2}-\\d{2}\\.xlsx`));

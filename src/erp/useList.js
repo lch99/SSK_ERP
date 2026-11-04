@@ -133,7 +133,7 @@ export function useListDownload(key) {
     }
     const d = spec.download
     const { rows } = listAll(records(), spec, params, ctx)
-    download(makeXlsx([{ name: d.sheet, rows: downloadRows(spec, rows), widths: d.widths }]), `${d.file}-${erp.m.today}.xlsx`, XLSX_TYPE)
+    download(makeXlsx([{ name: d.sheet, rows: downloadRows(spec, rows, ctx), widths: d.widths }]), `${d.file}-${erp.m.today}.xlsx`, XLSX_TYPE)
   }, [erp, access, key])
 }
 

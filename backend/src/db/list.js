@@ -9,7 +9,7 @@
 //   search: [column | { via, table, cols }],   — every word typed must match one of them (or of the record it points at)
 //   filters: { key: { apply(query, value, prepared), prepare?(q, value) } },
 //   sorts: { key: column }, sort: '-date',        — '-' = newest / biggest first
-//   counts: { key: { col } | { set } | { only, sum, distinct? } | { only, custom } | { found, sum, distinct? } },   (see shared/lists.js)
+//   counts: { key: { col } | { set } | { only, sum, distinct? } | { only, by } | { only, custom } | { found, sum, distinct? } },   (see shared/lists.js)
 //   extras: [{ key, … }],              — worked out for the page's rows only
 // }
 const { toRecords } = require('./records');
@@ -193,6 +193,11 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
         for (const [k, [v, p]] of Object.entries(await prepareSet({ ...kept, ...c.only(ctx) }))) spec.filters[k].apply(b, v, p);
       }
       if (c.custom) { counts[key] = await c.custom(q, b, ctx); continue; }
+      if (c.by) {
+        const got = await b.select({ v: c.by }).count({ n: '*' }).groupBy(c.by);
+        counts[key] = Object.fromEntries(got.map(r => [r.v ?? '', Number(r.n)]));
+        continue;
+      }
       if (c.distinct) b.countDistinct({ d: c.distinct });
       if (c.range) b.min({ lo: c.range.col }).max({ hi: c.range.col });
       if (c.sum) b.sum({ s: c.sum });
