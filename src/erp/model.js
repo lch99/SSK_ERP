@@ -81,6 +81,22 @@ export const AGENT_TYPES = ['staff', 'sale-staff']
 export const isAgent = s => AGENT_TYPES.includes(s?.type || 'staff')
 export const closeType = c => (!c.full ? 'Partial Close' : c.partNo > 1 ? 'Balance Close' : 'Full Close')
 
+// Where a person stands on their tier ladder, from their tier credit: `lifetime`
+// (with their opening balance) and `yearly` (a staff record's $.credit on the server's lists).
+export function tierStanding(s, lifetime, yearly, setup) {
+  const tiers = P.tiersFor(setup, s.branchId)
+  const floor = Math.max(0, tiers.findIndex(t => t.id === s.tierFloorId))
+  const idx = P.computeTierIndex(lifetime, yearly, tiers, floor)
+  const tier = tiers[idx], next = tiers[idx + 1] || null
+  // Progress toward the next tier, on the basis that tier climbs on.
+  const basis = next?.basis === 'yearly' ? yearly : lifetime
+  // Counted from this tier's threshold, or from zero when the tier was kept from
+  // last year (or reached on lifetime) and this year's total is still below it.
+  const from = basis >= Number(tier.threshold) && next?.basis === tier.basis ? Number(tier.threshold) : 0
+  const progress = next ? Math.max(0, Math.min(1, (basis - from) / (Number(next.threshold) - from || 1))) : 1
+  return { tier, next, idx, tiers, lifetime, yearly, progress, toNext: next ? Math.max(0, r2(Number(next.threshold) - basis)) : 0, kept: floor > 0 && idx === floor }
+}
+
 export function buildModel(data, setup) {
   const staff = byId(data.staff)
   const deals = byId(data.deals)
@@ -107,22 +123,7 @@ export function buildModel(data, setup) {
     if (c.date.startsWith(year)) credit[k].year = r2(credit[k].year + s.base)
     credit[k].deals.add(c.dealId)
   }
-  function tierInfo(id) {
-    const s = staff[id]
-    const tiers = P.tiersFor(setup, s.branchId)
-    const lifetime = r2(s.openingLifetime + (credit[id]?.lifetime || 0))
-    const yearly = credit[id]?.year || 0
-    const floor = Math.max(0, tiers.findIndex(t => t.id === s.tierFloorId))
-    const idx = P.computeTierIndex(lifetime, yearly, tiers, floor)
-    const tier = tiers[idx], next = tiers[idx + 1] || null
-    // Progress toward the next tier, on the basis that tier climbs on.
-    const basis = next?.basis === 'yearly' ? yearly : lifetime
-    // Counted from this tier's threshold, or from zero when the tier was kept from
-    // last year (or reached on lifetime) and this year's total is still below it.
-    const from = basis >= Number(tier.threshold) && next?.basis === tier.basis ? Number(tier.threshold) : 0
-    const progress = next ? Math.max(0, Math.min(1, (basis - from) / (Number(next.threshold) - from || 1))) : 1
-    return { tier, next, idx, tiers, lifetime, yearly, progress, toNext: next ? Math.max(0, r2(Number(next.threshold) - basis)) : 0, kept: floor > 0 && idx === floor }
-  }
+  const tierInfo = id => tierStanding(staff[id], r2(staff[id].openingLifetime + (credit[id]?.lifetime || 0)), credit[id]?.year || 0, setup)
 
   const earned = (id, { thisYear = false } = {}) =>
     sum((payoutsByStaff[id] || []).filter(p => !thisYear || p.date.startsWith(year)), p => p.amount)

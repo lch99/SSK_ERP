@@ -159,11 +159,13 @@ export function pickHandler(l, ctx) {
 
 // Listings that left `staffId` while their account was not active, and are
 // still with the stand-in the rules picked: what "Give back" returns to them.
-const STAND_IN = ['areaManager', 'projectManager', 'projectHandler', 'creator', 'branchManager']
-export const handedAway = (listings, staffId) => listings.filter(l => {
+export const STAND_IN = ['areaManager', 'projectManager', 'projectHandler', 'creator', 'branchManager']
+// A listing a stand-in holds while `staffId` is away (the server asks the same in SQL: backend/src/db/lists.js).
+export const isHandedAway = (l, staffId) => {
   const log = l.phLog || []
   return l.status === 'active' && log.length > 1 && STAND_IN.includes(log.at(-1).from) && log.at(-2).staffId === staffId && l.holderId === log.at(-1).staffId
-})
+}
+export const handedAway = (listings, staffId) => listings.filter(l => isHandedAway(l, staffId))
 
 // ── Building leads: Project Manager (sales) and Project Handler (rentals) ──
 // Ranks the product handlers of each building, in one pass: sales by full-closed

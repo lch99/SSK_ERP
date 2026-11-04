@@ -101,6 +101,24 @@ test('agents and office staff: counts that act as filters', async () => {
   assert.equal(team.body.total, AC.teamOf(leader.id, data.staff).size - 1);
 });
 
+test("a person's listings held by stand-ins while they were away, as the demo finds them", async () => {
+  const LR = await import('../../shared/listings.js');
+  const [a, b, c] = data.listings.filter(l => l.status === 'active');
+  const [away, standIn] = data.staff;
+  // a: handed on to the area manager, who holds it now; b: handed on, then taken by someone else; c: given back.
+  const logs = [[a, standIn.id, 'areaManager'], [b, data.staff[2].id, 'creator'], [c, away.id, 'main']];
+  for (const [l, holder, from] of logs) {
+    const phLog = [{ staffId: away.id, from: 'main', on: '2026-10-01' }, { staffId: from === 'creator' ? standIn.id : holder, from, on: '2026-10-20' }];
+    await db('listings').where('id', l.id).update({ holder_id: holder, more: JSON.stringify({ ...(l.trackingPrice != null && { trackingPrice: l.trackingPrice }), phLog }) });
+    Object.assign(l, { holderId: holder, phLog });
+  }
+  const want = LR.handedAway(data.listings, away.id).map(l => l.id);
+  assert.deepEqual(want, [a.id]);
+  const r = await api.call('GET', `/erp/listings?handedAwayFrom=${away.id}&size=200`);
+  assert.deepEqual(r.body.rows.map(l => l.id), want);
+  assert.equal((await api.call('GET', `/erp/listings?handedAwayFrom=${standIn.id}`)).body.total, 0);
+});
+
 test('one record, and a list or record that does not exist', async () => {
   const listing = data.listings.find(l => l.followUps.length);
   const r = await api.call('GET', `/erp/listings/${listing.id}`);

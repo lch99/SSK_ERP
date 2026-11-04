@@ -107,6 +107,13 @@ const LISTING_RULES = {
     },
     apply: (b, v, ids) => (ids.length ? b.whereIn('listings.holder_id', ids) : b.whereRaw('1 = 0')),
   },
+  // shared/listings.js isHandedAway: active, and the last two product handlers were this person, then a stand-in who holds it now.
+  handedAwayFrom: {
+    apply: (b, v) => b.where('listings.status', 'active').whereRaw(`json_length(listings.more, '$.phLog') > 1
+      and json_unquote(json_extract(listings.more, '$.phLog[last].from')) in (${LR.STAND_IN.map(() => '?').join(', ')})
+      and cast(json_unquote(json_extract(listings.more, '$.phLog[last-1].staffId')) as signed) = ?
+      and listings.holder_id = cast(json_unquote(json_extract(listings.more, '$.phLog[last].staffId')) as signed)`, [...LR.STAND_IN, personId(v) ?? -1]),
+  },
   freeForDeal: {
     apply: (b, v) => b.where(x => x.whereNull('listings.deal_id').orWhere('listings.deal_id', personId(v) ?? -1)
       .orWhereIn('listings.deal_id', sub => sub.select('id').from('deals').where('status', 'cancelled'))),

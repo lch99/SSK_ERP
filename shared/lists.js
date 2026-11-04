@@ -53,7 +53,7 @@
 // area: null                     everyone may read it (their own)
 import { teamOf } from './access.js'
 import { payslipTotals, tiersFor, computeTierIndex } from './payout.js'
-import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, reviewOverdue, KEY_FLAG } from './listings.js'
+import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, reviewOverdue, isHandedAway, KEY_FLAG } from './listings.js'
 import { projectDeals, incentiveProgress } from './projects.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES, STAFF_STATUS, ACCOUNT_TYPES } from './labels.js'
 
@@ -123,6 +123,8 @@ const LISTINGS = {
     fromOwner: { custom: 'fromOwnerRequest', values: ['true', 'false'] },
     // Free for an E-Form: none on it yet, this E-Form's own (its id), or one that was aborted.
     freeFor: { custom: 'freeForDeal', values: ['0', '1'] },
+    // Held by a stand-in while this person's account was off (shared/listings.js handedAway).
+    handedAwayFrom: { custom: 'handedAwayFrom', values: ['1', '2', '3', '9'] },
   },
   sorts: { created: 'created', updated: 'updated', price: 'askPrice', priceUpdated: 'priceUpdated', photosOn: 'photosOn', code: 'code', views: 'views',
     title: 'title', followUp: { last: 'followUps', field: 'date' } },
@@ -254,6 +256,8 @@ export const LISTS = {
       status: 'status', type: 'type',
       // The page's "N submitted in <year> · RM … in fees".
       year: { only: ctx => ({ from: `${ctx.today.slice(0, 4)}-01-01`, to: `${ctx.today.slice(0, 4)}-12-31`, status: 'submitted,partial,closed' }), sum: 'fee', keep: ['branchId'] },
+      // A person's E-Forms this year (staffId), by who sold them: their own, the rest on their listings.
+      yearByAgent: { only: ctx => ({ from: `${ctx.today.slice(0, 4)}-01-01`, to: `${ctx.today.slice(0, 4)}-12-31`, status: 'submitted,partial,closed' }), by: 'agentId', keep: ['staffId', 'branchId'] },
     },
     extras: {
       listingCode: { field: 'code', of: 'listings', from: 'listingId' },
@@ -355,6 +359,9 @@ export const LISTS = {
       incentivesStacked: { only: () => ({ ...OPEN_LINE, incentive: 'true', stacked: 'true' }), sum: 'amount', distinct: 'staffId', keep: ['staffBranch'] },
       // The lines found, added up, and on how many closes (My commission).
       lines: { sum: 'amount', distinct: 'closeId' },
+      // A person's lines (staffId): paid to date, and earned this year (own deals and upline overrides).
+      paid: { only: () => ({ status: 'paid' }), sum: 'amount', keep: ['staffId'] },
+      thisYear: { only: ctx => ({ from: `${ctx.today.slice(0, 4)}-01-01`, to: `${ctx.today.slice(0, 4)}-12-31` }), sum: 'amount', keep: ['staffId'] },
     },
     extras: {
       close: { pick: ['date', 'claim', 'net', 'full', 'partNo'], of: 'closes', from: 'closeId' },
@@ -606,6 +613,7 @@ const CUSTOM = {
   areaManagerOf: (r, v, ctx) => ctx.once('areaManagers', () => areaManagers(ctx.data?.staff || [], ctx.setup)).get(r.holderId) === personId(v),
   expiringBefore: (r, v) => r.status !== 'inactive' && r.expiresOn != null && String(r.expiresOn) < String(v),
   tierIs: (r, v, ctx) => tiersNow(ctx).get(r.id)?.tier === v,
+  handedAwayFrom: (r, v) => isHandedAway(r, personId(v)),
   freeForDeal: (r, v, ctx) => r.dealId == null || same(r.dealId, valueOf(v)) || ctx.byId('deals').get(r.dealId)?.status === 'cancelled',
   fromOwnerRequest: (r, v, ctx) => ctx.once('fromOwner', () => new Set((ctx.data?.vendorRequests || []).map(x => x.listingId).filter(x => x != null))).has(r.id) === truthy(v),
   viewsListing: (r, v) => personId(v) != null && (r.listingIds || []).includes(personId(v)),

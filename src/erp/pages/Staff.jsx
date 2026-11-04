@@ -4,7 +4,7 @@ import * as A from '../../../shared/access.js'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { ROLE_COLORS } from '../../setup/colors.js'
 import { useErp } from '../ErpContext.jsx'
-import { STAFF_STATUS, DEAL_STATUS, PAYOUT_STATUS, ACCOUNT_TYPES, AGENT_TYPES, isAgent, sum } from '../model.js'
+import { STAFF_STATUS, DEAL_STATUS, PAYOUT_STATUS, ACCOUNT_TYPES, AGENT_TYPES, isAgent, tierStanding } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, Chips, DataTable, Status, Pill, Avatar, Who, Link, Empty, KV, Progress, Stat, Notice, FormField, FileInput, TextArea, Menu, Modal, cols, go, mono, small, tabular, field } from '../ui.jsx'
 import { ACCESS } from '../../demo/erpSample.js'
 import Icon from '../Icon.jsx'
@@ -18,7 +18,7 @@ import { useNarrow } from '../../setup/useNarrow.js'
 import { NoAccess, useAccess, useCan, useGate } from '../access.jsx'
 import * as L from '../../../shared/listings.js'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
-import { useList, useListDownload } from '../useList.js'
+import { useList, useRecord, useListDownload } from '../useList.js'
 import { StaffPicker } from '../pickers.jsx'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
@@ -170,24 +170,31 @@ function StaffList({ office = false }) {
   )
 }
 
+// The person from one record read (with their tier credit); their E-Forms, payout lines,
+// team and listings as list reads, each only for a role that sees that area. Uplines come
+// from the staff directory every page has.
 function Profile({ id }) {
   const fb = useFeedback()
   const erp = useErp()
   const can = useCan()
   const access = useAccess()
   const { m, setup } = erp
-  const s = m.staff[id]
-  if (!s) return <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists" /></Page>
-  const agent = isAgent(s)
-  const t = m.tierInfo(id)
+  const { record: s, loading } = useRecord('staff', id)
+  const agent = !!s && isAgent(s)
+  const mine = { branch: false, pageSize: 8 }
+  const deals = useList('deals', { staffId: id, sort: '-date', counts: 'yearByAgent' }, { ...mine, skip: !agent || !can('deals') })
+  const lines = useList('payouts', { staffId: id, sort: '-date', counts: 'paid,thisYear' }, { ...mine, skip: !agent || !(can('payouts') || can('salary')) })
+  const downline = useList('staff', { uplineId: id, status: 'active,pending,suspended,locked', sort: 'short', counts: '0' }, { branch: false, pageSize: 20, skip: !agent })
+  const held = useList('listings', { holderId: id, status: 'active', counts: '0' }, { branch: false, pageSize: 1, skip: !s || !can('listings') })
+  const awayList = useList('listings', { handedAwayFrom: id, counts: '0' }, { branch: false, pageSize: 1, skip: !s || !can('listings') })
+  if (!s) return loading ? <Page title="Loading…" back={{ to: 'staff', label: 'All agents' }} /> : <Page title="Not found" back={{ to: 'staff', label: 'All agents' }}><Empty title="This person no longer exists, or is not one you can see" /></Page>
+  const t = tierStanding(s, s.$?.credit?.lifetime || 0, s.$?.credit?.yearly || 0, setup)
   const chain = m.chain(id)
-  const deals = m.dealsOf(id).sort((a, b) => b.date.localeCompare(a.date))
-  const lines = (m.payoutsByStaff[id] || []).slice().sort((a, b) => b.date.localeCompare(a.date))
   const holders = P.uplineHolders(m.staff, id, setup.roles)
-  const downline = (m.downline[id] || []).filter(k => k.status !== 'inactive')
-  const yearDeals = deals.filter(d => d.date.startsWith(m.year) && d.status !== 'cancelled' && d.status !== 'draft')
-  const handling = m.data.listings.filter(l => l.holderId === id && l.status === 'active').length
-  const away = L.handedAway(m.data.listings, id).length
+  const byAgent = deals.counts.yearByAgent || {}
+  const yearDeals = Object.values(byAgent).reduce((a, n) => a + n, 0), ownDeals = byAgent[id] || 0
+  const handling = held.total
+  const away = awayList.total
   const due = L.staffDue(s, m.today)
   // Leaving Active hands their listings to whoever the rules pick next; say so first.
   const setStatus = async v => {
@@ -222,8 +229,8 @@ function Profile({ id }) {
       {agent && <div style={{ ...cols(210, 14), marginBottom: 16 }}>
         <Stat label="Tier now" value={P.tierLabel(t.tier)} sub={`Agent rate ${t.tier.agentRate}%${t.kept ? ' · kept from last year' : ''}`} tone="brand" icon="reports" />
         <Stat label={`Commission in ${m.year}`} value={rm(t.yearly)} sub={`Lifetime ${rm(t.lifetime)}`} />
-        <Stat label={`Earned in ${m.year}`} value={rm(m.earned(id, { thisYear: true }))} sub="Own deals and upline overrides" />
-        <Stat label={`Deals in ${m.year}`} value={num(yearDeals.length)} sub={`${yearDeals.filter(d => d.agentId === id).length} closed by them · ${yearDeals.filter(d => d.holderId === id && d.agentId !== id).length} on their listings`} />
+        <Stat label={`Earned in ${m.year}`} value={rm(lines.counts.thisYear?.sum || 0)} sub="Own deals and upline overrides" />
+        <Stat label={`Deals in ${m.year}`} value={num(yearDeals)} sub={`${ownDeals} closed by them · ${yearDeals - ownDeals} on their listings`} />
       </div>}
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', alignItems: 'start' }}>
@@ -248,16 +255,18 @@ function Profile({ id }) {
             </div>
           </Card>
           <Card title="Recent deals" sub="Closed by them, or on a listing they hold">
-            <DataTable rows={deals} pageSize={8} narrowAt={380} empty="No deals yet" onRow={d => go(`deals/${d.id}`)} columns={[
+            <DataTable rows={deals.rows} narrowAt={380} empty={deals.loading ? 'Loading…' : 'No deals yet'} onRow={d => go(`deals/${d.id}`)}
+              paged={{ total: deals.total, sort: '-date', onMore: deals.more, loading: deals.loading }} columns={[
               { key: 'code', label: 'Case', render: d => <span><b style={{ ...mono, color: C.primaryDark }}>{d.code}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(d.date)}</span></span> },
               { key: 'prop', label: 'Property', render: d => <span>{d.property.title}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{d.agentId === id ? (d.holderId === id || d.holderId == null ? 'Both sides' : 'Sales side') : 'Listing side'}</span></span> },
               { key: 'fee', label: 'Fee', align: 'right', render: d => rm(d.fee) },
               { key: 'status', label: 'Status', render: d => <Status of={DEAL_STATUS} value={d.status} /> },
             ]} />
           </Card>
-          <Card title="Payout lines" help={CARD.payoutLines} sub={`${rm(sum(lines.filter(l => l.status === 'paid'), l => l.amount))} paid to date`}>
-            <DataTable rows={lines} pageSize={8} narrowAt={380} empty="No payouts yet" columns={[
-              { key: 'deal', label: 'Deal', render: l => <span><Link to={`deals/${l.dealId}`} style={mono}>{m.deals[l.dealId].code}</Link><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{lineRole(l, m)}</span></span> },
+          <Card title="Payout lines" help={CARD.payoutLines} sub={`${rm(lines.counts.paid?.sum || 0)} paid to date`}>
+            <DataTable rows={lines.rows} narrowAt={380} empty={lines.loading ? 'Loading…' : 'No payouts yet'}
+              paged={{ total: lines.total, sort: '-date', onMore: lines.more, loading: lines.loading }} columns={[
+              { key: 'deal', label: 'Deal', render: l => <span><Link to={`deals/${l.dealId}`} style={mono}>{l.$?.deal?.code}</Link><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{lineRole(l, m)}</span></span> },
               { key: 'date', label: 'Closed', nowrap: true, render: l => date(l.date, { short: true }) },
               { key: 'amount', label: 'Amount', align: 'right', render: l => <b>{rm(l.amount)}</b> },
               { key: 'status', label: 'Status', render: l => <Status of={PAYOUT_STATUS} value={l.status} /> },
@@ -290,15 +299,16 @@ function Profile({ id }) {
               </ol>
             ) : <p style={{ margin: 0, color: C.muted, fontSize: 13.5 }}>Nobody above. On their deals the company keeps whatever their tier doesn’t pay.</p>}
           </Card>}
-          {agent && downline.length > 0 && (
-            <Card title={`Directly under ${s.short}`} help={CARD.downline} sub={`${downline.length} people`}>
-              {downline.map(k => (
+          {agent && downline.total > 0 && (
+            <Card title={`Directly under ${s.short}`} help={CARD.downline} sub={`${num(downline.total)} ${downline.total === 1 ? 'person' : 'people'}`}>
+              {downline.rows.map(k => (
                 <div key={k.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${C.border}` }}>
-                  <span style={{ flex: 1, minWidth: 0 }}><Who name={k.short} to={`staff/${k.id}`} size={26} sub={P.tierLabel(m.tierInfo(k.id).tier)} /></span>
+                  <span style={{ flex: 1, minWidth: 0 }}><Who name={k.short} to={`staff/${k.id}`} size={26} sub={P.tierLabel(P.tiersFor(setup, k.branchId).find(x => x.name === k.$?.credit?.tier))} /></span>
                   <RoleTag code={k.role} setup={setup} />
-                  <span style={{ fontSize: 12.5, ...tabular }}>{rm(m.credit(k.id).year)}</span>
+                  <span style={{ fontSize: 12.5, ...tabular }}>{rm(k.$?.credit?.yearly || 0)}</span>
                 </div>
               ))}
+              {downline.rows.length < downline.total && <button style={{ ...small, marginTop: 10 }} disabled={downline.loading} onClick={downline.more}>Show more ({num(downline.total - downline.rows.length)})</button>}
             </Card>
           )}
           <Card title="Details" actions={<Link to={`staff/${s.id}/edit`} style={{ fontSize: 13 }}>Edit</Link>}>
