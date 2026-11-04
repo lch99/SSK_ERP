@@ -25,8 +25,9 @@ npm install
 npm run dev                 # http://localhost:5175
 ```
 
-For a laptop demo with no MySQL, set `DB_CLIENT=sqlite` in `backend/.env`. Set `AUTH_DISABLED=true` to skip sign-in.
+The backend runs on MySQL only. Set `AUTH_DISABLED=true` in `backend/.env` to skip sign-in on a laptop.
 
 - `cd backend && npm run demo-data`: fill Setup with sample data
 - `cd backend && npm run reset-db`: wipe back to blank
 - `npm test`: payout rule tests
+- `cd backend && npm test`: backend tests on MySQL (they empty and refill the test databases `ssk_erp_test` and `ssk_legacy_test`, never `ssk_erp`)
