@@ -27,6 +27,7 @@ const { listPage, listAll, extrasFor, rawRows } = require('../db/list');
 const { MODELS, toRecords, KINDS, parseJson } = require('../db/records');
 const { loadSetup } = require('../db/setupStore');
 const { loadState, saveChanges } = require('../db/erpState');
+const { pruneNotices } = require('../db/notices');
 const G = require('../db/erpGuard');
 const { audit } = require('../db/audit');
 const { isInUse } = require('../db/errors');
@@ -65,6 +66,7 @@ const changeState = (change, { by } = {}) => oneAtATime(() => db.transaction(asy
 
 router.get('/state', wrap(async (req, res) => {
   const v = await viewerOf(req);
+  await pruneNotices(db, localToday());
   let state = await loadState(db);
   // Something the time rules change (a viewing expired…) is saved once, here.
   if (state.data && A.runClock(state.data, state.setup)) state = await changeState(() => {});

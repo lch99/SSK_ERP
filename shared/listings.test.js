@@ -143,4 +143,14 @@ describe('staff clock', () => {
     expect(L.isOutdated(listing({ updated: '2026-08-01' }), '2026-10-31')).toBe(true)
     expect(L.isOutdated(listing({ type: 'rental', updated: '2026-09-15' }), '2026-10-31')).toBe(true)
   })
+  it('deletes a read notification at 90 days, any at a year', () => {
+    const n = (at, to, readBy = []) => ({ at: `${at} 09:00`, to, readBy })
+    expect(L.noticeExpired(n('2026-08-07', 12, [12]), '2026-11-05')).toBe(false)   // read, 90 days old
+    expect(L.noticeExpired(n('2026-08-06', 12, [12]), '2026-11-05')).toBe(true)    // read, 91 days
+    expect(L.noticeExpired(n('2026-08-06', 12, [7]), '2026-11-05')).toBe(false)    // someone else read it
+    expect(L.noticeExpired(n('2026-08-06', 0, [0]), '2026-11-05')).toBe(true)      // the office's
+    expect(L.noticeExpired(n('2026-08-06', 'all', [12]), '2026-11-05')).toBe(false) // everyone's: a year
+    expect(L.noticeExpired(n('2025-11-05', 12), '2026-11-05')).toBe(false)
+    expect(L.noticeExpired(n('2025-11-04', 'branch:3'), '2026-11-05')).toBe(true)
+  })
 })

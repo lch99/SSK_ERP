@@ -408,7 +408,9 @@ function filterOf(rule, col, server) {
     };
   }
   if (rule.custom) return server.custom[rule.custom];
-  if (rule.is) return { apply: (b, v) => b.whereRaw('lower(trim(??)) = ?', [col(rule.is), String(v).trim().toLowerCase()]) };
+  // The column's collation ignores case and saved text is trimmed, so a plain match
+  // does it and can use the column's index (lower(trim(…)) could not).
+  if (rule.is) return { apply: (b, v) => b.where(col(rule.is), String(v).trim()) };
   if (rule.via) {
     // The rule on the record this one points at, as a subquery on its table.
     const m = MODELS[rule.of];
@@ -474,6 +476,27 @@ function serverSpec(key) {
 
 const LISTS = Object.fromEntries(Object.keys(SHARED.LISTS).map(k => [k, serverSpec(k)]));
 
+// The columns a list finds its rows by, as 'table.column': each filter's, and
+// its default sort's (test/indexes.test.js checks each starts an index). Yes/no
+// filters are left out: an index on a two-value column narrows nothing.
+function columnsRead(key) {
+  const shared = SHARED.LISTS[key], server = SERVER[key], model = MODELS[shared.of || key];
+  const col = path => columnOf(model, path, server.columns, server.table);
+  const out = new Set();
+  const read = (rule, colOf) => {
+    if (rule.via) {
+      out.add(colOf(rule.via));
+      read(rule.rule, path => columnOf(MODELS[rule.of], path));
+    } else {
+      for (const f of [].concat(rule.eq || rule.team || rule.from || rule.to || rule.is || rule.oneOf || rule.notNull || [])) out.add(colOf(f));
+    }
+  };
+  for (const rule of Object.values(shared.filters || {})) read(rule, col);
+  const sort = shared.sorts?.[String(shared.sort || '').replace(/^-/, '')];
+  if (typeof sort === 'string') out.add(col(sort));
+  return [...out];
+}
+
 // The viewer's reach as a where clause on `spec`'s table (nothing for 'all').
 // A reach a list has no rule for sees nothing, never everything.
 function scopeFor(spec, viewer) {
@@ -485,4 +508,4 @@ function scopeFor(spec, viewer) {
   return b => rule(b, viewer);
 }
 
-module.exports = { LISTS, scopeFor };
+module.exports = { LISTS, scopeFor, columnsRead };

@@ -24,6 +24,8 @@ export const LISTING_RULES = {
   // Staff: not verified this many days after joining → Suspended; no activity this long → Locked.
   pendingDays: 7,
   idleDays: 60,
+  // Notifications: one person's goes once they have read it and it is this old; any goes at `any` days.
+  noticeDays: { read: 90, any: 365 },
 }
 
 const DAY = 86400000
@@ -237,6 +239,14 @@ export const NOTICE_CAT = {
   viewing: { label: 'Viewings', tone: 'blue' }, listing: { label: 'Listings', tone: 'violet' }, good: { label: 'Good news', tone: 'green' },
   bad: { label: 'Heads-up', tone: 'amber' }, commission: { label: 'Commission', tone: 'brand' }, office: { label: 'Office', tone: 'gray' }, notice: { label: 'Notice', tone: 'red' },
   system: { label: 'Maintenance', tone: 'amber' },
+}
+// Notifications are not kept for ever (the current system kept 763,000, more than half never read):
+// one person's is deleted when they have read it and it is 90 days old; a branch's
+// or everyone's (nobody can tell who has read those) and any unread one at a year.
+export function noticeExpired(n, today) {
+  const age = daysBetween(String(n.at).slice(0, 10), today)
+  const { read, any } = LISTING_RULES.noticeDays
+  return age > any || (age > read && typeof n.to === 'number' && (n.readBy || []).includes(n.to))
 }
 
 // ── Staff clock: what the current system does to accounts by itself ──

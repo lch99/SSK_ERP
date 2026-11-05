@@ -49,7 +49,8 @@ async function loadState(q) {
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const own = (m, r) => Object.fromEntries(Object.entries(r).filter(([k]) => !m.children[k]));
 
-// Notifications are never deleted here: a browser keeps only the latest, the tables keep them all.
+// Notifications are never deleted here: a browser keeps only the latest, the table keeps them
+// until they expire (db/notices.js, once a day).
 const KEPT = new Set(['notices']);
 
 // Writes what changed between `before` and `after` (both in the demo's shape):

@@ -5,6 +5,7 @@
 // checks and changes is shared/erpActions.js, which the server runs too.
 import { setupView } from './localApi.js'
 import * as A from '../../shared/erpActions.js'
+import { noticeExpired } from '../../shared/listings.js'
 import { makeErpSample, setupSignature, erpBlockers, localToday, ERP_VERSION } from './erpSample.js'
 
 const KEY = 'ssk-demo-erp-v1'
@@ -48,8 +49,13 @@ function change(fn) {
   if (!state.data) return fail(state.blockers[0])
   const err = fn(state.data, state.setup, localToday())
   if (err) return fail(err)
-  // This browser keeps the latest 1,500 notifications (it has little room); the server keeps them all.
-  if (state.data.notices?.length > 1500) state.data.notices.length = 1500
+  // Expired notifications go (noticeExpired, as the server does once a day), and this
+  // browser keeps the latest 1,500 of the rest (it has little room).
+  if (state.data.notices) {
+    const today = localToday()
+    state.data.notices = state.data.notices.filter(n => !noticeExpired(n, today))
+    if (state.data.notices.length > 1500) state.data.notices.length = 1500
+  }
   store(state.data)
   return reply(state)
 }
