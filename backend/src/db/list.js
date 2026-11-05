@@ -194,8 +194,11 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
       }
       if (c.custom) { counts[key] = await c.custom(q, b, ctx); continue; }
       if (c.by) {
-        const got = await b.select({ v: c.by }).count({ n: '*' }).groupBy(c.by);
-        counts[key] = Object.fromEntries(got.map(r => [r.v ?? '', Number(r.n)]));
+        // month: a date by its 'YYYY-MM'; with a sum, { n, sum } for each value.
+        const v = c.month ? q.raw('left(??, 7)', [c.by]) : c.by;
+        if (c.sum) b.sum({ s: c.sum });
+        const got = await b.select({ v }).count({ n: '*' }).groupBy(c.month ? q.raw('left(??, 7)', [c.by]) : c.by);
+        counts[key] = Object.fromEntries(got.map(r => [r.v ?? '', c.sum ? { n: Number(r.n), sum: r2(Number(r.s) || 0) } : Number(r.n)]));
         continue;
       }
       if (c.distinct) b.countDistinct({ d: c.distinct });

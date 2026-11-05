@@ -27,11 +27,12 @@
 // counts: 'field'                { value: n } for each value, leaving out the filter of the same name
 //         { set: { key: value } | ctx => …, ignores? }   n with those filters set as well
 //         { only: ctx => { key: value }, sum: field, keep?, distinct? }   { n, sum } over these filters alone (and of the page's, those it keeps);
-//                                with by: field, { value: n } for each value of that field instead
+//                                with by: field, { value: n } for each value of that field instead ({ value: { n, sum } } with
+//                                sum; month: true groups a date by its month, 'YYYY-MM': a trend in one read)
 //                                with distinct: field, also how many different values it has ({ n, sum, distinct });
 //                                with range: field, its lowest and highest value ({ …, range: { min, max } })
 //         { only, custom: name, keep? }   CUSTOM_COUNTS below here over those records, and the same on the server
-//         { sum?, distinct?, range? }     the same over the page's own search and filters
+//         { sum?, distinct?, range?, by? }   the same over the page's own search and filters
 //         ?counts=a,b asks for those counts only; ?counts=0 for none (a later page)
 // extras (on each row as `$`):
 //         { sum: field, of: kind, by: field, where?: { field: [values] }, not?: { field: [values] } } → a number (null in values: empty)
@@ -52,7 +53,7 @@
 // filters { custom, viewer: true }   the server puts the viewer's own key in (their favourites, their unread)
 // area: null                     everyone may read it (their own)
 import { teamOf } from './access.js'
-import { payslipTotals, tiersFor, computeTierIndex } from './payout.js'
+import { payslipTotals, tiersFor, computeTierIndex, DEAL_TYPES } from './payout.js'
 import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, reviewOverdue, isHandedAway, KEY_FLAG } from './listings.js'
 import { projectDeals, incentiveProgress } from './projects.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES, STAFF_STATUS, ACCOUNT_TYPES } from './labels.js'
@@ -66,6 +67,13 @@ const monthStart = day => `${day.slice(0, 8)}01`
 const monthEnd = day => addDays(`${Number(day.slice(5, 7)) === 12 ? Number(day.slice(0, 4)) + 1 : day.slice(0, 4)}-${String(Number(day.slice(5, 7)) % 12 + 1).padStart(2, '0')}-01`, -1)
 // A payment's or close's E-Form, for filters and searches through it.
 const viaDeal = rule => ({ via: 'dealId', of: 'deals', rule })
+// Home's figures: the first day of the month `n` months before `day`'s ('2026-11-06', 9 → '2026-02-01'), and `day`'s year.
+const monthsBefore = (day, n) => { const m = Number(day.slice(0, 4)) * 12 + Number(day.slice(5, 7)) - 1 - n; return `${Math.floor(m / 12)}-${String(m % 12 + 1).padStart(2, '0')}-01` }
+const yearOf = ctx => ({ from: `${ctx.today.slice(0, 4)}-01-01`, to: `${ctx.today.slice(0, 4)}-12-31` })
+const tenMonths = ctx => ({ from: monthsBefore(ctx.today, 9) })
+// E-Forms that count as business (not drafts or aborted), and those sent at all (not drafts).
+const LIVE = 'submitted,partial,closed', SENT = 'submitted,partial,closed,cancelled'
+const HOME = ['branchId']
 
 // How much cleared cash on an E-Form can close now: what has cleared (up to the
 // bill) less what is closed, once all of it has cleared or Setup pays as money
@@ -163,7 +171,7 @@ const STAFF = {
     tier: { custom: 'tierIs', values: ['T1', 'T2', 'T3'] },
   },
   sorts: { name: 'name', short: 'short', code: 'code', joined: 'joined', expiresOn: 'expiresOn', branch: 'branchId', status: 'status', lastActive: 'lastActive',
-    type: 'type', tier: { computed: 'tierRank' }, closing: { computed: 'lifetime' } },
+    type: 'type', tier: { computed: 'tierRank' }, closing: { computed: 'lifetime' }, earned: { computed: 'yearly' } },
   sort: 'name',
   counts: {
     // By status and account type, with the page's other filters (the Status chips, the Account type filter).
@@ -262,6 +270,18 @@ export const LISTS = {
       year: { only: ctx => ({ from: `${ctx.today.slice(0, 4)}-01-01`, to: `${ctx.today.slice(0, 4)}-12-31`, status: 'submitted,partial,closed' }), sum: 'fee', keep: ['branchId'] },
       // A person's E-Forms this year (staffId), by who sold them: their own, the rest on their listings.
       yearByAgent: { only: ctx => ({ from: `${ctx.today.slice(0, 4)}-01-01`, to: `${ctx.today.slice(0, 4)}-12-31`, status: 'submitted,partial,closed' }), by: 'agentId', keep: ['staffId', 'branchId'] },
+      // Home: ten months of fees (and by deal type) and billing, the year's mix, the pipeline, what waits, the branches.
+      feesByMonth: { only: ctx => ({ ...tenMonths(ctx), status: LIVE }), by: 'date', month: true, sum: 'fee', keep: HOME },
+      ...Object.fromEntries(DEAL_TYPES.map(t => [`feesByMonth_${t}`, { only: ctx => ({ ...tenMonths(ctx), status: LIVE, type: t }), by: 'date', month: true, sum: 'fee', keep: HOME }])),
+      billedByMonth: { only: ctx => ({ ...tenMonths(ctx), status: SENT }), by: 'date', month: true, sum: 'money.billed', keep: HOME },
+      billedYear: { only: ctx => ({ ...yearOf(ctx), status: SENT }), sum: 'money.billed', keep: HOME },
+      mixYear: { only: ctx => ({ ...yearOf(ctx), status: LIVE }), by: 'type', sum: 'fee', keep: HOME },
+      byStatus: { only: () => ({}), by: 'status', sum: 'fee', keep: HOME },
+      endedYear: { only: ctx => ({ ...yearOf(ctx), status: 'closed,cancelled' }), by: 'status', sum: 'fee', keep: HOME },
+      stale: { only: ctx => ({ status: 'submitted', to: addDays(ctx.today, -46) }), keep: HOME },
+      collecting: { only: () => ({ status: 'submitted,partial' }), custom: 'collected', keep: HOME },
+      branchesMonth: { only: ctx => ({ from: monthStart(ctx.today), to: monthEnd(ctx.today), status: LIVE }), by: 'branchId', sum: 'fee' },
+      branchesYear: { only: ctx => ({ ...yearOf(ctx), status: LIVE }), by: 'branchId', sum: 'fee' },
     },
     extras: {
       listingCode: { field: 'code', of: 'listings', from: 'listingId' },
@@ -291,6 +311,7 @@ export const LISTS = {
       status: 'status',
       // Draft and Pending: still to check against the bank statement.
       toCheck: { only: () => ({ status: 'draft,pending' }), sum: 'amount', keep: ['branchId'] },
+      returned60: { only: ctx => ({ status: 'returned', from: addDays(ctx.today, -60) }), keep: HOME },
       clearedThisMonth: { only: ctx => ({ status: 'cleared', clearedFrom: monthStart(ctx.today), clearedTo: monthEnd(ctx.today) }), sum: 'amount', keep: ['branchId'] },
     },
     extras: {
@@ -324,9 +345,16 @@ export const LISTS = {
   closes: {
     area: 'payouts',
     search: [],
-    filters: { dealId: { eq: 'dealId' }, from: { from: 'date' }, to: { to: 'date' } },
+    filters: { dealId: { eq: 'dealId' }, from: { from: 'date' }, to: { to: 'date' }, branchId: viaDeal({ eq: 'branchId' }) },
     sorts: { date: 'date' },
     sort: '-date',
+    // Home: ten months of net commission closed, everything claimed, and the year's net by the E-Form's branch.
+    counts: {
+      netByMonth: { only: ctx => tenMonths(ctx), by: 'date', month: true, sum: 'net', keep: HOME },
+      claimed: { only: () => ({}), sum: 'claim', keep: HOME },
+      netByBranchYear: { only: ctx => yearOf(ctx), custom: 'netByDealBranch' },
+    },
+    extras: { deal: { pick: ['code', 'property.title'], of: 'deals', from: 'dealId' } },
   },
 
   // Payout lines (Closed Case): one per person paid on each close. Salary requests and
@@ -351,6 +379,8 @@ export const LISTS = {
       status: 'status',
       // New and Pending Queries: waiting for approval, on how many closes.
       waiting: { only: () => ({ status: 'new,queried', archived: 'false' }), sum: 'amount', distinct: 'closeId', keep: ['branchId'] },
+      queried: { only: () => ({ status: 'queried', archived: 'false' }), distinct: 'dealId', keep: HOME },
+      paidByBranchYear: { only: ctx => yearOf(ctx), custom: 'paidByDealBranch' },
       // Ready, salary not requested yet, for how many people.
       ready: { only: () => ({ status: 'approved', requested: 'false', archived: 'false' }), sum: 'amount', distinct: 'staffId', keep: ['branchId'] },
       // What the next weekly archive takes (shared/erpActions.js archiveCases): every branch.
@@ -401,6 +431,7 @@ export const LISTS = {
       status: 'status', kind: 'kind',
       // New Request and Payment Ready: what is still to pay; Payment Clear this year, with the tax withheld.
       unpaid: { only: () => ({ status: 'new,ready' }), custom: 'payslips', keep: ['branchId', 'staffId'] },
+      unpaidPayOn: { only: () => ({ status: 'new,ready' }), range: 'payOn', keep: ['branchId', 'staffId'] },
       paidThisYear: { only: ctx => ({ status: 'clear', paidFrom: `${ctx.today.slice(0, 4)}-01-01`, paidTo: `${ctx.today.slice(0, 4)}-12-31` }), custom: 'payslips', keep: ['branchId', 'staffId'] },
     },
     extras: {
@@ -428,6 +459,7 @@ export const LISTS = {
       status: 'status', type: 'type',
       // Not paid yet, and Payment Ready (what Accounts can pay now).
       unpaid: { only: () => ({ status: 'new,queried,ready' }), sum: 'amount', keep: ['branchId'] },
+      toApprove: { only: () => ({ status: 'new,queried' }), keep: HOME },
       ready: { only: () => ({ status: 'ready' }), sum: 'amount', keep: ['branchId'] },
     },
     extras: {
@@ -516,6 +548,8 @@ export const LISTS = {
       today: { only: ctx => ({ status: 'confirmed', from: ctx.today, to: ctx.today }), keep: ['branchId'] },
       week: { only: ctx => ({ status: 'new,rescheduled,confirmed', from: ctx.today, to: addDays(ctx.today, 6) }), keep: ['branchId'] },
       done30: { only: ctx => ({ status: 'done', from: addDays(ctx.today, -30) }), keep: ['branchId'] },
+      // Today or tomorrow and still not confirmed by the product handler.
+      unconfirmed: { only: ctx => ({ status: 'new,rescheduled', to: addDays(ctx.today, 1) }), keep: HOME },
     },
     extras: { listings: { pick: ['code', 'title', 'area', 'category', 'type', 'status', 'holderId', 'titleId', 'branchId'], of: 'listings', from: 'listingIds', many: true } },
   },
@@ -650,7 +684,28 @@ export function areaManagers(staff, setup) {
 const isReady = p => p.status === 'approved' && p.requestId == null && p.archiveId == null
 
 // Counts worked out in code (the server runs the same on the rows its SQL finds).
+// { value: { n, sum } } of records grouped by their E-Form's branch (closes and payout lines have none of their own).
+const byDealBranch = (hits, ctx, field) => {
+  const out = {}
+  for (const r of hits) {
+    const k = countKey(ctx.byId('deals').get(r.dealId)?.branchId)
+    const g = (out[k] ||= { n: 0, sum: 0 })
+    g.n++
+    g.sum += Number(r[field] || 0)
+  }
+  for (const g of Object.values(out)) g.sum = r2(g.sum)
+  return out
+}
+
 export const CUSTOM_COUNTS = {
+  // Open E-Forms: how much is billed, and how much of it has cleared (each capped at its bill).
+  collected: (hits, ctx) => {
+    const cash = ctx.cash()
+    return { n: hits.length, billed: r2(hits.reduce((t, d) => t + Number(d.money?.billed || 0), 0)),
+      collected: r2(hits.reduce((t, d) => t + Math.min(cash.get(d.id)?.cleared || 0, Number(d.money?.billed || 0)), 0)) }
+  },
+  netByDealBranch: (hits, ctx) => byDealBranch(hits, ctx, 'net'),
+  paidByDealBranch: (hits, ctx) => byDealBranch(hits, ctx, 'amount'),
   tierCounts: (hits, ctx) => {
     const out = {}
     for (const r of hits) { const t = tiersNow(ctx).get(r.id)?.tier; if (t) out[t] = (out[t] || 0) + 1 }
@@ -695,6 +750,7 @@ const tiersNow = ctx => ctx.once('tiers', () => tiersOf(ctx.data?.staff || [], s
 // Values worked out in code for every record, to sort by.
 const COMPUTED = {
   lifetime: (r, ctx) => tiersNow(ctx).get(r.id)?.lifetime ?? 0,
+  yearly: (r, ctx) => tiersNow(ctx).get(r.id)?.yearly ?? 0,
   tierRank: (r, ctx) => tiersNow(ctx).get(r.id)?.rank ?? -1,
 }
 
@@ -816,6 +872,20 @@ export const listPage = (records, spec, params = {}, ctx = {}) => run(records, s
 export const listAll = (records, spec, params = {}, ctx = {}) => run(records, spec, { ...params, counts: '0' }, ctx, true)
 
 // { n, sum (, distinct, range) } of records.
+// { value: n } for each value of def.by, or { value: { n, sum } } with a sum; month: by 'YYYY-MM'.
+function groupBy(hits, def) {
+  const groups = new Map()
+  for (const r of hits) {
+    const v = get(r, def.by)
+    const k = def.month ? String(v ?? '').slice(0, 7) : countKey(v)
+    const g = groups.get(k) || { n: 0, sum: 0 }
+    g.n++
+    if (def.sum) g.sum += Number(get(r, def.sum) || 0)
+    groups.set(k, g)
+  }
+  return Object.fromEntries([...groups].map(([k, g]) => [k, def.sum ? { n: g.n, sum: r2(g.sum) } : g.n]))
+}
+
 function addUp(hits, def) {
   const vals = def.range ? hits.map(r => get(r, def.range)).filter(v => v != null).sort(compare) : null
   return { n: hits.length, ...(def.sum && { sum: r2(hits.reduce((t, r) => t + Number(get(r, def.sum) || 0), 0)) }),
@@ -892,13 +962,12 @@ function run(all_records, spec, params, ctx, all) {
       const set = { ...Object.fromEntries(active.filter(([k]) => (def.keep || []).includes(k)).map(([k]) => [k, params[k]])), ...def.only(c) }
       const hits = records.filter(r => Object.entries(set).every(([k, v]) => test(spec.filters[k], r, v, c)))
       if (def.custom) { counts[key] = CUSTOM_COUNTS[def.custom](hits, c); continue }
-      if (def.by) { counts[key] = {}; for (const r of hits) { const k = countKey(get(r, def.by)); counts[key][k] = (counts[key][k] || 0) + 1 } continue }
-      counts[key] = addUp(hits, def)
+      counts[key] = def.by ? groupBy(hits, def) : addUp(hits, def)
     } else if (def.set) {
       const set = typeof def.set === 'function' ? def.set(c) : def.set
       counts[key] = records.filter(r => pass(r, def.ignores || [], set)).length
     } else {
-      counts[key] = addUp(matching, def)
+      counts[key] = def.by ? groupBy(matching, def) : addUp(matching, def)
     }
   }
 

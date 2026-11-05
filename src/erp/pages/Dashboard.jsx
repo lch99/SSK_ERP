@@ -1,19 +1,18 @@
 import { useState } from 'react'
 import * as P from '../../../shared/payout.js'
-import * as L from '../../../shared/listings.js'
 import { C, btn } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
-import { DEAL_STATUS, sum } from '../model.js'
+import { DEAL_STATUS } from '../model.js'
 import { Card, Pill, Link, Progress, cols, go, tabular } from '../ui.jsx'
 import { CARD } from '../help.js'
 import { StackedBars } from '../charts.jsx'
 import { Hero, AreaTrend, DealMix, Leaderboard, ActivityFeed, BranchRace, CountUp, rise } from './dashboardWidgets.jsx'
-import { projectsOf } from '../../api.js'
+import { useList } from '../useList.js'
 import { FlowBar } from '../flow.jsx'
 import * as J from '../../../shared/projects.js'
-import { rm, date, monthLabel, monthName, lastMonths, daysFrom, num } from '../format.js'
+import { rm, date, monthLabel, monthName, lastMonths, num } from '../format.js'
 import Icon from '../Icon.jsx'
-import { useAccess, samplePerson } from '../access.jsx'
+import { useAccess, useCan, samplePerson } from '../access.jsx'
 import AgentDashboard from './AgentDashboard.jsx'
 
 // Home: an agent gets their own dashboard; everyone else the company's.
@@ -23,111 +22,124 @@ export default function Dashboard({ me }) {
   return access?.agentId != null && m.staff[access.agentId] ? <AgentDashboard id={access.agentId} /> : <CompanyDashboard me={me} />
 }
 
+// Only the named counts of a list, no rows (Home's figures); skip: the role doesn't see that area.
+const useCounts = (key, names, skip) => useList(key, { counts: names.filter(Boolean).join(',') || '0' }, { pageSize: 1, skip }).counts
+// A few of a list's newest rows (Home's activity), dated today or earlier.
+const useLatest = (key, params, today, skip) => useList(key, { ...params, to: today, counts: '0' }, { pageSize: 7, skip }).rows
+// One month of a { 'YYYY-MM': { n, sum } } count.
+const monthOf = (count, mo) => count?.[mo] || { n: 0, sum: 0 }
+const LIVE = 'submitted,partial,closed'
+
+// The office's Home: every figure is a count the server adds up (shared/lists.js
+// `counts`, the same in the demo), or a short list read; never every record.
 function CompanyDashboard({ me }) {
-  const { m, scoped: d, branchId, setup } = useErp()
+  const { m, branchId, setup } = useErp()
   const access = useAccess()
+  const can = useCan()
   const [byType, setByType] = useState(false)
   const today = m.today
+  const year = today.slice(0, 4)
   const [prevYm, ym] = lastMonths(today, 2)
+  const months = lastMonths(today, 10)
+  const all = branchId == null
+  const hidden = area => !can(area, 'view')
   const enabled = P.DEAL_TYPES.filter(t => setup.dealTypes[t]?.enabled)
-  const live = d.deals.filter(x => x.status !== 'cancelled' && x.status !== 'draft')
-  const thisMonth = live.filter(x => x.date.startsWith(ym))
-  const lastMonth = live.filter(x => x.date.startsWith(prevYm))
-  const closedNow = d.closes.filter(c => c.date.startsWith(ym))
-  const closedBefore = d.closes.filter(c => c.date.startsWith(prevYm))
-  const toApprove = d.payouts.filter(p => !p.archiveId && (p.status === 'new' || p.status === 'queried'))
-  const queried = toApprove.filter(p => p.status === 'queried')
+
+  const dc = useCounts('deals', ['feesByMonth', 'billedByMonth', 'billedYear', 'mixYear', 'byStatus', 'endedYear', 'stale', 'collecting',
+    all && 'branchesMonth', all && 'branchesYear'], hidden('deals'))
+  const typed = useCounts('deals', P.DEAL_TYPES.map(t => `feesByMonth_${t}`), !byType || hidden('deals'))
+  const cc = useCounts('closes', ['netByMonth', 'claimed', all && 'netByBranchYear'], hidden('payouts'))
+  const pc = useCounts('payouts', ['waiting', 'queried', all && 'paidByBranchYear'], hidden('payouts'))
+  const rc = useCounts('requests', ['unpaid', 'unpaidPayOn'], hidden('salary'))
+  const ic = useCounts('moneyIn', ['toCheck', 'returned60'], hidden('moneyIn'))
+  const oc = useCounts('moneyOut', ['toApprove'], hidden('moneyOut'))
+  const vc = useCounts('viewings', ['unconfirmed'], hidden('listings'))
+  const v1 = useCounts('v1Eforms', ['all'], !all || hidden('deals'))
+
+  const fees = mo => monthOf(dc.feesByMonth, mo).sum
+  const billed = mo => monthOf(dc.billedByMonth, mo).sum
+  const net = mo => monthOf(cc.netByMonth, mo).sum
+  const waiting = pc.waiting || { n: 0, sum: 0, distinct: 0 }
+  const queried = pc.queried || { n: 0, distinct: 0 }
   // Salary and incentive requests waiting to be paid on the Setup pay day.
-  const unpaid = d.requests.filter(r => r.status === 'new' || r.status === 'ready')
-  const unpaidTotal = sum(unpaid, r => m.slip(r.id).net)
-  const payDay = unpaid.map(r => r.payOn).sort()[0]
+  const unpaid = rc.unpaid || { n: 0, net: 0 }
+  const payDay = rc.unpaidPayOn?.range?.min
   const branchLabel = branchId ? m.branchName(branchId) : 'All branches'
 
   // Fees signed per month, by deal type (colour fixed per type, never by rank).
-  const months = lastMonths(today, 10)
-  const rows = months.map(mo => ({
-    key: mo, label: monthLabel(mo),
-    values: Object.fromEntries(enabled.map(t => [t, sum(live.filter(x => x.type === t && x.date.startsWith(mo)), x => x.fee)])),
-  }))
+  const rows = months.map(mo => ({ key: mo, label: monthLabel(mo), values: Object.fromEntries(enabled.map(t => [t, monthOf(typed[`feesByMonth_${t}`], mo).sum])) }))
   const series = enabled.map(t => ({ key: t, label: P.DEAL_TYPE_LABELS[t], color: C.series[P.DEAL_TYPES.indexOf(t)] }))
 
-  const pipeline = ['draft', 'submitted', 'partial', 'closed', 'cancelled'].filter(s => s !== 'partial' || d.deals.some(x => x.status === 'partial')).map(s => {
-    const list = d.deals.filter(x => x.status === s && (s !== 'closed' && s !== 'cancelled' ? true : x.date.startsWith(m.year)))
-    return { s, n: list.length, fee: sum(list, x => x.fee) }
-  })
+  // Open E-Forms of any date; closed and aborted ones of this year.
+  const status = s => (s === 'closed' || s === 'cancelled' ? dc.endedYear : dc.byStatus)?.[s] || { n: 0, sum: 0 }
+  const pipeline = ['draft', 'submitted', 'partial', 'closed', 'cancelled'].filter(s => s !== 'partial' || dc.byStatus?.partial?.n)
+    .map(s => ({ s, n: status(s).n, fee: status(s).sum }))
+  const counts = Object.fromEntries(['draft', 'submitted', 'partial', 'closed', 'cancelled'].map(k => [k, dc.byStatus?.[k]?.n || 0]))
+  const toCollect = dc.collecting?.billed || 0
+  const collected = dc.collecting?.collected || 0
 
-  const stale = d.deals.filter(x => x.status === 'submitted' && daysFrom(x.date, today) > 45)
-  const toCheck = d.moneyIn.filter(t => t.status === 'pending' || t.status === 'draft')
-  const outToApprove = d.moneyOut.filter(x => x.status === 'new' || x.status === 'queried')
-  const openDeals = d.deals.filter(x => x.status === 'submitted' || x.status === 'partial')
-  const toCollect = sum(openDeals, x => x.money.billed)
-  const collected = sum(openDeals, x => Math.min(m.cleared(x.id), x.money.billed))
-  const bounced = d.moneyIn.filter(t => t.status === 'returned' && daysFrom(t.date, today) <= 60)
-  const unconfirmed = (d.viewings || []).filter(v => (v.status === 'new' || v.status === 'rescheduled') && v.date <= L.addDays(today, 1))
+  const n = (count, key = 'n') => count?.[key] || 0
   const attention = [
-    queried.length && { icon: 'alert', tone: C.err, text: <><b>{new Set(queried.map(p => p.dealId)).size} case{new Set(queried.map(p => p.dealId)).size > 1 ? 's' : ''}</b> with Pending Queries</>, to: 'payouts' },
-    toApprove.length && { icon: 'payouts', tone: C.warn, text: <><b>{toApprove.length} close-case lines</b> ({rm(sum(toApprove, p => p.amount))}) waiting to be made Ready</>, to: 'payouts' },
-    toCheck.length && { icon: 'moneyIn', tone: C.warn, text: <><b>{toCheck.length} transaction{toCheck.length > 1 ? 's' : ''}</b> to check against the bank</>, to: 'money-in' },
-    outToApprove.length && { icon: 'moneyOut', tone: C.warn, text: <><b>{outToApprove.length} request form{outToApprove.length > 1 ? 's' : ''}</b> to approve</>, to: 'money-out' },
-    stale.length && { icon: 'deals', tone: C.info, text: <><b>{stale.length} E-Form{stale.length > 1 ? 's' : ''}</b> submitted over 45 days ago and still collecting</>, to: 'deals' },
-    bounced.length && { icon: 'alert', tone: C.err, text: <><b>{bounced.length} returned cheque{bounced.length > 1 ? 's' : ''}</b> in the last 60 days</>, to: 'money-in' },
-    unconfirmed.length && { icon: 'calendar', tone: C.warn, text: <><b>{unconfirmed.length} viewing{unconfirmed.length > 1 ? 's' : ''}</b> today or tomorrow still not confirmed by the product handler</>, to: 'appointments' },
+    queried.n && { icon: 'alert', tone: C.err, text: <><b>{queried.distinct} case{queried.distinct > 1 ? 's' : ''}</b> with Pending Queries</>, to: 'payouts' },
+    waiting.n && { icon: 'payouts', tone: C.warn, text: <><b>{waiting.n} close-case lines</b> ({rm(waiting.sum)}) waiting to be made Ready</>, to: 'payouts' },
+    n(ic.toCheck) && { icon: 'moneyIn', tone: C.warn, text: <><b>{n(ic.toCheck)} transaction{n(ic.toCheck) > 1 ? 's' : ''}</b> to check against the bank</>, to: 'money-in' },
+    n(oc.toApprove) && { icon: 'moneyOut', tone: C.warn, text: <><b>{n(oc.toApprove)} request form{n(oc.toApprove) > 1 ? 's' : ''}</b> to approve</>, to: 'money-out' },
+    n(dc.stale) && { icon: 'deals', tone: C.info, text: <><b>{n(dc.stale)} E-Form{n(dc.stale) > 1 ? 's' : ''}</b> submitted over 45 days ago and still collecting</>, to: 'deals' },
+    n(ic.returned60) && { icon: 'alert', tone: C.err, text: <><b>{n(ic.returned60)} returned cheque{n(ic.returned60) > 1 ? 's' : ''}</b> in the last 60 days</>, to: 'money-in' },
+    n(vc.unconfirmed) && { icon: 'calendar', tone: C.warn, text: <><b>{n(vc.unconfirmed)} viewing{n(vc.unconfirmed) > 1 ? 's' : ''}</b> today or tomorrow still not confirmed by the product handler</>, to: 'appointments' },
   ].filter(Boolean)
 
   // Top earners this year, by the commission they earned on (what tiers climb on).
-  const top = d.staff.map(s => ({ s, v: m.credit(s.id).year })).filter(x => x.v > 0).sort((a, b) => b.v - a.v).slice(0, 7)
+  const earners = useList('staff', { kind: 'agent', sort: '-earned', counts: '0' }, { pageSize: 7, skip: hidden('staff') }).rows
+  const top = earners.map(s => ({ s, v: s.$?.credit?.yearly || 0 })).filter(x => x.v > 0)
 
-  const submitted = d.deals.filter(x => x.status !== 'draft')
-  const billed = mo => sum(submitted.filter(x => x.date.startsWith(mo)), x => x.money.billed)
   const change = (now, before) => (before ? Math.round(((now - before) / before) * 100) : null)
-  const counts = Object.fromEntries(['draft', 'submitted', 'partial', 'closed', 'cancelled'].map(k => [k, d.deals.filter(x => x.status === k).length]))
   const hour = new Date().getHours()
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
-
-
 
   // Days into the month, for the pace forecast.
   const dayNo = Number(today.slice(8, 10))
   const daysIn = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate()
 
   // This year's fees by deal type, for the deal mix.
-  const yearLive = live.filter(x => x.date.startsWith(m.year))
   const mix = enabled.map(t => ({ key: t, label: P.DEAL_TYPE_LABELS[t], color: C.series[P.DEAL_TYPES.indexOf(t)],
-    value: sum(yearLive.filter(x => x.type === t), x => x.fee), count: yearLive.filter(x => x.type === t).length }))
+    value: dc.mixYear?.[t]?.sum || 0, count: dc.mixYear?.[t]?.n || 0 }))
 
-  // What happened lately: E-Forms in, cases closed, money in, people paid.
+  // What happened lately: E-Forms in, cases closed, money in.
+  const sent = useLatest('deals', { status: LIVE }, today, hidden('deals'))
+  const closed = useLatest('closes', {}, today, hidden('payouts'))
+  const received = useLatest('moneyIn', { status: 'draft,cleared,returned,invalid' }, today, hidden('moneyIn'))
   const events = [
-    ...submitted.filter(x => x.status !== 'cancelled').map(x => ({ date: x.submittedOn || x.date, icon: 'deals', fg: C.primary, bg: C.primaryBg, to: `deals/${x.id}`,
+    ...sent.map(x => ({ date: x.submittedOn || x.date, icon: 'deals', fg: C.primary, bg: C.primaryBg, to: `deals/${x.id}`,
       text: <><b>{m.staffName(x.agentId)}</b> submitted <b>{x.code}</b> · {x.property.title}</>, meta: P.DEAL_TYPE_LABELS[x.type], amount: rm(x.fee) })),
-    ...d.closes.map(c => ({ date: c.date, icon: 'check', fg: C.ok, bg: C.okBg, to: `deals/${c.dealId}`,
-      text: <><b>{m.deals[c.dealId]?.code}</b> {c.full ? 'closed' : 'part-closed'} · {m.deals[c.dealId]?.property.title}</>, meta: 'Net commission', amount: rm(c.net), amountColor: C.ok })),
-    ...d.moneyIn.filter(t => t.status !== 'pending').map(t => ({ date: t.date, icon: t.status === 'returned' ? 'alert' : 'moneyIn',
+    ...closed.map(c => ({ date: c.date, icon: 'check', fg: C.ok, bg: C.okBg, to: `deals/${c.dealId}`,
+      text: <><b>{c.$?.deal?.code}</b> {c.full ? 'closed' : 'part-closed'} · {c.$?.deal?.['property.title']}</>, meta: 'Net commission', amount: rm(c.net), amountColor: C.ok })),
+    ...received.map(t => ({ date: t.date, icon: t.status === 'returned' ? 'alert' : 'moneyIn',
       fg: t.status === 'returned' ? C.err : C.info, bg: t.status === 'returned' ? C.errBg : C.infoBg, to: 'money-in',
       text: t.status === 'returned' ? <>Cheque <b>returned</b> from {t.payer}</> : <>Received from <b>{t.payer}</b></>, meta: t.code, amount: rm(t.amount) })),
   ].filter(e => e.date && e.date <= today).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7)
 
   // Branch race: fees submitted this month, by branch.
-  const race = setup.branches.map((b, i) => ({ key: b.id, index: i, label: b.name, sub: b.code,
-    value: sum(m.data.deals.filter(x => x.branchId === b.id && x.date.startsWith(ym) && x.status !== 'cancelled' && x.status !== 'draft'), x => x.fee) }))
+  const race = setup.branches.map((b, i) => ({ key: b.id, index: i, label: b.name, sub: b.code, value: dc.branchesMonth?.[b.id]?.sum || 0 }))
 
-  // Developer incentives running now, across projects.
-  const running = projectsOf(m.data, setup).flatMap(p => p.incentives.map(i => ({ p, i })))
-    .filter(({ i }) => J.incentiveStatus(i, today) === 'active')
-    .map(({ p, i }) => ({ p, i, r: J.incentiveProgress(i, p, m.data.deals, today) })).slice(0, 4)
+  // Developer incentives running now, across projects (each project carries its incentives' progress).
+  const projects = useList('projects', { counts: '0' }, { pageSize: 50, skip: hidden('projects') }).rows
+  const running = projects.flatMap(p => (p.incentives || []).map(i => ({ p, i, r: p.$?.sales?.progress?.[i.id] })))
+    .filter(({ i, r }) => r && J.incentiveStatus(i, today) === 'active').slice(0, 4)
 
   return (
     <div className="ssk-page">
       <Hero greet={`${greet}${me?.name && me.name !== 'Demo' ? `, ${me.name.split(' ')[0]}` : ''} 👋`} place={branchLabel === 'All branches' ? 'All branches' : branchLabel}
         dateText={date(today)} thisMonth={billed(ym)} lastMonth={billed(prevYm)} dayNo={dayNo} daysIn={daysIn} monthName={monthName(ym).split(' ')[0]}
         stats={[
-          { icon: 'deals', value: num(thisMonth.length), label: 'E-Forms this month' },
-          { icon: 'check', value: num(closedNow.length), label: 'closes' },
+          { icon: 'deals', value: num(monthOf(dc.feesByMonth, ym).n), label: 'E-Forms this month' },
+          { icon: 'check', value: num(monthOf(cc.netByMonth, ym).n), label: 'closes' },
           { icon: 'moneyIn', value: toCollect ? `${Math.round(collected / toCollect * 100)}%` : '—', label: 'collected on open deals' },
         ]}
         actions={[
           { icon: 'deals', label: 'E-Forms', primary: true, onClick: () => go('deals') },
           { icon: 'plus', label: 'Record a payment', onClick: () => go('money-in/new') },
-          { icon: 'payouts', label: 'Approve payouts', badge: new Set(toApprove.map(p => p.closeId)).size, onClick: () => go('payouts') },
+          { icon: 'payouts', label: 'Approve payouts', badge: waiting.distinct, onClick: () => go('payouts') },
           { icon: 'search', label: 'Quick search  ⌘K', onClick: () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true })) },
           // The Superadmin can see what an agent gets when they sign in.
           ...(access?.manages && !access.viewing ? [{ icon: 'eye', label: 'See an agent’s view', onClick: () => access.viewAs({ role: 'staff', staffId: samplePerson(m.data.staff, 'staff', access.policy) }) }] : []),
@@ -147,14 +159,14 @@ function CompanyDashboard({ me }) {
         {[
           <Kpi key="sub" tone="brand" icon="deals" label={`Total submission · ${monthName(ym)}`} value={billed(ym)} money
             delta={change(billed(ym), billed(prevYm))} spark={months.map(billed)} onClick={() => go('deals')}
-            foot={<>{num(thisMonth.length)} E-Forms · {rm(sum(thisMonth, x => x.fee))} fees<br />Year {m.year}: <b>{rm(sum(submitted.filter(x => x.date.startsWith(m.year)), x => x.money.billed))}</b> · last month {rm(billed(prevYm))}</>} />,
-          <Kpi key="net" tone="green" icon="check" label={`Net commission closed · ${monthName(ym).split(' ')[0]}`} value={sum(closedNow, c => c.net)} money
-            delta={change(sum(closedNow, c => c.net), sum(closedBefore, c => c.net))} spark={months.map(mo => sum(d.closes.filter(c => c.date.startsWith(mo)), c => c.net))}
-            foot={<>{closedNow.length} close{closedNow.length === 1 ? '' : 's'} this month<br />Total Close Case (V1 + V2): <b>{rm(sum(d.closes, c => c.claim) + (branchId ? 0 : sum(m.data.v1?.eforms || [], x => x.closing)))}</b></>} />,
-          <Kpi key="app" tone="amber" icon="payouts" label="Payouts to approve" value={sum(toApprove, p => p.amount)} money onClick={() => go('payouts')}
-            foot={<>{new Set(toApprove.map(p => p.closeId)).size} closes waiting<br />{queried.length ? <span style={{ color: C.err, fontWeight: 600 }}>{queried.length} lines in Pending Queries</span> : 'None queried'}</>} />,
-          <Kpi key="sal" tone="blue" icon="payRuns" label={payDay ? `Salary to pay · ${date(payDay, { short: true })}` : 'Salary to pay'} value={unpaidTotal} money onClick={() => go('salary')}
-            foot={<>{unpaid.length ? `${unpaid.length} requests` : 'No open requests'}<br />{P.describeApprovals(setup.approvals).split(' · ')[1] || ''}</>} />,
+            foot={<>{num(monthOf(dc.feesByMonth, ym).n)} E-Forms · {rm(fees(ym))} fees<br />Year {year}: <b>{rm(dc.billedYear?.sum || 0)}</b> · last month {rm(billed(prevYm))}</>} />,
+          <Kpi key="net" tone="green" icon="check" label={`Net commission closed · ${monthName(ym).split(' ')[0]}`} value={net(ym)} money
+            delta={change(net(ym), net(prevYm))} spark={months.map(net)}
+            foot={<>{monthOf(cc.netByMonth, ym).n} close{monthOf(cc.netByMonth, ym).n === 1 ? '' : 's'} this month<br />Total Close Case (V1 + V2): <b>{rm((cc.claimed?.sum || 0) + (all ? v1.all?.sum || 0 : 0))}</b></>} />,
+          <Kpi key="app" tone="amber" icon="payouts" label="Payouts to approve" value={waiting.sum} money onClick={() => go('payouts')}
+            foot={<>{waiting.distinct} closes waiting<br />{queried.n ? <span style={{ color: C.err, fontWeight: 600 }}>{queried.n} lines in Pending Queries</span> : 'None queried'}</>} />,
+          <Kpi key="sal" tone="blue" icon="payRuns" label={payDay ? `Salary to pay · ${date(payDay, { short: true })}` : 'Salary to pay'} value={unpaid.net} money onClick={() => go('salary')}
+            foot={<>{unpaid.n ? `${unpaid.n} requests` : 'No open requests'}<br />{P.describeApprovals(setup.approvals).split(' · ')[1] || ''}</>} />,
         ].map((k, i) => <div key={i} {...rise(i + 1)} style={{ ...rise(i + 1).style, display: 'grid' }}>{k}</div>)}
       </div>
 
@@ -164,8 +176,8 @@ function CompanyDashboard({ me }) {
             actions={<button style={{ ...btn, fontSize: 13, padding: '5px 11px' }} onClick={() => setByType(!byType)}>{byType ? 'Show trend' : 'By deal type'}</button>}>
             {byType ? <StackedBars rows={rows} series={series} title="Fees signed per month by deal type" />
               : <AreaTrend months={months} series={[
-                { key: 'fees', label: 'Fees submitted', color: C.primary, values: months.map(mo => sum(live.filter(x => x.date.startsWith(mo)), x => x.fee)) },
-                { key: 'net', label: 'Net closed', color: '#17a34a', values: months.map(mo => sum(d.closes.filter(c => c.date.startsWith(mo)), c => c.net)) },
+                { key: 'fees', label: 'Fees submitted', color: C.primary, values: months.map(fees) },
+                { key: 'net', label: 'Net closed', color: '#17a34a', values: months.map(net) },
               ]} />}
           </Card>
         </div>
@@ -246,19 +258,17 @@ function CompanyDashboard({ me }) {
         </div>
       </div>
 
-      {!branchId && setup.branches.length > 1 && <div {...rise(13)}><BranchTable m={m} /></div>}
+      {all && setup.branches.length > 1 && <div {...rise(13)}><BranchTable m={m} year={year} deals={dc.branchesYear} net={cc.netByBranchYear} paid={pc.paidByBranchYear} /></div>}
     </div>
   )
 }
 
-function BranchTable({ m }) {
-  const y = m.year
+// The year by branch: E-Forms and fees, net closed and paid out (by the E-Form's branch), from the
+// server's counts; active people from the staff directory.
+function BranchTable({ m, year: y, deals = {}, net = {}, paid = {} }) {
   const rows = m.setup.branches.map(b => {
-    const deals = m.data.deals.filter(d => d.branchId === b.id && d.date.startsWith(y) && d.status !== 'cancelled' && d.status !== 'draft')
-    const closes = m.data.closes.filter(c => m.deals[c.dealId].branchId === b.id && c.date.startsWith(y))
-    const paid = m.data.payouts.filter(p => m.deals[p.dealId].branchId === b.id && p.date.startsWith(y))
-    const net = sum(closes, c => c.net)
-    return { b, deals: deals.length, fees: sum(deals, d => d.fee), net, paid: sum(paid, p => p.amount), kept: Math.max(0, net - sum(paid, p => p.amount)),
+    const closedNet = net[b.id]?.sum || 0, paidOut = paid[b.id]?.sum || 0
+    return { b, deals: deals[b.id]?.n || 0, fees: deals[b.id]?.sum || 0, net: closedNet, paid: paidOut, kept: Math.max(0, closedNet - paidOut),
       people: m.data.staff.filter(s => s.branchId === b.id && s.status === 'active').length }
   })
   const head = ['Branch', 'Active staff', `Deals ${y}`, 'Fees signed', 'Net closed', 'Paid to people', 'Company keeps']

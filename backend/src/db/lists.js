@@ -11,6 +11,8 @@ const { MODELS, KINDS, parseJson, toRecords } = require('./records');
 const { localToday } = require('./days');
 const { teamIds, rawRows } = require('./list');
 
+const r2 = n => Math.round(n * 100) / 100;
+
 // Records reached through their E-Form (payments, closes, request forms).
 const viaDeal = (b, v, col = 'deal_id') => b.whereIn(col, sub => {
   sub.select('id').from('deals');
@@ -34,6 +36,12 @@ const byStaff = { branch: (b, v) => mine(b, v, 'staff_id'), team: (b, v) => mine
 const CLEARED = "(select coalesce(sum(m.amount), 0) from money_in m where m.deal_id = deals.id and m.status = 'cleared')";
 const CLOSED = '(select coalesce(sum(c.claim), 0) from closes c where c.deal_id = deals.id)';
 const GOT = `(case when ${CLEARED} < deals.billed then ${CLEARED} else deals.billed end)`;
+// shared/lists.js byDealBranch: { branchId: { n, sum } } of the found rows, by their E-Form's branch.
+const byDealBranch = async (q, b, table, col) => {
+  const got = await q(table).join('deals', 'deals.id', `${table}.deal_id`).whereIn(`${table}.id`, b.select(`${table}.id`))
+    .groupBy('deals.branch_id').select({ v: 'deals.branch_id' }).count({ n: '*' }).sum({ s: `${table}.${col}` });
+  return Object.fromEntries(got.map(r => [r.v ?? '', { n: Number(r.n), sum: r2(Number(r.s) || 0) }]));
+};
 
 // ── Listing rules in SQL (shared/listings.js; the demo runs them on the records) ──
 // A JSON array column holds `value`: [sql, bindings].
@@ -185,6 +193,7 @@ const SERVER = {
     computed: {
       lifetime: async q => new Map([...(await tiersNow(q))].map(([id, t]) => [id, t.lifetime])),
       tierRank: async q => new Map([...(await tiersNow(q))].map(([id, t]) => [id, t.rank])),
+      yearly: async q => new Map([...(await tiersNow(q))].map(([id, t]) => [id, t.yearly])),
     },
     counts: {
       tierCounts: async (q, b) => {
@@ -241,12 +250,24 @@ const SERVER = {
         },
       },
     },
+    counts: {
+      // shared/lists.js CUSTOM_COUNTS.collected: billed, and cleared up to each E-Form's bill.
+      collected: async (q, b) => {
+        const r = await q('deals').whereIn('deals.id', b.select('deals.id')).count({ n: '*' }).sum({ billed: 'deals.billed' })
+          .select(q.raw(`sum(${GOT}) as got`)).first();
+        return { n: Number(r.n), billed: r2(Number(r.billed) || 0), collected: r2(Number(r.got) || 0) };
+      },
+    },
   },
   moneyIn: { table: 'money_in', scope: { branch: viaDeal, team: viaDeal } },
-  closes: { table: 'closes', scope: { branch: viaDeal, team: viaDeal } },
+  closes: {
+    table: 'closes', scope: { branch: viaDeal, team: viaDeal },
+    counts: { netByDealBranch: (q, b) => byDealBranch(q, b, 'closes', 'net') },
+  },
   sst: { table: 'closes', scope: { branch: viaDeal, team: viaDeal } },
   payouts: {
     table: 'payout_lines', scope: { branch: viaDeal, team: (b, v) => b.whereIn('staff_id', v.team) },
+    counts: { paidByDealBranch: (q, b) => byDealBranch(q, b, 'payout_lines', 'amount') },
     custom: {
       // shared/lists.js closeKind(): partial = not full; balance = full after a partial (part 2 on); full = the rest.
       closeType: {
@@ -468,7 +489,7 @@ function serverSpec(key) {
     sort: shared.sort,
     counts: Object.fromEntries(Object.entries(shared.counts || {}).map(([k, c]) => [k,
       typeof c === 'string' ? { col: col(c) } : c.set ? c
-        : { only: c.only, found: !c.only, sum: c.sum && col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct), by: c.by && col(c.by),
+        : { only: c.only, found: !c.only, sum: c.sum && col(c.sum), keep: c.keep || [], distinct: c.distinct && col(c.distinct), by: c.by && col(c.by), month: !!c.month,
           range: c.range && { col: col(c.range), read: fieldOf(model, c.range).kind.read }, custom: c.custom && server.counts?.[c.custom] }])),
     extras: shared.extras ? Object.entries(shared.extras).map(([k, e]) => (e.custom ? { key: k, custom: server.extras[e.custom] } : extraOf(k, e, col))) : null,
   };
