@@ -3,7 +3,7 @@
 // code), and compared.
 //   1. Every row of every old table is in legacy_rows (only the tables mapping.js
 //      NOT_COPIED / HELD_BACK names are left out, and a RECENT table's older rows;
-//      the report says so).
+//      the report says so), or in the table of its own a LOGS table goes to.
 //   2. Records and money match: people, listings by status, E-Forms by status with
 //      their prices and net commission, payments in by status, closes and payout
 //      lines with their totals, request forms by type with their amounts…
@@ -53,7 +53,9 @@ async function verify({ legacy, db, report = null }) {
       q.where(M.RECENT[t].column, '>=', recent[t] || '9999-12-31');
     }
     const [n] = await one(q);
-    add('Every old row kept', recent[t] ? `${t} (from ${recent[t]})` : t, n, keptRows[t] || 0);
+    // The data log is kept in a table of its own.
+    if (M.LOGS[t]) add('Every old row kept', `${t} → ${M.LOGS[t].into}`, n, (await one(db(M.LOGS[t].into).count({ n: '*' })))[0]);
+    else add('Every old row kept', recent[t] ? `${t} (from ${recent[t]})` : t, n, keptRows[t] || 0);
   }
   // The latest notifications, for a person and a listing that came across.
   if (recent.db_user_notification) {

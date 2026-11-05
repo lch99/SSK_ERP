@@ -25,7 +25,7 @@ const BATCH = 200;
 const NUMERIC = /int|decimal|numeric|float|double|real/i;
 
 // Records the import writes, children before parents (the order they are emptied in).
-const RECORD_TABLES = ['notices', 'favourites', 'staff_marketing', 'listing_follow_ups', 'customer_follow_ups', 'payout_lines', 'closes', 'pay_requests', 'archives', 'money_out',
+const RECORD_TABLES = ['legacy_activity', 'notices', 'favourites', 'staff_marketing', 'listing_follow_ups', 'customer_follow_ups', 'payout_lines', 'closes', 'pay_requests', 'archives', 'money_out',
   'money_in', 'customers', 'enquiries', 'vendor_requests', 'deals', 'listings', 'titles', 'areas', 'property_types', 'videos', 'v1_eforms', 'v1_overrides', 'staff'];
 // Business records checked for "made in the new system" before an import replaces them.
 const GUARDED = ['staff', 'listings', 'deals', 'money_in', 'payout_lines', 'customers', 'money_out', 'pay_requests'];
@@ -515,8 +515,20 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
     report.recent[t] = { from, left: Number(n) - st.rows };
   }
 
-  // 4. Everything else: kept in history as it was.
-  const done = new Set([...Object.keys(M.TABLES), ...Object.keys(M.AFTER), ...Object.keys(M.RECENT)]);
+  // 4. The data log, into a table of its own (kept for good; not in legacy_rows).
+  for (const [t, { into }] of Object.entries(M.LOGS)) {
+    if (!present.includes(t)) continue;
+    log(`${t} → ${into}`);
+    const st = stat(t);
+    for await (const rows of pages(legacy, t, cols[t])) {
+      st.rows += rows.length;
+      bump(st.imported, into, rows.length);
+      await w.insert(into, rows.map(M.activity));
+    }
+  }
+
+  // 5. Everything else: kept in history as it was.
+  const done = new Set([...Object.keys(M.TABLES), ...Object.keys(M.AFTER), ...Object.keys(M.RECENT), ...Object.keys(M.LOGS)]);
   for (const t of present) {
     if (done.has(t) || M.NOT_COPIED[t]) continue;
     if (M.HELD_BACK[t] && !include.includes(t)) continue;
@@ -533,7 +545,7 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
     }
   }
 
-  // 5. Totals and links worked out from what was imported.
+  // 6. Totals and links worked out from what was imported.
   {
     // Each deal's closes in order: part 1, 2… (a full close after a partial one is a Balance Close), and their sides.
     const byDeal = new Map();

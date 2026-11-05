@@ -136,7 +136,8 @@ before(async () => {
   await rows('db_login_try', [{ try_id: 1, try_username_1: 'bob', try_password_1: 'typed-wrong-pw' }]);
   await rows('db_login_session', [{ id: 1, hashed_token: 'sess-hash', user_id: 12 }]);
   await rows('db_name_1', [{ name_id: 1, CustomerName: 'Bought Contact', IC: '660606-06-6666' }]);
-  await rows('z_form_data_capture', [{ id: 1, form_name: 'update_staff', form_data: JSON.stringify({ user_name: 'bob', user_password: 'hunter2' }), route_data: 'page=hr&user_password=hunter3&x=1' }]);
+  await rows('z_form_data_capture', [{ id: 1, form_name: 'update_staff', form_data: JSON.stringify({ user_name: 'bob', user_password: 'hunter2' }), route_data: 'page=hr&user_password=hunter3&x=1',
+    data_date: '2026-01-02', data_time: '20:07:09 PM', staff_id: 12, data_id: 12 }]);
   await rows('db_property_search_log', [{ id: 1, search_query: 'kepong condo', created_at: '2024-01-01 10:00:00' }]);
   await rows('db_user_favourite_property', [{ user_id: 12, property_id: 100 }, { user_id: 12, property_id: 102 }, { user_id: 999, property_id: 100 }]);
   await rows('db_user_favourite_property_title', [{ user_id: 12, property_title_id: 7 }, { user_id: 11, property_title_id: 7 }]);
@@ -179,13 +180,21 @@ test('every old row is kept in history, except the logs, sign-in secrets, old no
   for (const t of ['db_login_try', 'db_login_session', 'db_name_1', 'z_form_data_capture', 'db_property_search_log', 'user_credential']) assert.equal(kept[t], undefined, t);
   assert.ok(result.checks.filter(c => c.group === 'Every old row kept').every(c => c.ok));
   assert.deepEqual(report.unknownTables, ['some_new_table']);
-  assert.match(result.markdown, /`z_form_data_capture`: a raw copy of every form/);
+  assert.match(result.markdown, /`db_property_search_log`: a log of website searches/);
   assert.match(result.markdown, /`db_user_notification`: app notifications older than 90 days .* \(1 rows before 2026-08-03\)/);
 });
 
 test('passwords and sign-in tokens are never copied', async () => {
-  const all = JSON.stringify(await db('legacy_rows').select('data')) + JSON.stringify(await db('staff').select());
+  const all = JSON.stringify(await db('legacy_rows').select('data')) + JSON.stringify(await db('staff').select()) + JSON.stringify(await db('legacy_activity').select());
   for (const secret of ['secret-pw-1', 'tok-uuid-12', 'salty', 'hunter2', 'hunter3', 'typed-wrong-pw', 'sess-hash', 'argon-hash-1']) assert.ok(!all.includes(secret), secret);
+});
+
+test('the data log is kept for good in a table of its own, passwords removed', async () => {
+  const a = await one('legacy_activity', 1);
+  assert.deepEqual([String(a.at).replace('T', ' ').slice(0, 19), a.staff_id, a.form, a.record_id], ['2026-01-02 20:07:09', 12, 'update_staff', 12]);
+  assert.match(a.data, /"user_password":"\[removed\]"/);
+  assert.equal(a.route, 'page=hr&user_password=[removed]&x=1');
+  assert.ok(result.checks.find(c => c.label === 'z_form_data_capture → legacy_activity').ok);
 });
 
 test('the last 90 days of notifications become notices, worded and read as they were', async () => {

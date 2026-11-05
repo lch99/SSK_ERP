@@ -7,9 +7,10 @@
 // mirrors every close and request form as a negative line.
 //
 // Every row of every table is also kept, as it was, in `legacy_rows` (import.js),
-// so what a mapping leaves out is never lost; except the logs and sign-in
+// so what a mapping leaves out is never lost; except the search logs and sign-in
 // secrets (NOT_COPIED) and notifications older than 90 days (RECENT), which the
-// new database never holds (the original dump is the archive). Each `transform`
+// new database never holds (the original dump is the archive), and the data log
+// (LOGS), which goes to a table of its own. Each `transform`
 // returns the new row, { otherTable, row } for a row of another table, or
 // skip(reason) to keep the old row in history only.
 
@@ -98,15 +99,14 @@ const STAFF_EXTRA = [['smoker', 'smoker'], ['marital_status', 'marital'], ['hous
 const capital = v => (blank(v) ? '' : String(v).trim().replace(/^./, c => c.toUpperCase()));
 
 // ── What is not copied ───────────────────────────────────────────────────────
-// Whole tables left out, with the reason (shown in the import report). The logs
-// were 95% of the old database (7.0 of 7.3 GB on 2026-11-04) and are why its
-// copies and backups were so big; they stay in the original dump, kept as the archive.
+// Whole tables left out, with the reason (shown in the import report). The search
+// logs were 70% of the old database (5.2 of 7.3 GB on 2026-11-04) and a big part of
+// why its copies and backups were so big; they stay in the original dump, kept as the archive.
 const NOT_COPIED = {
   db_login_session: 'sign-in sessions of the old site (everyone signs in again)',
   db_login_try: 'failed sign-ins, holding the passwords people typed in plain text',
   db_property_search_data_capture: 'a log of every website search with the whole request (4.2 GB, stopped in May 2023); kept in the archived dump',
   db_property_search_log: 'a log of website searches (1 GB, stopped in April 2025); kept in the archived dump',
-  z_form_data_capture: 'a raw copy of every form anyone sent (1.4 GB, passwords included); kept in the archived dump',
   user_credential: 'password hashes of a newer sign-in system (passwords are never copied)',
   user_session: 'sign-in sessions of a newer sign-in system', user_token: 'sign-in tokens of a newer sign-in system',
   __drizzle_migrations: 'another tool\'s record of its own table changes, not data',
@@ -116,6 +116,35 @@ const NOT_COPIED = {
 const RECENT = {
   db_user_notification: { column: 'created_at', days: 90, why: 'app notifications older than 90 days (the old system kept every one: 763,000, more than half never read)' },
 };
+// Logs kept for good in a table of their own (not in legacy_rows, which goes after
+// the switch-over): the data log, every form anyone sent (the user's call, 2026-11-06).
+const LOGS = {
+  z_form_data_capture: { into: 'legacy_activity', why: 'the old ERP\'s data log: every form anyone sent, who and when (passwords removed)' },
+};
+
+// Password-like fields inside the data log's form posts are blanked.
+const SECRET_KEY = /pass|pwd|token|secret|otp|salt/i;
+function scrub(value) {
+  if (blank(value)) return null;
+  try {
+    const blankKeys = v => (Array.isArray(v) ? v.map(blankKeys) : v && typeof v === 'object'
+      ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, SECRET_KEY.test(k) ? '[removed]' : blankKeys(x)])) : v);
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === 'object') return JSON.stringify(blankKeys(parsed));
+  } catch { /* not JSON: a query string */ }
+  return String(value).replace(/((?:[a-z_]*(?:pass|pwd|token|secret|otp|salt)[a-z_0-9]*)["']?\s*(?:=|:|=>|;s:\d+:)\s*["']?)[^&"',;}\s]*/gi, '$1[removed]');
+}
+
+// One data log row → legacy_activity. Its times are 24-hour with an AM/PM after them ('20:07:09 PM').
+function activity(r) {
+  const d = day(r.data_date), t = String(r.data_time ?? '').match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  return {
+    id: int(r.id), at: d ? `${d} ${t ? `${pad(t[1], 2)}:${t[2]}:${t[3] || '00'}` : '00:00:00'}` : null,
+    staff_id: id(r.staff_id), admin_id: id(r.admin_id), form: text(r.form_name).slice(0, 60), record_id: id(r.data_id),
+    route: scrub(r.route_data), data: scrub(r.form_data),
+  };
+}
+
 // The day a RECENT table is copied from: `days` before its newest row (the copy's
 // own date, so every run on the same copy copies the same rows).
 async function recentFrom(legacy, table) {
@@ -171,7 +200,7 @@ const KEYS = {
   db_property_state: ['state_id'], db_property_status: ['status_id'], db_property_title: ['title_id'], db_property_type: ['type_id'],
   db_salary: ['salary_id'], db_sap: ['tran_id'], db_staff_upgrade_log: ['log_id'], db_trans: ['tran_id'], new_staff: ['user_id'],
   db_user_favourite_property: ['user_id', 'property_id'], db_user_favourite_property_title: ['user_id', 'property_title_id'],
-  db_user_saved_property: ['user_id', 'property_id'], db_user_notification: ['id'],
+  db_user_saved_property: ['user_id', 'property_id'], db_user_notification: ['id'], z_form_data_capture: ['id'],
 };
 
 // ── Lookups (read whole, kept in history, no table of their own) ─────────────
@@ -763,9 +792,10 @@ const EXPECTED = {
   ...Object.fromEntries(Object.entries(LOOKUPS).map(([t, l]) => [t, [l.key, l.name]])),
   db_property_area: TABLES.db_property_area.reads,
   db_user_notification: ['id', 'user_id', 'type', 'category', 'reference_id', 'params', 'unread', 'created_at'],
+  z_form_data_capture: ['id', 'data_date', 'data_time', 'staff_id', 'admin_id', 'form_name', 'data_id', 'form_data', 'route_data'],
 };
 
 module.exports = {
-  TABLES, AFTER, LOOKUPS, EXPECTED, CODES, PAYOUT_ROLES, NOT_COPIED, RECENT, HELD_BACK, HISTORY_ONLY, SECRET_COLUMNS, KEYS,
-  notification, phpArray, recentFrom, day, num, money, int, text, flag, deleted, id, skip, pad, r2,
+  TABLES, AFTER, LOOKUPS, EXPECTED, CODES, PAYOUT_ROLES, NOT_COPIED, RECENT, LOGS, HELD_BACK, HISTORY_ONLY, SECRET_COLUMNS, KEYS,
+  notification, phpArray, recentFrom, activity, scrub, day, num, money, int, text, flag, deleted, id, skip, pad, r2,
 };
