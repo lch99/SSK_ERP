@@ -44,12 +44,14 @@ async function tableNames(db) {
 const showable = (col, info, distinct, longest) =>
   !PERSONAL.test(col) && distinct <= MAX_CODES && (NUMERIC.test(info.type) || longest <= MAX_CODE_LENGTH);
 
-// The table an `…_id` column points at: a person (staff_id, manager_id, cobro_id…) is a
-// new_staff row; else the table whose own one-column key has that name (property_id →
-// db_property, not db_appointment_property); else the one named like it.
-const PERSON = /(staff|user|manager|handler|cobro|sender|updater|incharge)_id$/;
-function targetOf(col, stem, tables, columns) {
+// The table an `…_id` column points at: none when it is the table's own key (db_trans.tran_id);
+// a person (staff_id, manager_id, admin_id…) is a new_staff row; else the table whose own
+// one-column key has that name (property_id → db_property, not db_appointment_property);
+// else the one named like it.
+const PERSON = /(staff|user|manager|handler|cobro|sender|updater|incharge|admin)_id$/;
+function targetOf(table, col, stem, tables, columns) {
   const keyOf = t => KEYS[t] || [Object.keys(columns[t])[0]];
+  if (keyOf(table).length === 1 && keyOf(table)[0] === col) return null;
   if (PERSON.test(col) && tables.includes('new_staff')) return 'new_staff';
   return tables.find(t => keyOf(t).length === 1 && keyOf(t)[0] === col)
     || tables.find(t => t === stem) || tables.find(t => t.endsWith(stem) || stem.endsWith(t));
@@ -86,7 +88,7 @@ async function describeColumn(db, table, col, info, rows, idTables, columns) {
   // staff_id → staff? form_id → eform? Count the values with no row to point at.
   const m = col.match(/^(.*)_id$/);
   if (m && distinct > 0) {
-    const target = targetOf(col, m[1], idTables, columns);
+    const target = targetOf(table, col, m[1], idTables, columns);
     if (target && target !== table) {
       const key = (KEYS[target] || [Object.keys(columns[target])[0]])[0];
       const missing = await q().whereNotNull(col).whereNot(col, 0).whereNotIn(col, s => s.select(key).from(target)).countDistinct({ n: col }).first();
