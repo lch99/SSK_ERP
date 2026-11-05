@@ -21,6 +21,7 @@ const DATELIKE = /date|time|year/i;
 // The tables and columns the import reads (src/legacy/mapping.js, from the
 // real schema). One missing in the copy is listed at the top of the report.
 const { EXPECTED, KEYS } = require('./mapping');
+const { localToday } = require('../db/days');
 
 const fmt = n => Number(n).toLocaleString('en-US');
 const pct = (part, whole) => (whole ? `${Math.round((part / whole) * 100)}%` : '–');
@@ -42,6 +43,17 @@ async function tableNames(db) {
 // Is it safe to show this column's values? Codes only: few values, short, not about a person.
 const showable = (col, info, distinct, longest) =>
   !PERSONAL.test(col) && distinct <= MAX_CODES && (NUMERIC.test(info.type) || longest <= MAX_CODE_LENGTH);
+
+// The table an `…_id` column points at: a person (staff_id, manager_id, cobro_id…) is a
+// new_staff row; else the table whose own one-column key has that name (property_id →
+// db_property, not db_appointment_property); else the one named like it.
+const PERSON = /(staff|user|manager|handler|cobro|sender|updater|incharge)_id$/;
+function targetOf(col, stem, tables, columns) {
+  const keyOf = t => KEYS[t] || [Object.keys(columns[t])[0]];
+  if (PERSON.test(col) && tables.includes('new_staff')) return 'new_staff';
+  return tables.find(t => keyOf(t).length === 1 && keyOf(t)[0] === col)
+    || tables.find(t => t === stem) || tables.find(t => t.endsWith(stem) || stem.endsWith(t));
+}
 
 async function describeColumn(db, table, col, info, rows, idTables, columns) {
   const q = () => db(table);
@@ -74,7 +86,7 @@ async function describeColumn(db, table, col, info, rows, idTables, columns) {
   // staff_id → staff? form_id → eform? Count the values with no row to point at.
   const m = col.match(/^(.*)_id$/);
   if (m && distinct > 0) {
-    const target = idTables.find(t => t === m[1]) || idTables.find(t => t.endsWith(m[1]) || m[1].endsWith(t));
+    const target = targetOf(col, m[1], idTables, columns);
     if (target && target !== table) {
       const key = (KEYS[target] || [Object.keys(columns[target])[0]])[0];
       const missing = await q().whereNotNull(col).whereNot(col, 0).whereNotIn(col, s => s.select(key).from(target)).countDistinct({ n: col }).first();
@@ -84,7 +96,7 @@ async function describeColumn(db, table, col, info, rows, idTables, columns) {
   return `| \`${cell(col)}\` | ${cell(info.type)}${info.maxLength ? `(${info.maxLength})` : ''} | ${pct(empty, rows)} | ${fmt(distinct)} | ${cell(what)} |`;
 }
 
-async function inspect(db, { tables: only = [], when = new Date().toISOString().slice(0, 10) } = {}) {
+async function inspect(db, { tables: only = [], when = localToday() } = {}) {
   const all = await tableNames(db);
   const counts = {};
   for (const t of all) counts[t] = Number((await db(t).count({ n: '*' }).first()).n);

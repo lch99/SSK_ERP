@@ -18,13 +18,14 @@ const { tableNames, columnsOf } = require('./inspect');
 const { loadState } = require('../db/setupStore');
 const { parseJson } = require('../db/records');
 const { verify } = require('./verify');
+const { localToday } = require('../db/days');
 
 const PAGE = 1000;
 const BATCH = 200;
 const NUMERIC = /int|decimal|numeric|float|double|real/i;
 
 // Records the import writes, children before parents (the order they are emptied in).
-const RECORD_TABLES = ['staff_marketing', 'listing_follow_ups', 'customer_follow_ups', 'payout_lines', 'closes', 'pay_requests', 'archives', 'money_out',
+const RECORD_TABLES = ['notices', 'favourites', 'staff_marketing', 'listing_follow_ups', 'customer_follow_ups', 'payout_lines', 'closes', 'pay_requests', 'archives', 'money_out',
   'money_in', 'customers', 'enquiries', 'vendor_requests', 'deals', 'listings', 'titles', 'areas', 'property_types', 'videos', 'v1_eforms', 'v1_overrides', 'staff'];
 // Business records checked for "made in the new system" before an import replaces them.
 const GUARDED = ['staff', 'listings', 'deals', 'money_in', 'payout_lines', 'customers', 'money_out', 'pay_requests'];
@@ -46,13 +47,14 @@ const keysOf = table => primaryKeys[table] || M.KEYS[table] || null;
 const historyId = (keys, row, n) => (keys ? keys.map(k => row[k]).join(':') : `#${n}`).slice(0, 64);
 
 // Rows in key order, a page at a time (by key value where the key is one number).
-// Each row comes with its place in the table (for tables with no key).
-async function* pages(legacy, table, cols) {
+// Each row comes with its place in the table (for tables with no key). `only`
+// narrows the rows read (a RECENT table's latest).
+async function* pages(legacy, table, cols, only = () => {}) {
   const keys = keysOf(table);
   if (keys?.length === 1 && NUMERIC.test(cols[keys[0]]?.type || '')) {
     let last = null;
     for (;;) {
-      const q = legacy(table).orderBy(keys[0]).limit(PAGE);
+      const q = legacy(table).where(only).orderBy(keys[0]).limit(PAGE);
       if (last != null) q.where(keys[0], '>', last);
       const rows = await q;
       if (rows.length) yield rows;
@@ -61,25 +63,13 @@ async function* pages(legacy, table, cols) {
     }
   }
   for (let off = 0; ; off += PAGE) {
-    const rows = await legacy(table).orderBy(keys || Object.keys(cols)).limit(PAGE).offset(off);
+    const rows = await legacy(table).where(only).orderBy(keys || Object.keys(cols)).limit(PAGE).offset(off);
     rows.forEach((r, i) => place.set(r, off + i + 1));
     if (rows.length) yield rows;
     if (rows.length < PAGE) return;
   }
 }
 const place = new WeakMap();
-
-// Password-like fields inside raw form posts (z_form_data_capture) are blanked.
-const SECRET_KEY = /pass|pwd|token|secret|otp|salt/i;
-function scrub(value) {
-  try {
-    const blankKeys = v => (Array.isArray(v) ? v.map(blankKeys) : v && typeof v === 'object'
-      ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, SECRET_KEY.test(k) ? '[removed]' : blankKeys(x)])) : v);
-    const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === 'object') return JSON.stringify(blankKeys(parsed));
-  } catch { /* not JSON: a query string or serialized PHP */ }
-  return value.replace(/((?:[a-z_]*(?:pass|pwd|token|secret|otp|salt)[a-z_0-9]*)["']?\s*(?:=|:|=>|;s:\d+:)\s*["']?)[^&"',;}\s]*/gi, '$1[removed]');
-}
 
 // The old row as it is kept in history.
 function raw(table, row) {
@@ -88,23 +78,45 @@ function raw(table, row) {
     if (M.SECRET_COLUMNS[table]?.includes(k)) continue;
     out[k] = Buffer.isBuffer(v) ? `base64:${v.toString('base64')}` : v instanceof Date ? v.toISOString() : v;
   }
-  for (const c of M.SCRUBBED[table] || []) if (typeof out[c] === 'string') out[c] = scrub(out[c]);
   return JSON.stringify(out);
 }
 
 // ── Writing the new tables ───────────────────────────────────────────────────
+// The numbers a column holds ('int unsigned', 'smallint', 'decimal(14,2)'…), as [lowest, highest]; null: any.
+const INT_MAX = { tinyint: 127, smallint: 32767, mediumint: 8388607, int: 2147483647 };
+function rangeOf(columnType) {
+  const [, type, p, s] = String(columnType).match(/^(\w+)(?:\((\d+)(?:,(\d+))?\))?/) || [];
+  const unsigned = /unsigned/.test(columnType);
+  const max = INT_MAX[type] != null ? (unsigned ? INT_MAX[type] * 2 + 1 : INT_MAX[type]) : type === 'decimal' ? 10 ** (Number(p) - Number(s || 0)) - 10 ** -Number(s || 0) : null;
+  if (max == null) return null;
+  return [unsigned ? 0 : type === 'decimal' ? -max : -max - 1, max];
+}
+
 function writer(db, report) {
   const info = {};
-  const columns = async t => (info[t] ||= await db(t).columnInfo());
-  // Text longer than its column is cut to fit (the whole value stays in history) and counted.
+  const columns = async t => {
+    if (!info[t]) {
+      const [rows] = await db.raw('select column_name as c, column_type as type, character_maximum_length as l, is_nullable as n from information_schema.columns where table_schema = database() and table_name = ?', [t]);
+      info[t] = Object.fromEntries(rows.map(r => [r.c, { type: r.type, maxLength: r.l, nullable: r.n === 'YES', range: rangeOf(r.type) }]));
+    }
+    return info[t];
+  };
+  const bump = (what, col) => { report[what][col] = (report[what][col] || 0) + 1; };
+  // Text longer than its column is cut to fit, and a number the column can't hold (the
+  // old ERP has −400 m² and 40,000 rooms) is left blank (0 where it can't be blank);
+  // the whole value stays in history, and each is counted in the report.
   async function fit(t, row) {
     const cols = await columns(t);
     for (const [k, v] of Object.entries(row)) {
       if (typeof v === 'boolean') row[k] = v ? 1 : 0;  // MySQL keeps booleans as 1/0
-      const max = cols[k]?.maxLength;
-      if (typeof v === 'string' && max && v.length > Number(max) && !/json|text/i.test(cols[k].type)) {
-        row[k] = v.slice(0, Number(max));
-        report.truncated[`${t}.${k}`] = (report.truncated[`${t}.${k}`] || 0) + 1;
+      const c = cols[k];
+      if (!c) continue;
+      if (typeof v === 'string' && c.maxLength && v.length > Number(c.maxLength) && !/json|text/i.test(c.type)) {
+        row[k] = v.slice(0, Number(c.maxLength));
+        bump('truncated', `${t}.${k}`);
+      } else if (typeof v === 'number' && c.range && (v < c.range[0] || v > c.range[1])) {
+        row[k] = c.nullable ? null : 0;
+        bump('outOfRange', `${t}.${k}`);
       }
     }
     return row;
@@ -218,7 +230,7 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
   await readPrimaryKeys(legacy, present);
   await prepareTarget(db, { replace, force });
 
-  const report = { tables: {}, unknownCodes: {}, truncated: {}, branchesMade: [], placeholders: 0, missingTables: [], unknownTables: [], include };
+  const report = { tables: {}, unknownCodes: {}, truncated: {}, outOfRange: {}, branchesMade: [], placeholders: 0, missingTables: [], unknownTables: [], recent: {}, include };
   const stat = t => (report.tables[t] ||= { rows: 0, imported: {}, kept: {}, notes: {} });
   const bump = (o, k, n = 1) => { o[k] = (o[k] || 0) + n; };
   const w = writer(db, report);
@@ -238,6 +250,7 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
   const ids = { staff: new Set() };
   const seen = {};
   const ctx = {
+    today: localToday(),
     notes: [],
     placeholders: [],
     listingTitles: new Map(), vendorListing: new Map(), deals: new Map(), salaries: new Map(), closes: new Map(), caseDeal: new Map(), v1Price: new Map(),
@@ -455,8 +468,55 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
     sales: M.r2([...x.forms].reduce((s, f) => s + (ctx.v1Price.get(f) || 0), 0)),
   })));
 
-  // 3. Everything else: kept in history as it was.
-  const done = new Set([...Object.keys(M.TABLES), ...Object.keys(M.AFTER)]);
+  // Starred listings and buildings → each person's favourites (who hears of new listings and price changes there).
+  const favs = new Map();
+  const starred = (kind, of) => r => {
+    const sid = M.id(r.user_id), target = M.id(of(r));
+    if (!ids.staff.has(sid)) return { note: 'its person is not in the staff list' };
+    if (!ids[kind]?.has(target)) return { note: kind === 'listings' ? 'its listing is not imported' : 'its building is not imported' };
+    const f = favs.get(sid) || { listings: [], titles: [] };
+    if (!f[kind].includes(target)) f[kind].push(target);
+    favs.set(sid, f);
+    return { target: 'favourites', id: sid };
+  };
+  await fillIn('db_user_favourite_property', starred('listings', r => r.property_id));
+  await fillIn('db_user_favourite_property_title', starred('titles', r => r.property_title_id));
+  await w.insert('favourites', [...favs].map(([viewer_id, f]) => ({ viewer_id, listings: JSON.stringify(f.listings), titles: JSON.stringify(f.titles) })));
+
+  // 3. The latest notifications become notices (new ids: the old ones ran to 763,000);
+  // older ones are left out (RECENT).
+  if (present.includes('db_user_notification')) {
+    const t = 'db_user_notification', from = await M.recentFrom(legacy, t);
+    log(`${t} → notices, from ${from}`);
+    const st = stat(t);
+    let next = Number((await db('notices').max({ m: 'id' }).first())?.m || 0) + 1;
+    if (from) {
+      for await (const rows of pages(legacy, t, cols[t], q => q.where(M.RECENT[t].column, '>=', from))) {
+        const out = [], fates = new Map();
+        for (const r of rows) {
+          ctx.notes = [];
+          st.rows++;
+          const res = M.notification(r, ctx);
+          if (res.skip) {
+            bump(st.kept, res.skip);
+            fates.set(r, { note: res.skip });
+          } else {
+            out.push({ id: next++, ...res });
+            bump(st.imported, 'notices');
+            fates.set(r, { target: 'notices', id: next - 1, note: ctx.notes.join(' · ') });
+          }
+          for (const n of new Set(ctx.notes)) bump(st.notes, n);
+        }
+        await w.insert('notices', out);
+        await keep(t, rows, r => fates.get(r));
+      }
+    }
+    const [{ n }] = await legacy(t).count({ n: '*' });
+    report.recent[t] = { from, left: Number(n) - st.rows };
+  }
+
+  // 4. Everything else: kept in history as it was.
+  const done = new Set([...Object.keys(M.TABLES), ...Object.keys(M.AFTER), ...Object.keys(M.RECENT)]);
   for (const t of present) {
     if (done.has(t) || M.NOT_COPIED[t]) continue;
     if (M.HELD_BACK[t] && !include.includes(t)) continue;
@@ -473,7 +533,7 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
     }
   }
 
-  // 4. Totals and links worked out from what was imported.
+  // 5. Totals and links worked out from what was imported.
   {
     // Each deal's closes in order: part 1, 2… (a full close after a partial one is a Balance Close), and their sides.
     const byDeal = new Map();
@@ -498,11 +558,25 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
     await w.updateEach('listings', Object.entries(ctx.counts.enquiries || {}).map(([id, n]) => ({ id: Number(id), enquiry_count: n })));
   }
 
-  // New codes continue after the highest old number.
+  // New codes continue after the highest number the old ERP ever gave, deleted rows
+  // included (its next AUTO_INCREMENT less one), so no code is ever handed out twice.
   const top = async (t, col = 'id') => Number((await db(t).max({ m: col }).first())?.m) || 0;
+  const oldTop = async t => {
+    if (!present.includes(t)) return 0;
+    const [key] = keysOf(t) || [];
+    const max = key ? Number((await legacy(t).max({ m: key }).first())?.m) || 0 : 0;
+    const next = await legacy.transaction(async trx => {
+      await trx.raw('set session information_schema_stats_expiry = 0');  // not the cached figure
+      const [rows] = await trx.raw('select auto_increment as n from information_schema.tables where table_schema = database() and table_name = ?', [t]);
+      return Number(rows[0]?.n ?? rows[0]?.AUTO_INCREMENT) || 0;
+    });
+    return Math.max(max, next - 1);
+  };
   const counters = {
-    staff: await top('staff'), listing: await top('listings'), transaction: await top('money_in'), case: await top('payout_lines'),
-    salary: await top('pay_requests'), archive: await top('archives'), request: await top('money_out'),
+    staff: Math.max(await top('staff'), await oldTop('new_staff')), listing: Math.max(await top('listings'), await oldTop('db_property')),
+    transaction: Math.max(await top('money_in'), await oldTop('db_trans')), case: Math.max(await top('payout_lines'), await oldTop('db_case_list')),
+    salary: Math.max(await top('pay_requests'), await oldTop('db_salary')), archive: Math.max(await top('archives'), await oldTop('db_case_archieve_ver2')),
+    request: Math.max(await top('money_out'), await oldTop('db_eforms_request')),
   };
   await db('counters').insert(Object.entries(counters).map(([key, value]) => ({ key, value })));
 
@@ -521,7 +595,7 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
   return report;
 }
 
-module.exports = { importLegacy, scrub, RECORD_TABLES };
+module.exports = { importLegacy, RECORD_TABLES };
 
 if (require.main === module) {
   require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });

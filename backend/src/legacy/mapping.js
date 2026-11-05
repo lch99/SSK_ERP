@@ -7,9 +7,11 @@
 // mirrors every close and request form as a negative line.
 //
 // Every row of every table is also kept, as it was, in `legacy_rows` (import.js),
-// so what a mapping leaves out is never lost. Each `transform` returns the new
-// row, { otherTable, row } for a row of another table, or skip(reason) to keep
-// the old row in history only.
+// so what a mapping leaves out is never lost; except the logs and sign-in
+// secrets (NOT_COPIED) and notifications older than 90 days (RECENT), which the
+// new database never holds (the original dump is the archive). Each `transform`
+// returns the new row, { otherTable, row } for a row of another table, or
+// skip(reason) to keep the old row in history only.
 
 // ── Values as the old database stores them ───────────────────────────────────
 const r2 = n => Math.round(Number(n) * 100) / 100;
@@ -96,11 +98,31 @@ const STAFF_EXTRA = [['smoker', 'smoker'], ['marital_status', 'marital'], ['hous
 const capital = v => (blank(v) ? '' : String(v).trim().replace(/^./, c => c.toUpperCase()));
 
 // ── What is not copied ───────────────────────────────────────────────────────
-// Whole tables left out, with the reason (shown in the import report).
+// Whole tables left out, with the reason (shown in the import report). The logs
+// were 95% of the old database (7.0 of 7.3 GB on 2026-11-04) and are why its
+// copies and backups were so big; they stay in the original dump, kept as the archive.
 const NOT_COPIED = {
   db_login_session: 'sign-in sessions of the old site (everyone signs in again)',
   db_login_try: 'failed sign-ins, holding the passwords people typed in plain text',
+  db_property_search_data_capture: 'a log of every website search with the whole request (4.2 GB, stopped in May 2023); kept in the archived dump',
+  db_property_search_log: 'a log of website searches (1 GB, stopped in April 2025); kept in the archived dump',
+  z_form_data_capture: 'a raw copy of every form anyone sent (1.4 GB, passwords included); kept in the archived dump',
+  user_credential: 'password hashes of a newer sign-in system (passwords are never copied)',
+  user_session: 'sign-in sessions of a newer sign-in system', user_token: 'sign-in tokens of a newer sign-in system',
+  __drizzle_migrations: 'another tool\'s record of its own table changes, not data',
 };
+// Copied only for the last `days` before the newest row in the copy (`column`);
+// older rows are left out like NOT_COPIED.
+const RECENT = {
+  db_user_notification: { column: 'created_at', days: 90, why: 'app notifications older than 90 days (the old system kept every one: 763,000, more than half never read)' },
+};
+// The day a RECENT table is copied from: `days` before its newest row (the copy's
+// own date, so every run on the same copy copies the same rows).
+async function recentFrom(legacy, table) {
+  const { column, days } = RECENT[table];
+  const last = day((await legacy(table).max({ last: column }).first())?.last);
+  return last ? new Date(Date.parse(`${last}T00:00:00Z`) - days * 86400000).toISOString().slice(0, 10) : null;
+}
 // Left out unless asked for by name (--include): a decision for the company first.
 const HELD_BACK = {
   db_name_1: 'a bought-in contact list (IC numbers, addresses, phones): check PDPA before keeping it',
@@ -110,8 +132,6 @@ const SECRET_COLUMNS = {
   new_staff: ['user_password', 'encrypted_password', 'salt', 'uuid'],
   db_admin: ['request_token'],
 };
-// Free-text columns holding raw form posts: password-like fields are blanked inside them.
-const SCRUBBED = { z_form_data_capture: ['form_data', 'route_data'], db_property_search_data_capture: ['form_data', 'route_data'] };
 // Tables kept in history only (legacy_rows), and why: no table of their own yet,
 // or nothing in them that the new ERP shows. Their rows are all there to build
 // from later. A table in the copy that is in none of these lists is kept the
@@ -127,9 +147,8 @@ const HISTORY_ONLY = {
   db_property_title_manager: 'building project manager history: no table yet (title_managers, Phase 1)',
   db_property_title_handler: 'building project handler history: no table yet (title_managers, Phase 1)',
   db_property_draft: 'half-filled new listings (one per agent), never saved',
-  db_user_notification: 'app notifications: no table yet (Phase 2)', db_user_device: 'app push tokens: no table yet (Phase 2)',
-  db_user_favourite_property: 'favourites: no table yet (Phase 2)', db_user_favourite_property_title: 'favourites: no table yet (Phase 2)',
-  db_user_saved_property: 'saved listings: no table yet (Phase 2)',
+  db_user_device: 'app push tokens: no table yet (Phase 2)',
+  db_user_saved_property: 'the website\'s "My Saved Listings" (not favourites: they sent no notices): no table yet',
   db_case_archieve: 'first system (V1) archives', db_overiding_withdraw: 'first system (V1) override withdrawals',
   db_gst_transaction: 'SST ledger lines: worked out from the E-Forms and closes', db_sap: 'old payment records (feature retired)',
   db_new_sales: 'old sales register (feature retired)', db_new_sales_close: 'old sales register (feature retired)',
@@ -138,7 +157,8 @@ const HISTORY_ONLY = {
   db_staff_upgrade_log: 'rank upgrade history', db_coverage: 'old menu lookup', db_property_branch: 'old sub-area lookup',
   db_property_cate_group: 'category groups lookup', db_property_restrictions: 'restriction lookup', db_property_status: 'status lookup',
   db_form_status: 'status lookup', db_form_close_status: 'status lookup', db_salary_status: 'status lookup', db_trans_status: 'status lookup',
-  db_property_search_log: 'search log', db_property_search_data_capture: 'search log', z_form_data_capture: 'old activity log (passwords removed)',
+  ...Object.fromEntries(['user', 'user_account', 'user_attribute', 'user_profile', 'user_role', 'role', 'staff_id_sequence']
+    .map(t => [t, 'a newer sign-in system\'s accounts (empty on 2026-11-04): if they fill up, map them to sign-in accounts'])),
 };
 // Each table's key, for history ids (tables not listed use their first column).
 const KEYS = {
@@ -151,7 +171,7 @@ const KEYS = {
   db_property_state: ['state_id'], db_property_status: ['status_id'], db_property_title: ['title_id'], db_property_type: ['type_id'],
   db_salary: ['salary_id'], db_sap: ['tran_id'], db_staff_upgrade_log: ['log_id'], db_trans: ['tran_id'], new_staff: ['user_id'],
   db_user_favourite_property: ['user_id', 'property_id'], db_user_favourite_property_title: ['user_id', 'property_title_id'],
-  db_user_saved_property: ['user_id', 'property_id'],
+  db_user_saved_property: ['user_id', 'property_id'], db_user_notification: ['id'],
 };
 
 // ── Lookups (read whole, kept in history, no table of their own) ─────────────
@@ -417,10 +437,16 @@ const TABLES = {
     transform(r, ctx) {
       if (deleted(r.form_stat)) return skip('deleted in the old ERP');
       const date = day(r.form_date);
+      if (date && (date < '2015-01-01' || date > ctx.today)) ctx.note('its date looks mistyped (before 2015, or after the import): kept as it was');
+      // A first-system E-Form is an old record either way (Old records lists one with no date without it).
+      if (!id(r.property_id)) {
+        if (!date) ctx.note('no date in the old ERP: listed without one');
+        const type = CODES.listingType[text(r.form_type).toLowerCase()] || ctx.unknownCode('db_eforms.form_type', r.form_type, 'sale');
+        return { otherTable: 'v1_eforms', row: v1Eform(r, ctx, { date, type, status: ctx.code('dealStatus', r.form_status, 'db_eforms.form_status', 'submitted') }) };
+      }
       if (!date) return skip('no E-Form date');
       const type = CODES.listingType[text(r.form_type).toLowerCase()] || ctx.unknownCode('db_eforms.form_type', r.form_type, 'sale');
       const status = ctx.code('dealStatus', r.form_status, 'db_eforms.form_status', 'submitted');
-      if (!id(r.property_id)) return { otherTable: 'v1_eforms', row: v1Eform(r, ctx, { date, type, status }) };
 
       const agent = ctx.person(r.staff_id, { required: true });
       const listingId = ctx.has('listings', id(r.property_id)) ? id(r.property_id) : null;
@@ -557,7 +583,11 @@ const TABLES = {
       if (!role) close.sides.push({ side, staffId: staff, sharePct: 50, base: r2(close.net / 2), tierId: null, agentRate: pct, totalPct: null, company: null });
       const salary = id(r.staff_salary_id) ? ctx.salaries.get(id(r.staff_salary_id)) : null;
       let status = ctx.code('payoutStatus', r.case_status, 'db_case_list.case_status', 'new');
-      if (salary?.status === 'clear') status = 'paid';
+      if (salary?.status === 'clear') {
+        // The salary request that pays it is Payment Clear, whatever the line still says.
+        if (status !== 'approved') ctx.note(`paid by a cleared salary request while still ${status === 'queried' ? 'Pending Queries' : 'New'} in the old ERP: imported as paid`);
+        status = 'paid';
+      }
       return {
         id: int(r.case_id), code: `CASE-${pad(r.case_id, 6)}`, close_id: closeId, deal_id: id(r.form_id), date, time: time(r.case_time), staff_id: staff,
         side, role, pct, base: pct ? r2(amount * 100 / pct) : 0, amount, tier_id: null, status, query: null, approved_on: null, approved_by: null,
@@ -634,6 +664,86 @@ function v1Eform(r, ctx, { date, type, status }) {
   };
 }
 
+// ── Notifications (RECENT) → notices ─────────────────────────────────────────
+// The old ERP stores each one's details as PHP serialize() text of a flat array;
+// lengths are in bytes. → an object, or null when it is not one.
+function phpArray(v) {
+  const buf = Buffer.from(String(v ?? ''), 'utf8');
+  let i = 0;
+  const upto = ch => {
+    const j = buf.indexOf(ch, i);
+    if (j < 0) throw new Error('cut short');
+    const s = buf.toString('utf8', i, j);
+    i = j + 1;
+    return s;
+  };
+  const value = () => {
+    const t = String.fromCharCode(buf[i]);
+    i += 2;
+    if (t === 'N') return null;
+    if (t === 's') {
+      const len = Number(upto(':'));
+      const s = buf.toString('utf8', i + 1, i + 1 + len);
+      i += len + 3;
+      return s;
+    }
+    if (t === 'i' || t === 'd') return Number(upto(';'));
+    if (t === 'b') return upto(';') === '1';
+    if (t === 'a') {
+      const n = Number(upto(':'));
+      i += 1;
+      const out = {};
+      for (let k = 0; k < n; k++) { const key = value(); out[key] = value(); }
+      i += 1;
+      return out;
+    }
+    throw new Error(`unknown type ${t}`);
+  };
+  try {
+    const out = value();
+    return out && typeof out === 'object' ? out : null;
+  } catch { return null; }
+}
+
+const NOTICE_CAT = { good_news: 'good', bad_news: 'bad', off_listing: 'bad', listing: 'listing' };
+const TRACKING_WORD = { sold: 'Sold', rented: 'Rent Out', invalid: 'Not Valid', sold_other: 'Sold By Other', outdated: 'Outdated' };
+const rm = n => `RM ${Number(n).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// What each kind said, in the new notices' words (shared/erpActions.js notify()).
+// l: 'LIST-… (title)'; p: the old details.
+const NOTICE_TEXT = {
+  'property.price_updated': (l, p) => {
+    const from = money(p.property_price_old), to = money(p.property_price);
+    return from && to && from !== to ? `${l} ${to < from ? 'dropped' : 'went up'} from ${rm(from)} to ${rm(to)}.` : `The price of ${l} changed.`;
+  },
+  'property.listing_tracking_updated': (l, p) => {
+    const s = CODES.listingStatus[int(p.property_tracking_id)];
+    return s === 'active' ? `${l} is back on the market.` : TRACKING_WORD[s] ? `${l} is now ${TRACKING_WORD[s]}.` : `The tracking of ${l} changed.`;
+  },
+  'property.listing_published_pm': (l, p, f) => `New listing in your building: ${l}, ${f}.`,
+  'property.listing_published_fav': (l, p, f) => `New listing in a building you follow: ${l}, ${f}.`,
+  'property.listing_assigned_bm': (l, p) => `${text(p.updater_name) || 'Someone'} added ${l} to your branch.`,
+  'property.listing_assigned_bm_other': (l, p, f) => `New listing in a building you follow: ${l}, ${f}.`,
+  'property.listing_assigned_ph': l => `You are now the product handler of ${l}.`,
+  'property.share_ph': (l, p) => `${text(p.share_staff_name_card_name) || 'Someone'} is now ${text(p.share_type) === 'main_ph' ? 'Main' : 'Co-'}Product Handler of ${l}.`,
+};
+NOTICE_TEXT['property.share_ph_other'] = NOTICE_TEXT['property.share_ph'];
+
+// One old notification → a notice (its new id is given by the import).
+function notification(r, ctx) {
+  const to = id(r.user_id), listingId = id(r.reference_id);
+  if (!ctx.has('staff', to)) return skip('its person is not in the staff list');
+  if (!ctx.has('listings', listingId)) return skip('its listing is not imported');
+  const p = phpArray(r.params) || {};
+  const say = NOTICE_TEXT[text(r.type)];
+  if (!say) ctx.note(`unknown notification type ${text(r.type) || '(none)'}: worded plainly`);
+  const l = `${text(p.property_run_id) || `LIST-${pad(listingId, 6)}`}${text(p.property_title) ? ` (${text(p.property_title)})` : ''}`;
+  const forType = CODES.listingType[text(p.property_type).toLowerCase()] === 'rental' ? 'for rent' : 'for sale';
+  return {
+    to_whom: String(to), at: String(r.created_at).replace('T', ' ').slice(0, 19), cat: NOTICE_CAT[text(r.category)] || 'listing',
+    text: say ? say(l, p, forType) : `An update on ${l}.`, link: `listings/${listingId}`, read_by: JSON.stringify(flag(r.unread) ? [] : [to]),
+  };
+}
+
 // ── Filled in after the records they belong to ───────────────────────────────
 // Read whole, grouped onto the records above (each row is still kept in history).
 const AFTER = {
@@ -642,6 +752,8 @@ const AFTER = {
   db_landlord_verification: ['id', 'case_id', 'verification_status', 'verification_date', 'remarks', 'created_at'],
   db_eforms_update_tracker: ['id', 'form_id', 'user_id', 'type', 'ref', 'data_before', 'data_after', 'created_at'],
   db_overiding_record: ['over_id', 'staff_id', 'year', 'over_date', 'form_id', 'over_amount', 'over_stat'],
+  db_user_favourite_property: ['user_id', 'property_id'],
+  db_user_favourite_property_title: ['user_id', 'property_title_id'],
 };
 
 // The columns each table is read for, for legacy:inspect and the tests.
@@ -650,9 +762,10 @@ const EXPECTED = {
   ...AFTER,
   ...Object.fromEntries(Object.entries(LOOKUPS).map(([t, l]) => [t, [l.key, l.name]])),
   db_property_area: TABLES.db_property_area.reads,
+  db_user_notification: ['id', 'user_id', 'type', 'category', 'reference_id', 'params', 'unread', 'created_at'],
 };
 
 module.exports = {
-  TABLES, AFTER, LOOKUPS, EXPECTED, CODES, PAYOUT_ROLES, NOT_COPIED, HELD_BACK, HISTORY_ONLY, SECRET_COLUMNS, SCRUBBED, KEYS,
-  day, num, money, int, text, flag, deleted, id, skip, pad, r2,
+  TABLES, AFTER, LOOKUPS, EXPECTED, CODES, PAYOUT_ROLES, NOT_COPIED, RECENT, HELD_BACK, HISTORY_ONLY, SECRET_COLUMNS, KEYS,
+  notification, phpArray, recentFrom, day, num, money, int, text, flag, deleted, id, skip, pad, r2,
 };

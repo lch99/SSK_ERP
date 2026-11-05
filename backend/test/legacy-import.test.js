@@ -13,6 +13,8 @@ let legacy;
 
 // Columns the live copy keeps as text although their names look like numbers.
 const TEXT = new Set(['payout_calc_ver', 'ticket_id', 'property_price', 'property_run_id']);
+// PHP's serialize() of a flat array, as the old ERP stores a notification's details.
+const php = o => `a:${Object.keys(o).length}:{${Object.entries(o).map(([k, v]) => `s:${Buffer.byteLength(k)}:"${k}";${typeof v === 'number' ? `i:${v};` : `s:${Buffer.byteLength(v)}:"${v}";`}`).join('')}}`;
 // A table with the columns the import reads (plus `extra`), typed like the live one.
 async function table(name, extra = []) {
   const cols = [...new Set([...(M.KEYS[name] || []), ...(M.EXPECTED[name] || []), ...(M.TABLES[name]?.optional || []), ...extra])];
@@ -37,6 +39,10 @@ before(async () => {
   await table('db_login_session', ['id', 'hashed_token', 'user_id']);
   await table('db_name_1', ['name_id', 'CustomerName', 'IC']);
   await table('z_form_data_capture', ['id', 'form_name', 'form_data', 'route_data']);
+  await table('db_property_search_log', ['id', 'search_query', 'created_at']);
+  await table('user_credential', ['id', 'user_id', 'hashed_password']);
+  await table('db_user_notification');
+  await legacy.schema.alterTable('db_user_notification', t => { t.text('params').alter(); });
   await table('db_property_images', ['image_id', 'property_id', 'image_url']);
   await table('some_new_table', ['id', 'label']);
   await legacy.schema.alterTable('new_staff', t => { t.string('user_password'); t.string('uuid'); t.string('salt'); });
@@ -67,6 +73,7 @@ before(async () => {
       property_tracking: 2, property_draft: 0, property_price: 2200, vendor_request_id: 1, property_date: '2025-02-01' },
     { property_id: 102, property_run_id: 'LIST-000102', property_type: 'sales', property_stat: '3', staff_id: 12 },
     { property_id: 103, property_run_id: 'LIST-000100', property_type: 'sales', staff_id: 14, property_tracking: 5, property_draft: 1 },
+    { property_id: 104, property_run_id: 'LIST-000104', property_type: 'sales', staff_id: 12, property_land_built: '18446744073709551216', property_room: '40000', property_bath: '2' },
   ]);
   await rows('db_property_followup', [{ follow_id: 1, property_id: 100, follow_date: '2025-02-02', follow_up_action: 1, staff_id: 12, property_appointment_date: '2025-02-05', property_appointment_time: '3:30 PM' },
     { follow_id: 2, property_id: 102, follow_date: '2025-02-02' }]);
@@ -90,6 +97,8 @@ before(async () => {
     { form_id: 503, form_code: '2025-08-SALE-00503', form_type: 'sales', form_date: '2025-08-02', form_status: 1, property_id: 100, staff_id: 12, form_stat: '3' },
     { form_id: 504, form_code: '2019-03-SALE-00504', form_type: 'sales', form_date: '2019-03-01', form_status: 3, property_id: 0, staff_id: 11, rent_price: 400000, form_total: 8000, net_total: 7547 },
     { form_id: 505, form_code: '2025-09-SALE-00505', form_type: 'sales', form_date: '0000-00-00', form_status: 1, property_id: 100, staff_id: 12, rent_price: 0, net_total: 0 },
+    { form_id: 506, form_code: '0007-03-SALE-00506', form_type: 'sales', form_date: '0007-03-01', form_status: 3, property_id: 0, staff_id: 11, rent_price: 1000, form_total: 10, net_total: 10 },
+    { form_id: 507, form_code: 'MJR/2203-01', form_type: 'sales', form_date: '0000-00-00', form_status: 3, property_id: 0, staff_id: 11, rent_price: 2000, form_total: 20, net_total: 20 },
   ]);
   await rows('db_eforms_meta', [{ id: 1, form_id: 500, meta_key: 'other_landlords', meta_value: JSON.stringify([{ landlord_name: 'Co Owner', landlord_nric: '700101-01-0001' }]) }]);
   await rows('db_trans', [
@@ -111,6 +120,8 @@ before(async () => {
     line(903, 'BM_PROFIT_PH', 10, 30, 1500, { case_status: 2, case_stat: '', arc_id: 0 }),
     line(904, 'SALARY_SA', 12, 70, 99, { case_link: 950, case_stat: '3', arc_id: 0 }),
     line(905, '', 11, 70, 1000, { case_link: 905, form_id: 504, property_id: 0, case_stat: '' }),
+    line(896, 'TEAM_LEADER_INCENTIVE_PH', 11, 10, 100, { case_status: 2, case_stat: '', arc_id: 0, staff_salary_id: 60 }),   // queried, but its salary request is clear
+    line(897, 'SALARY_SA', 12, 70, 99, { case_link: 950, case_stat: '', arc_id: 0 }),                         // close 950: no line 950 itself, and 904 is deleted
   ]);
   await rows('db_landlord_verification', [{ id: 1, case_id: 900, verification_status: 1, verification_date: '2025-07-05', remarks: 'Called' }]);
   await rows('db_eforms_request', [
@@ -126,6 +137,22 @@ before(async () => {
   await rows('db_login_session', [{ id: 1, hashed_token: 'sess-hash', user_id: 12 }]);
   await rows('db_name_1', [{ name_id: 1, CustomerName: 'Bought Contact', IC: '660606-06-6666' }]);
   await rows('z_form_data_capture', [{ id: 1, form_name: 'update_staff', form_data: JSON.stringify({ user_name: 'bob', user_password: 'hunter2' }), route_data: 'page=hr&user_password=hunter3&x=1' }]);
+  await rows('db_property_search_log', [{ id: 1, search_query: 'kepong condo', created_at: '2024-01-01 10:00:00' }]);
+  await rows('db_user_favourite_property', [{ user_id: 12, property_id: 100 }, { user_id: 12, property_id: 102 }, { user_id: 999, property_id: 100 }]);
+  await rows('db_user_favourite_property_title', [{ user_id: 12, property_title_id: 7 }, { user_id: 11, property_title_id: 7 }]);
+  await rows('user_credential', [{ id: 1, user_id: 1, hashed_password: 'argon-hash-1' }]);
+  const kepong = { property_run_id: 'LIST-000100', property_title: 'Kepong Sentral', property_type: 'sales' };
+  await rows('db_user_notification', [
+    { id: 1, user_id: 12, type: 'property.price_updated', category: 'good_news', reference_id: 100, unread: '0', created_at: '2026-10-01 10:00:00',
+      params: php({ ...kepong, property_price: '600000', property_price_old: '650000' }) },
+    { id: 2, user_id: 11, type: 'property.share_ph', category: 'listing', reference_id: 100, unread: '1', created_at: '2026-11-01 09:00:00',
+      params: php({ ...kepong, share_type: 'co_ph', share_staff_name_card_name: 'Bob' }) },
+    { id: 3, user_id: 12, type: 'property.listing_tracking_updated', category: 'bad_news', reference_id: 101, unread: '1', created_at: '2026-08-03 08:00:00',
+      params: php({ property_run_id: 'LIST-000101', property_tracking_id: 2 }) },
+    { id: 4, user_id: 12, type: 'property.price_updated', category: 'good_news', reference_id: 100, unread: '0', created_at: '2026-08-02 23:00:00', params: php(kepong) },
+    { id: 5, user_id: 999, type: 'property.share_ph', category: 'listing', reference_id: 100, unread: '1', created_at: '2026-10-02 09:00:00', params: php(kepong) },
+    { id: 6, user_id: 12, type: 'property.price_updated', category: 'bad_news', reference_id: 102, unread: '1', created_at: '2026-10-03 09:00:00', params: php(kepong) },
+  ]);
   await rows('db_property_images', [{ image_id: 1, property_id: 100, image_url: 'property-images/100/a.jpg' }]);
   await rows('some_new_table', [{ id: 1, label: 'x' }]);
 
@@ -143,22 +170,62 @@ test('everything matches except the E-Form with no date, which the report points
   assert.match(result.markdown, /E-Forms · submitted · count \| 2 \| 1 \| \*\*differs by -1\*\*/);
 });
 
-test('every old row is kept in history, except sessions, failed sign-ins and the held-back contact list', async () => {
+test('every old row is kept in history, except the logs, sign-in secrets, old notifications and the held-back contact list', async () => {
   const kept = Object.fromEntries((await db('legacy_rows').select('source_table').count({ n: '*' }).groupBy('source_table')).map(r => [r.source_table, Number(r.n)]));
-  assert.equal(kept.db_property, 4);
-  assert.equal(kept.db_case_list, 6);
+  assert.equal(kept.db_property, 5);
+  assert.equal(kept.db_case_list, 8);
   assert.equal(kept.some_new_table, 1);
-  for (const t of ['db_login_try', 'db_login_session', 'db_name_1']) assert.equal(kept[t], undefined, t);
+  assert.equal(kept.db_user_notification, 5);                  // not the one from before the last 90 days
+  for (const t of ['db_login_try', 'db_login_session', 'db_name_1', 'z_form_data_capture', 'db_property_search_log', 'user_credential']) assert.equal(kept[t], undefined, t);
   assert.ok(result.checks.filter(c => c.group === 'Every old row kept').every(c => c.ok));
   assert.deepEqual(report.unknownTables, ['some_new_table']);
+  assert.match(result.markdown, /`z_form_data_capture`: a raw copy of every form/);
+  assert.match(result.markdown, /`db_user_notification`: app notifications older than 90 days .* \(1 rows before 2026-08-03\)/);
 });
 
 test('passwords and sign-in tokens are never copied', async () => {
   const all = JSON.stringify(await db('legacy_rows').select('data')) + JSON.stringify(await db('staff').select());
-  for (const secret of ['secret-pw-1', 'tok-uuid-12', 'salty', 'hunter2', 'hunter3', 'typed-wrong-pw', 'sess-hash']) assert.ok(!all.includes(secret), secret);
-  const z = json((await db('legacy_rows').where({ source_table: 'z_form_data_capture' }).first()).data);
-  assert.match(z.form_data, /"user_password":"\[removed\]"/);
-  assert.match(z.route_data, /user_password=\[removed\]&x=1/);
+  for (const secret of ['secret-pw-1', 'tok-uuid-12', 'salty', 'hunter2', 'hunter3', 'typed-wrong-pw', 'sess-hash', 'argon-hash-1']) assert.ok(!all.includes(secret), secret);
+});
+
+test('the last 90 days of notifications become notices, worded and read as they were', async () => {
+  assert.deepEqual(report.recent.db_user_notification, { from: '2026-08-03', left: 1 });
+  const notices = await db('notices').orderBy('at');
+  assert.deepEqual(notices.map(n => [n.to_whom, n.cat, n.text, n.link, json(n.read_by)]), [
+    ['12', 'bad', 'LIST-000101 is now Rent Out.', 'listings/101', []],
+    ['12', 'good', 'LIST-000100 (Kepong Sentral) dropped from RM 650,000.00 to RM 600,000.00.', 'listings/100', [12]],
+    ['11', 'listing', 'Bob is now Co-Product Handler of LIST-000100 (Kepong Sentral).', 'listings/100', []],
+  ]);
+  assert.deepEqual(report.tables.db_user_notification.kept, { 'its person is not in the staff list': 1, 'its listing is not imported': 1 });
+  assert.ok(result.checks.find(c => c.group === 'Notifications').ok);
+});
+
+test('a number its column cannot hold is left blank and counted; the old value stays in history', async () => {
+  const l = await one('listings', 104);
+  assert.deepEqual([l.built_up, l.beds, l.baths], [null, null, 2]);
+  assert.deepEqual(report.outOfRange, { 'listings.built_up': 1, 'listings.beds': 1 });
+  assert.match(result.markdown, /Numbers the column cannot hold, left blank[\s\S]*`listings.built_up` \| 1/);
+  assert.equal(json((await db('legacy_rows').where({ source_table: 'db_property', source_id: '104' }).first()).data).property_room, '40000');
+});
+
+test('starred listings and buildings become favourites', async () => {
+  const favs = Object.fromEntries((await db('favourites').select()).map(f => [f.viewer_id, { listings: json(f.listings), titles: json(f.titles) }]));
+  assert.deepEqual(favs, { 11: { listings: [], titles: [7] }, 12: { listings: [100], titles: [7] } });
+  assert.deepEqual(report.tables.db_user_favourite_property.kept, { 'its listing is not imported': 1, 'its person is not in the staff list': 1 });
+  assert.ok(result.checks.filter(c => c.group === 'Favourites').every(c => c.ok));
+});
+
+test('the old data\'s loose ends: an undated first-system E-Form, a queried line already paid, a close whose first line is deleted', async () => {
+  assert.equal((await one('v1_eforms', 507)).date, null);
+  assert.equal(report.tables.db_eforms.notes['no date in the old ERP: listed without one'], 1);
+  assert.equal((await one('payout_lines', 896)).status, 'paid');
+  assert.equal(report.tables.db_case_list.notes['paid by a cleared salary request while still Pending Queries in the old ERP: imported as paid'], 1);
+  assert.equal((await one('closes', 950)).deal_id, 500);
+  assert.ok(result.checks.filter(c => c.group === 'Closes and payouts' || c.group === 'E-Forms').every(c => c.ok || c.label === 'E-Forms · submitted · count'));
+});
+
+test('mistyped E-Form dates are kept and counted in the report', () => {
+  assert.equal(report.tables.db_eforms.notes['its date looks mistyped (before 2015, or after the import): kept as it was'], 1);
 });
 
 test('people keep their ids, codes, uplines and branch (the B.M account up their chain)', async () => {
@@ -258,16 +325,18 @@ test('the report shows counts only, never anyone\'s details', () => {
   assert.match(result.markdown, /Tables the import does not know.*`some_new_table`/);
 });
 
-test('new codes continue after the old ones', async () => {
+test('new codes continue after the highest old number, deleted and first-system rows included', async () => {
   const c = Object.fromEntries((await db('counters').select()).map(r => [r.key, Number(r.value)]));
-  assert.deepEqual([c.staff, c.listing, c.transaction, c.case], [777, 103, 6, 903]);
+  // case 905 is a first-system line (not imported), 72 a request form; 777 the "Unknown" stand-in.
+  assert.deepEqual([c.staff, c.listing, c.transaction, c.case, c.salary, c.archive, c.request], [777, 104, 6, 905, 60, 40, 72]);
 });
 
 test('importing again needs --replace, and replaces instead of adding', async () => {
   await assert.rejects(importLegacy({ legacy, db }), /already has .* records/);
   await importLegacy({ legacy, db, replace: true });
   assert.equal(Number((await db('deals').count({ n: '*' }).first()).n), 3);
-  assert.equal(Number((await db('legacy_rows').where('source_table', 'db_property').count({ n: '*' }).first()).n), 4);
+  assert.equal(Number((await db('legacy_rows').where('source_table', 'db_property').count({ n: '*' }).first()).n), 5);
+  assert.equal(Number((await db('notices').count({ n: '*' }).first()).n), 3);
 });
 
 test('it refuses to replace records made in the new system', async () => {

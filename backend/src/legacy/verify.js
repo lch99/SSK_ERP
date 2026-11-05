@@ -2,7 +2,8 @@
 // one are added up separately, each with its own SQL (never through the import's
 // code), and compared.
 //   1. Every row of every old table is in legacy_rows (only the tables mapping.js
-//      NOT_COPIED / HELD_BACK names are left out, and the report says so).
+//      NOT_COPIED / HELD_BACK names are left out, and a RECENT table's older rows;
+//      the report says so).
 //   2. Records and money match: people, listings by status, E-Forms by status with
 //      their prices and net commission, payments in by status, closes and payout
 //      lines with their totals, request forms by type with their amounts…
@@ -11,6 +12,7 @@
 //   npm run legacy:verify -- --out check.md      (again, any time after an import)
 const M = require('./mapping');
 const { tableNames } = require('./inspect');
+const { localToday } = require('../db/days');
 
 const fmt = n => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const near = (a, b, rows) => Math.abs(Number(a) - Number(b)) <= 0.01 + 0.005 * rows;
@@ -42,10 +44,33 @@ async function verify({ legacy, db, report = null }) {
 
   // 1. Every old row kept.
   const keptRows = Object.fromEntries((await db('legacy_rows').select('source_table').count({ n: '*' }).groupBy('source_table')).map(r => [r.source_table, Number(r.n)]));
+  const recent = {};
   for (const t of present) {
     if (M.NOT_COPIED[t] || (M.HELD_BACK[t] && !(report?.include || []).includes(t) && !keptRows[t])) continue;
-    const [n] = await one(legacy(t).count({ n: '*' }));
-    add('Every old row kept', t, n, keptRows[t] || 0);
+    const q = legacy(t).count({ n: '*' });
+    if (M.RECENT[t]) {
+      recent[t] = await M.recentFrom(legacy, t);
+      q.where(M.RECENT[t].column, '>=', recent[t] || '9999-12-31');
+    }
+    const [n] = await one(q);
+    add('Every old row kept', recent[t] ? `${t} (from ${recent[t]})` : t, n, keptRows[t] || 0);
+  }
+  // The latest notifications, for a person and a listing that came across.
+  if (recent.db_user_notification) {
+    const [n] = await one(legacy('db_user_notification as n').count({ n: '*' }).where('n.created_at', '>=', recent.db_user_notification)
+      .whereIn('n.user_id', legacy('new_staff').select('user_id'))
+      .whereIn('n.reference_id', legacy('db_property').select('property_id').whereRaw(...alive('property_stat'))));
+    const [m] = await one(db('notices').whereIn('id', db('legacy_rows').where('source_table', 'db_user_notification').whereNotNull('target_id').select(db.raw('cast(target_id as unsigned)'))).count({ n: '*' }));
+    add('Notifications', `the last ${M.RECENT.db_user_notification.days} days (from ${recent.db_user_notification}) → notices`, n, m);
+  }
+  // Starred listings and buildings, of people and records that came across.
+  for (const [t, col, of, key, stat, kind] of [['db_user_favourite_property', 'property_id', 'db_property', 'property_id', 'property_stat', 'listings'],
+    ['db_user_favourite_property_title', 'property_title_id', 'db_property_title', 'title_id', 'title_stat', 'titles']]) {
+    if (!has(t) || !has(of)) continue;
+    const [n] = await one(legacy(t).count({ n: '*' }).whereIn('user_id', legacy('new_staff').select('user_id'))
+      .whereIn(col, legacy(of).select(key).whereRaw(...alive(stat))));
+    const [m] = await one(db('favourites').sum({ n: db.raw('json_length(??)', [kind]) }));
+    add('Favourites', `starred ${kind}`, n, m);
   }
 
   // 2. Records and money.
@@ -75,18 +100,24 @@ async function verify({ legacy, db, report = null }) {
     compareGroups('Payments in', 'payments in',
       await grouped(legacy('db_trans').whereRaw(...alive('tran_stat')).where(notDeletedAt).where('version_id', '>', 0)
         .whereRaw('coalesce(case_id, 0) = 0 and coalesce(request_id, 0) = 0 and tran_amount >= 0').whereIn('form_id', v2Forms(legacy))
-        .select({ k: 'tran_status' }).count({ n: '*' }).sum({ amount: 'tran_amount' }).groupBy('tran_status'), 'k'),
+        // An amount the new column can't hold (RM 1.49 trillion, typed by mistake) is left blank and listed in the report.
+        .select({ k: 'tran_status' }).count({ n: '*' }).sum({ amount: legacy.raw('case when abs(tran_amount) < 1000000000000 then tran_amount else 0 end') }).groupBy('tran_status'), 'k'),
       await grouped(db('money_in').select({ k: 'status' }).count({ n: '*' }).sum({ amount: 'amount' }).groupBy('status'), 'k'),
       k => M.CODES.moneyInStatus[k] || `old code ${k}`, ['amount']);
   }
   if (has('db_case_list') && has('db_eforms')) {
     const lines = () => legacy('db_case_list').where(q => q.whereRaw(...alive('case_stat')).orWhere('arc_id', '>', 0)).where('property_id', '>', 0).whereIn('form_id', v2Forms(legacy));
-    const [closes, claim] = await one(lines().whereRaw('(case_id = case_link or coalesce(case_link, 0) = 0)').count({ n: '*' }).sum({ c: 'comm_claim' }));
+    // A close is its lines (case_link), with the claim of its first one still there (its first line may be deleted).
+    const firsts = lines().select('comm_claim', legacy.raw('row_number() over (partition by coalesce(nullif(case_link, 0), case_id) order by case_id) as nth'));
+    const [closes, claim] = await one(legacy.from(firsts.as('f')).where('nth', 1).count({ n: '*' }).sum({ c: 'comm_claim' }));
     const [closesNew, claimNew] = await one(db('closes').count({ n: '*' }).sum({ c: 'claim' }));
     add('Closes and payouts', 'closes · count', closes, closesNew);
     add('Closes and payouts', 'closes · commission claimed', claim, claimNew, closes, true);
+    // A line whose salary request is Payment Clear is paid, whatever its own status says.
+    const cleared = legacy('db_salary').select('salary_id').whereRaw(...alive('salary_stat')).where('version_id', '>', 0).where('salary_status', 3).whereRaw('year(salary_date) > 0');
+    const status = legacy.raw('case when staff_salary_id in (?) then 3 else case_status end', [cleared]);
     compareGroups('Closes and payouts', 'payout lines',
-      await grouped(lines().select({ k: 'case_status' }).count({ n: '*' }).sum({ amount: 'total_payout' }).groupBy('case_status'), 'k'),
+      await grouped(lines().select({ k: status }).count({ n: '*' }).sum({ amount: 'total_payout' }).groupBy('k'), 'k'),
       await grouped(db('payout_lines').select({ k: db.raw("case when status in ('approved', 'paid') then 'ready' else status end") })
         .count({ n: '*' }).sum({ amount: 'amount' }).groupByRaw("case when status in ('approved', 'paid') then 'ready' else status end"), 'k'),
       k => ({ new: 'new', queried: 'queried', approved: 'ready' })[M.CODES.payoutStatus[k]] || `old code ${k}`, ['amount']);
@@ -117,10 +148,17 @@ async function verify({ legacy, db, report = null }) {
     ['Listings', 'owner requests', 'db_vendor_request', null, 'vendor_requests'],
     ['Customers', 'customers', 'db_name', 'name_stat', 'customers'],
     ['Customers', 'customer follow-ups', 'db_name_followup', 'follow_stat', 'customer_follow_ups', q => q.whereIn('name_id', legacy('db_name').select('name_id').whereRaw(...alive('name_stat')))],
-    ['People', 'marketing access', 'db_marketing_user', 'user_stat', 'staff_marketing'],
     ['Closes and payouts', 'archives', 'db_case_archieve_ver2', 'arc_stat', 'archives'],
     ['Other', 'training and meeting videos', 'db_posts', null, 'videos', q => q.where(notDeletedAt)],
   ];
+  // Marketing access: one per pair of people (the old table lists some pairs twice).
+  if (has('db_marketing_user') && has('new_staff')) {
+    const pairs = legacy('db_marketing_user').whereRaw(...alive('user_stat')).whereIn('staff_id', legacy('new_staff').select('user_id'))
+      .whereIn('user_id', legacy('new_staff').select('user_id')).distinct('staff_id', 'user_id');
+    const [n] = await one(legacy.from(pairs.as('p')).count({ n: '*' }));
+    const [m] = await one(db('staff_marketing').count({ n: '*' }));
+    add('People', 'marketing access (pairs of people)', n, m);
+  }
   for (const [group, label, t, stat, target, more = q => q] of simple) {
     if (!has(t)) continue;
     const q = legacy(t);
@@ -134,15 +172,15 @@ async function verify({ legacy, db, report = null }) {
   const markdown = await writeReport({ db, report, checks, present });
   const summary = problems
     ? `${problems} of ${checks.length} checks differ between the old and the new database: see the report.`
-    : `All ${checks.length} checks match: every old row is kept, and the records and money add up.`;
+    : `All ${checks.length} checks match: every old row is kept (but what is left out on purpose), and the records and money add up.`;
   return { ok: !problems, problems, checks, summary, markdown };
 }
 
 async function writeReport({ db, report, checks, present }) {
-  const out = [`# Import from the current ERP (${new Date().toISOString().slice(0, 10)})`, ''];
+  const out = [`# Import from the current ERP (${localToday()})`, ''];
   const problems = checks.filter(c => !c.ok);
   out.push(problems.length ? `**${problems.length} of ${checks.length} checks differ.** Each one is listed first; the rows behind it are in "Kept in history only" below (or in \`legacy_rows\`).`
-    : `**All ${checks.length} checks match.** Every old row is kept, and the records and money add up.`, '');
+    : `**All ${checks.length} checks match.** Every old row is kept (but what is left out on purpose, listed at the end), and the records and money add up.`, '');
   if (report) out.push(`${present.length} old tables read in ${fmt(report.seconds)} s. Counts and totals only: no names, IC numbers, phones or addresses.`, '');
 
   const table = list => ['| Check | Old ERP | New ERP | |', '|---|--:|--:|---|',
@@ -170,6 +208,8 @@ async function writeReport({ db, report, checks, present }) {
     }
     const cut = Object.entries(report.truncated);
     if (cut.length) out.push('', '## Text cut to fit its column', '', 'The full text is in `legacy_rows`.', '', '| Column | Rows |', '|---|--:|', ...cut.map(([c, n]) => `| \`${c}\` | ${fmt(n)} |`));
+    const big = Object.entries(report.outOfRange || {});
+    if (big.length) out.push('', '## Numbers the column cannot hold, left blank', '', 'Typing mistakes in the old ERP (a negative area, 40,000 rooms); the old value is in `legacy_rows`.', '', '| Column | Rows |', '|---|--:|', ...big.map(([c, n]) => `| \`${c}\` | ${fmt(n)} |`));
     if (report.placeholders) out.push('', `**${fmt(report.placeholders)} "Unknown" staff records** stand in for people the old records name but the staff list no longer has, so their E-Forms and payouts keep their money.`);
 
     const branches = await db('branches').whereIn('id', report.branchesMade).select('id', 'name', 'code');
@@ -182,6 +222,7 @@ async function writeReport({ db, report, checks, present }) {
     }
     out.push('', '## Left out on purpose', '');
     for (const [t, why] of Object.entries(report.notCopied)) if (present.includes(t)) out.push(`- \`${t}\`: ${why}.`);
+    for (const [t, { from, left }] of Object.entries(report.recent || {})) out.push(`- \`${t}\`: ${M.RECENT[t].why} (${fmt(left)} rows before ${from}).`);
     for (const [t, why] of Object.entries(report.heldBack)) out.push(`- \`${t}\`: ${why} (\`--include ${t}\` keeps it).`);
     for (const [t, cols] of Object.entries(report.secretColumns)) if (present.includes(t)) out.push(`- \`${t}\` columns ${cols.map(c => `\`${c}\``).join(', ')}: passwords and sign-in tokens.`);
     if (report.unknownTables.length) out.push('', `**Tables the import does not know** (kept in history; decide where they go): ${report.unknownTables.map(t => `\`${t}\``).join(', ')}.`);
