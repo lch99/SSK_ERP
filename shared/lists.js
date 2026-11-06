@@ -298,6 +298,8 @@ export const LISTS = {
       byStatus: { only: () => ({}), by: 'status', sum: 'fee', keep: HOME },
       endedYear: { only: ctx => ({ ...yearOf(ctx), status: 'closed,cancelled' }), by: 'status', sum: 'fee', keep: HOME },
       stale: { only: ctx => ({ status: 'submitted', to: addDays(ctx.today, -46) }), keep: HOME },
+      // The commission flow and the menu (src/erp/waiting.jsx): E-Forms whose cleared cash can be closed now.
+      readyToClose: { only: () => ({ ready: 'true' }), keep: HOME },
       collecting: { only: () => ({ status: 'submitted,partial' }), custom: 'collected', keep: HOME },
       branchesMonth: { only: ctx => ({ from: monthStart(ctx.today), to: monthEnd(ctx.today), status: LIVE }), by: 'branchId', sum: 'fee' },
       branchesYear: { only: ctx => ({ ...yearOf(ctx), status: LIVE }), by: 'branchId', sum: 'fee' },
@@ -425,6 +427,9 @@ export const LISTS = {
       // New and Pending Queries: waiting for approval, on how many closes.
       waiting: { only: () => ({ status: 'new,queried', archived: 'false' }), sum: 'amount', distinct: 'closeId', keep: ['branchId'] },
       queried: { only: () => ({ status: 'queried', archived: 'false' }), distinct: 'dealId', keep: HOME },
+      // The commission flow (src/erp/waiting.jsx): Ready lines nobody has requested or stacked, by how many people; their salary lines.
+      readyToRequest: { only: () => ({ ...OPEN_LINE, stacked: 'false' }), distinct: 'staffId', keep: HOME },
+      salaryToRequest: { only: () => ({ ...OPEN_LINE, stacked: 'false', incentive: 'false' }), keep: HOME },
       // Reports, over the page's own filters: each person's payout, and on how many archived E-Forms.
       perPerson: { custom: 'linesByPerson' },
       // Each person's own pay (no upline level) and incentives (an upline level).

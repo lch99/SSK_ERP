@@ -1,4 +1,3 @@
-import { readyToClose } from './model.js'
 
 // The ERP's modules: one per kind of work, each with its own pages. It stays
 // one ERP (one sign-in, one set of records, one quick search); a module only
@@ -10,14 +9,10 @@ import { readyToClose } from './model.js'
 // "new" button; `agent` shows it only to an agent, about their own records). { section, was? } is a heading (its `was` counts for the pages
 // under it). { note } is a line of grey text. Each path is in one module only.
 
+// Badges read the waiting summary (src/erp/waiting.jsx: counts the server adds up).
 const todo = {
-  toClose: (d, m, setup) => d.deals.filter(x => readyToClose(x, m, setup) > 0).length,
-  moneyIn: d => d.moneyIn.filter(t => t.status === 'pending' || t.status === 'draft').length,
-  cases: d => d.payouts.filter(p => !p.archiveId && (p.status === 'new' || p.status === 'queried')).length,
-  requests: d => d.moneyOut.filter(x => x.status === 'new' || x.status === 'queried').length,
-  salary: d => d.requests.filter(r => r.status === 'new').length,
-  vendor: d => d.vendorRequests.filter(v => v.status === 0).length,
-  viewings: d => (d.viewings || []).filter(v => v.status === 'new' || v.status === 'rescheduled').length,
+  toClose: w => w.toClose, moneyIn: w => w.moneyIn, cases: w => w.lines, requests: w => w.moneyOut,
+  salary: w => w.newRequests, vendor: w => w.vendor, viewings: w => w.viewings,
 }
 
 export const MODULES = [
@@ -172,5 +167,5 @@ export function activePath(parts, pages) {
   return best
 }
 
-// How many things wait in a module (the badge on its icon).
-export const waiting = (mod, d, m, setup) => (d ? mod.items.reduce((t, i) => t + (i.badge ? i.badge(d, m, setup) : 0), 0) : 0)
+// How many things wait in a module (the badge on its icon); w: the waiting summary.
+export const waiting = (mod, w) => (w ? mod.items.reduce((t, i) => t + (i.badge ? i.badge(w) || 0 : 0), 0) : 0)

@@ -10,6 +10,7 @@ import { ErrorList } from '../setup/Section.jsx'
 import { ErpProvider, useErp, useRoute, useMedia } from './ErpContext.jsx'
 import { MENU, MODULE } from './help.js'
 import { activePath, moduleHome, modulePages, visibleModules, waiting } from './modules.js'
+import { WaitingProvider, useWaiting } from './waiting.jsx'
 import { isAgent } from './model.js'
 import { FeedbackProvider, useFeedback } from './feedback.jsx'
 import Icon from './Icon.jsx'
@@ -73,7 +74,9 @@ export default function Shell(props) {
     <AccessProvider me={props.me}>
       <ErpProvider reloadKey={parts[0] === 'setup' ? 'setup' : 'erp'}>
         <FeedbackProvider>
-          <Layout {...props} parts={parts} />
+          <WaitingProvider>
+            <Layout {...props} parts={parts} />
+          </WaitingProvider>
         </FeedbackProvider>
       </ErpProvider>
     </AccessProvider>
@@ -254,7 +257,8 @@ function Menu({ mods, active, erp, mode, onPick, onClose }) {
     window.addEventListener('keydown', esc)
     return () => { document.removeEventListener('mousedown', out); window.removeEventListener('keydown', esc) }
   }, [fly])
-  const count = item => (erp.scoped && item.badge ? item.badge(erp.scoped, erp.m, erp.setup) : 0)
+  const w = useWaiting()
+  const count = item => (item.badge ? item.badge(w) || 0 : 0)
   const at = e => { const r = e.currentTarget.getBoundingClientRect(); return { top: r.top, mid: r.top + r.height / 2 } }
   const choose = (mod, e) => {
     setTip(null)
@@ -272,7 +276,7 @@ function Menu({ mods, active, erp, mode, onPick, onClose }) {
         {mods.map(mod => {
           const on = mod.key === current?.key
           const open = mode === 'drawer' ? mod.key === shown : fly?.key === mod.key
-          const n = waiting(mod, erp.scoped, erp.m, erp.setup)
+          const n = waiting(mod, w)
           const hover = e => { if (!fly && window.matchMedia('(hover: hover)').matches) setTip({ ...at(e), label: mod.label, desc: MODULE[mod.key] }) }
           return (
             <button key={mod.key} type="button" className="ssk-rail-btn" onClick={e => choose(mod, e)} aria-current={on ? 'page' : undefined}
@@ -368,7 +372,7 @@ function PagePanel({ mod, mods, active, erp, count, onPick, onClose }) {
           if (i.note) return <p key={`n-${n}`} style={{ margin: '12px 10px 0', fontSize: 12, lineHeight: 1.45, color: C.sideHead }}>{i.note}</p>
           return <NavRow key={i.path} label={i.label} to={i.path} on={active === i.path} count={count(i)} onPick={onPick} small tip={MENU[i.path]} onTip={tipOn} onTipOff={tipOff} />
         })}
-        {mod.key === 'home' && erp.scoped && <Waiting mods={mods} count={count} onPick={onPick} tips={{ onTip: tipOn, onTipOff: tipOff }} />}
+        {mod.key === 'home' && erp.m && <Waiting mods={mods} count={count} onPick={onPick} tips={{ onTip: tipOn, onTipOff: tipOff }} />}
       </div>
       {DEMO && erp.m && (
         <div title="Made up from your Setup. Changes stay in this browser." style={{ margin: 8, padding: '7px 8px 7px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)',

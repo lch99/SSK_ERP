@@ -6,40 +6,37 @@ import { go, tabular } from './ui.jsx'
 import { rm, date } from './format.js'
 import Icon from './Icon.jsx'
 import { useAccess, useCan } from './access.jsx'
+import { useWaiting } from './waiting.jsx'
 
 // A deal goes through six pages in a row. These show the chain, so nobody has
 // to know which menu holds the next step:
 //   1 Submit E-Forms → 2 Clear payments → 3 Close cases → 4 Approve payouts → 5 Request pay → 6 Pay out
 
-// What waits at each step, and where it is done.
-export function flowSteps(m, d, setup) {
-  const waiting = d.payouts.filter(p => !p.archiveId && (p.status === 'new' || p.status === 'queried'))
-  // Lines an agent stacked wait for the agent, not the office.
-  const ready = d.payouts.filter(p => p.status === 'approved' && !p.requestId && !p.stacked)
-  const drafts = d.deals.filter(x => x.status === 'draft').length
+// What waits at each step, and where it is done; w: the waiting summary (src/erp/waiting.jsx).
+export function flowSteps(w) {
   return [
-    { key: 'submit', label: 'Submit E-Forms', short: 'Submit', unit: ['draft', 'drafts'], to: drafts ? 'deals?status=draft' : 'deals/new', what: 'Agents submit an E-Form for each sale or rental; drafts wait here',
-      n: drafts },
+    { key: 'submit', label: 'Submit E-Forms', short: 'Submit', unit: ['draft', 'drafts'], to: w.drafts ? 'deals?status=draft' : 'deals/new', what: 'Agents submit an E-Form for each sale or rental; drafts wait here',
+      n: w.drafts || 0 },
     { key: 'clear', label: 'Clear payments', short: 'Clear', unit: ['payment', 'payments'], to: 'money-in', what: 'Check money in against the bank, then set it Clear',
-      n: d.moneyIn.filter(t => t.status === 'pending' || t.status === 'draft').length },
+      n: w.moneyIn || 0 },
     { key: 'close', label: 'Close cases', short: 'Close', unit: ['deal', 'deals'], to: 'deals/ready', what: 'Deals whose cash has cleared: Request Close Case',
-      n: d.deals.filter(x => readyToClose(x, m, setup) > 0).length },
+      n: w.toClose || 0 },
     { key: 'approve', label: 'Approve payouts', short: 'Approve', unit: ['case', 'cases'], to: 'payouts', what: 'Check who each closed case pays, then Set Ready',
-      n: new Set(waiting.map(p => p.closeId)).size },
-    { key: 'request', label: 'Request pay', short: 'Request', unit: ['person', 'people'], to: ready.some(p => !p.role) || !ready.length ? 'salary/request' : 'salary/incentives',
-      what: 'Put Ready lines into salary and incentive requests', n: new Set(ready.map(p => p.staffId)).size },
+      n: w.closes || 0 },
+    // Lines an agent stacked wait for the agent, not the office.
+    { key: 'request', label: 'Request pay', short: 'Request', unit: ['person', 'people'], to: w.salaryReady || !w.people ? 'salary/request' : 'salary/incentives',
+      what: 'Put Ready lines into salary and incentive requests', n: w.people || 0 },
     { key: 'pay', label: 'Pay out', short: 'Pay', unit: ['request', 'requests'], to: 'salary', what: 'Pay on the pay day, then Payment Clear',
-      n: d.requests.filter(r => r.status === 'new' || r.status === 'ready').length },
+      n: w.toPay || 0 },
   ]
 }
 
 // The six steps in a row, each with what is waiting. `here` marks this page's step.
 export function FlowBar({ here }) {
-  const { m, scoped: d, setup } = useErp()
   const [ref, narrow] = useNarrow(600)
   // Six in a row only when each label fits on one line; otherwise two even rows.
   const [rowRef, tight] = useNarrow(1240)
-  const steps = flowSteps(m, d, setup)
+  const steps = flowSteps(useWaiting())
   // Phones: six small tiles in one row, so the flow never takes over the screen.
   if (narrow) {
     return (
