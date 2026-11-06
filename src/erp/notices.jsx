@@ -5,7 +5,7 @@ import { useErp } from './ErpContext.jsx'
 import { useCan } from './access.jsx'
 import { useFeedback } from './feedback.jsx'
 import { useViewer } from './listingLife.jsx'
-import { useList } from './useList.js'
+import { useList, useRecord } from './useList.js'
 import { Page, Card, Tabs, Pill, Empty, Modal, FormField, Select, TextArea, Notice, go, small, field } from './ui.jsx'
 import { PAGE } from './help.js'
 import { ago } from './format.js'
@@ -124,14 +124,22 @@ export function Notifications() {
 
 // The office tells one person, one branch or everyone (the current system's admin push).
 function SendNotice({ open, onClose }) {
+  return open ? <SendNoticeForm onClose={onClose} /> : null
+}
+
+function SendNoticeForm({ onClose }) {
   const erp = useErp()
-  const { m, setup } = erp
+  const { setup } = erp
   const fb = useFeedback()
   const [f, setF] = useState({ to: 'all', text: '' })
   const [error, setError] = useState(null)
-  if (!open) return null
-  const people = m.data.staff.filter(s => s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
-  const count = f.to === 'all' ? people.length : String(f.to).startsWith('branch:') ? people.filter(s => `branch:${s.branchId}` === f.to).length : 1
+  const [q, setQ] = useState('')
+  // How many active people each branch has (the server counts), and the people a search finds.
+  const perBranch = useList('staff', { counts: 'activeByBranch' }, { pageSize: 1, branch: false }).counts.activeByBranch || {}
+  const people = useList('staff', { q, status: 'active', sort: 'short', counts: '0' }, { pageSize: 50, branch: false })
+  const chosen = useRecord('staff', /^\d+$/.test(String(f.to)) ? Number(f.to) : null).record
+  const rows = chosen && !q.trim() && !people.rows.some(x => x.id === chosen.id) ? [chosen, ...people.rows] : people.rows
+  const count = f.to === 'all' ? Object.values(perBranch).reduce((a, b) => a + b, 0) : String(f.to).startsWith('branch:') ? perBranch[String(f.to).slice(7)] || 0 : 1
   const send = async () => {
     setError(null)
     try { await erp.sendNotice(f); fb.toast(`Sent to ${count} ${count === 1 ? 'person' : 'people'}`); setF({ to: 'all', text: '' }); onClose() } catch (e) { setError(e.message) }
@@ -141,8 +149,9 @@ function SendNotice({ open, onClose }) {
       {error && <Notice tone="red">{error}</Notice>}
       <div style={{ display: 'grid', gap: 12 }}>
         <FormField label="To">
-          <Select block plain label="To" value={String(f.to)} onChange={v => setF(x => ({ ...x, to: v }))}
-            options={[{ value: 'all', label: 'Everyone' }, ...setup.branches.map(b => ({ value: `branch:${b.id}`, label: `Everyone in ${b.name}` })), ...people.map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` }))]} />
+          <Select block plain label="To" value={String(f.to)} onChange={v => setF(x => ({ ...x, to: v }))} onSearch={setQ}
+            options={[{ value: 'all', label: 'Everyone' }, ...setup.branches.map(b => ({ value: `branch:${b.id}`, label: `Everyone in ${b.name}` })), ...rows.map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` }))]}
+            more={Math.max(0, people.total - people.rows.length)} loading={people.loading || people.searching} />
         </FormField>
         <FormField label="Message" required><TextArea rows={3} value={f.text} onChange={e => setF(x => ({ ...x, text: e.target.value }))} onSubmit={send} placeholder="e.g. Monthly sales meeting this Friday, 10 am at HQ." /></FormField>
       </div>

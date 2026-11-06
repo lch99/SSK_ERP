@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { LISTING_SETTINGS, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { isAgent } from '../model.js'
+import { StaffPicker } from '../pickers.jsx'
 import { Menu, Modal, FormField, FileInput, TextArea, Select, Notice, go, field, small } from '../ui.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { rm } from '../format.js'
@@ -13,6 +13,9 @@ import { useGate } from '../access.jsx'
 import { UPLOADS } from '../../../shared/files.js'
 import { Photo, coverOf, savePreviews } from '../photos.jsx'
 import { useInReach } from '../listingLife.jsx'
+
+// Everyone who hasn't left (status Inactive), for the listing's people pickers.
+const STILL_HERE = 'active,pending,suspended,locked'
 
 // Everything the current ERP lets you do to a listing, from its row or its
 // details: edit, Update Tracking, Listing Settings, Follow-up (with an
@@ -48,10 +51,10 @@ export default function ListingActions({ l, quiet, onBook }) {
   const [step, setStep] = useState('form')   // Edit listing: 'form', then 'review' before saving
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  const staff = m.data.staff.filter(s => s.status !== 'inactive').sort((a, b) => a.short.localeCompare(b.short))
-  const staffOptions = first => [{ value: '', label: first }, ...staff.map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` }))]
   // Owners and co-product handlers of a listing are agents.
-  const agentOptions = first => [{ value: '', label: first }, ...staff.filter(isAgent).map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` }))]
+  // People still on the books (not left), searched on the server; agents only where the listing needs one.
+  const person = (value, onChange, all, agents = true, not = []) => <StaffPicker block plain label="Staff" value={value} onChange={onChange} all={all} not={not} branch={false}
+    filters={{ status: STILL_HERE, ...(agents && { kind: 'agent' }) }} show={s => `${s.short} (${s.code})`} />
   const openWith = (name, values) => { setError(null); setF(values); setStart(values); setStep('form'); setDialog(name) }
   const close = () => setDialog(null)
   const set = k => e => setF(v => ({ ...v, [k]: e.target.value }))
@@ -157,7 +160,7 @@ export default function ListingActions({ l, quiet, onBook }) {
         footer={footer('Save', () => save(() => erp.updateListing(l.id, { holderId: f.holderId }), `${l.code} now belongs to ${m.staffName(Number(f.holderId))}`))}>
         {error && <Notice tone="red">{error}</Notice>}
         <p style={{ fontSize: 13.5, marginTop: 0 }}>The listing owner is the product handler: they get the Product side of the commission on new E-Forms.</p>
-        <FormField label="Listing owner (product handler)"><Select block plain label="Owner" value={f.holderId} onChange={v => setF(x => ({ ...x, holderId: v }))} options={agentOptions('Select agent')} /></FormField>
+        <FormField label="Listing owner (product handler)">{person(f.holderId, v => setF(x => ({ ...x, holderId: v })), 'Select agent')}</FormField>
       </Modal>
 
       <Modal open={dialog === 'track'} onClose={close} title={`Update Listing Tracking · ${l.code}`}
@@ -192,7 +195,7 @@ export default function ListingActions({ l, quiet, onBook }) {
         <div style={grid}>
           <FormField label="Date"><input type="date" style={field} value={f.date || ''} max={m.today} onChange={set('date')} /></FormField>
           <FormField label="Action"><Select block plain label="Action" value={f.action} onChange={v => setF(x => ({ ...x, action: v }))} options={[0, 1, 2, 3].map(k => ({ value: String(k), label: FOLLOW_UP_ACTIONS[k] }))} /></FormField>
-          <FormField label="Agent"><Select block plain label="Agent" value={f.by} onChange={v => setF(x => ({ ...x, by: v }))} options={agentOptions('Select agent')} /></FormField>
+          <FormField label="Agent">{person(f.by, v => setF(x => ({ ...x, by: v })), 'Select agent')}</FormField>
           <FormField label="Remarks" wide><TextArea value={f.remark || ''} onChange={set('remark')} placeholder="e.g. Owner open to nego, price firm until month end" /></FormField>
         </div>
         <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>A follow-up by a co-product handler can make them the product handler (the latest one wins).
@@ -220,14 +223,14 @@ export default function ListingActions({ l, quiet, onBook }) {
               ))}
               {!(f.users || []).length && <span style={{ fontSize: 13, color: C.muted }}>Not shared with anyone yet.</span>}
             </div>
-            <Select block plain label="Add user" value="" onChange={v => v && setF(x => ({ ...x, users: x.users.includes(v) ? x.users : [...x.users, v] }))} options={staffOptions('+ Add a user')} />
+            {person('', v => v && setF(x => ({ ...x, users: x.users.includes(v) ? x.users : [...x.users, v] })), '+ Add a user', false, (f.users || []).map(Number))}
           </FormField>
           <FormField label="Main Product Handler" help="Handles the listing whenever no co-product handler outranks them">
-            <Select block plain label="Main Product Handler" value={f.pmId} onChange={v => setF(x => ({ ...x, pmId: v }))} options={agentOptions('No main product handler')} />
+            {person(f.pmId, v => setF(x => ({ ...x, pmId: v })), 'No main product handler')}
           </FormField>
           {(f.coPh || []).map((c, i) => (
             <div key={i} style={{ ...grid, alignItems: 'end' }}>
-              <FormField label={`Co-Product Handler slot ${i + 1}`}><Select block plain label="Co-PH" value={c.staffId} onChange={v => setF(x => ({ ...x, coPh: x.coPh.map((y, j) => (j === i ? { ...y, staffId: v } : y)) }))} options={agentOptions('Empty slot')} /></FormField>
+              <FormField label={`Co-Product Handler slot ${i + 1}`}>{person(c.staffId, v => setF(x => ({ ...x, coPh: x.coPh.map((y, j) => (j === i ? { ...y, staffId: v } : y)) })), 'Empty slot')}</FormField>
               {c.locked ? <p style={{ margin: '0 0 8px', fontSize: 12.5, color: C.muted }}>Locked in: no end date.</p>
                 : <FormField label="Valid until"><input type="date" style={field} value={c.until} min={m.today} onChange={e => setF(x => ({ ...x, coPh: x.coPh.map((y, j) => (j === i ? { ...y, until: e.target.value } : y)) }))} /></FormField>}
               {c.staffId && (

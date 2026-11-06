@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { useList, useRecord, useListReader } from '../useList.js'
+import { StaffPicker } from '../pickers.jsx'
 import { CUSTOMER_TRACK, CUSTOMER_ACTION, CUSTOMER_FROM } from '../model.js'
 import { Page, Card, Toolbar, SearchBox, Select, DataTable, Status, Who, Link, Drawer, KV, Block, Stat, Notice, FormField, TextArea, Modal, cols, go, mono, field, useRecordNav } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm0, date, ago } from '../format.js'
 import { localToday, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
-import { useCan } from '../access.jsx'
+import { useAccess, useCan } from '../access.jsx'
 import { useReview, missing, needText, markGaps } from '../review.jsx'
 
 // Customer Database: leads, with the current ERP's Action and Status per row.
@@ -21,7 +22,7 @@ export default function Customers({ parts }) {
 function NameList({ openId }) {
   const erp = useErp()
   const editable = useCan()('customers', 'edit')
-  const { m, scoped: d } = erp
+  const { m } = erp
   const [q, setQ] = useState('')
   const [type, setType] = useState('')
   const [who, setWho] = useState('')
@@ -32,7 +33,6 @@ function NameList({ openId }) {
   const { record: open, loading: opening } = useRecord('customers', openId)
   const last = c => c.followUps[c.followUps.length - 1]?.date || c.date
   const byTrack = list.counts.track || {}
-  const people = d.staff.filter(s => s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
   const fb = useFeedback()
   // Action and Status save as soon as they change; the toast says so.
   const save = (c, fields) => fb.run(() => erp.updateCustomer(c.id, fields),
@@ -71,7 +71,7 @@ function NameList({ openId }) {
       <Card pad={16}>
         <Toolbar fold onClear={clear}>
           <SearchBox value={q} onChange={setQ} placeholder="Keywords: name, phone, area" />
-          <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'All staff' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />
+          <StaffPicker label="Staff" value={who} onChange={setWho} filters={{ status: 'active' }} all="All staff" show={s => `${s.short} ${s.code}`} />
           <Select label="Type" value={type} onChange={setType} options={[['', 'Select Type'], ['Rent', 'Rent'], ['Sale', 'Sale']].map(([value, label]) => ({ value, label }))} />
           <Select label="Action" value={action} onChange={setAction} options={[{ value: '', label: 'Action' }, ...Object.entries(CUSTOMER_ACTION).map(([value, label]) => ({ value, label }))]} />
           <Select label="Status" value={track} onChange={setTrack} options={[{ value: '', label: 'Status' }, ...Object.entries(CUSTOMER_TRACK).map(([value, t]) => ({ value, label: t.label }))]} />
@@ -97,7 +97,6 @@ function Details({ c, erp }) {
   const [edit, setEdit] = useState(null)
   const [fu, setFu] = useState(null)
   const [error, setError] = useState(null)
-  const people = m.data.staff.filter(s => s.status === 'active' || s.id === c.ownerId).sort((a, b) => a.short.localeCompare(b.short))
   const saveEdit = async () => {
     setError(null)
     try { await erp.updateCustomer(c.id, edit); fb.toast(`${edit.name} saved`); setEdit(null) } catch (e) { setError(e.message) }
@@ -153,7 +152,7 @@ function Details({ c, erp }) {
             <FormField label="From Where"><Select block plain label="From Where" value={edit.from} onChange={v => setEdit({ ...edit, from: v })} options={Object.entries(CUSTOMER_FROM).map(([value, label]) => ({ value, label }))} /></FormField>
             <FormField label="Min. Budget (RM)"><input type="number" style={field} value={edit.budgetMin} onChange={e => setEdit({ ...edit, budgetMin: e.target.value })} /></FormField>
             <FormField label="Max. Budget (RM)"><input type="number" style={field} value={edit.budgetMax} onChange={e => setEdit({ ...edit, budgetMax: e.target.value })} /></FormField>
-            <FormField label="Staff"><Select block plain label="Staff" value={edit.ownerId} onChange={v => setEdit({ ...edit, ownerId: v })} options={people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))} /></FormField>
+            <FormField label="Staff"><StaffPicker block plain label="Staff" value={edit.ownerId} onChange={v => setEdit({ ...edit, ownerId: v })} filters={{ status: 'active' }} branch={false} all={null} show={s => `${s.short} ${s.code}`} /></FormField>
           </div>
         )}
       </Modal>
@@ -179,8 +178,10 @@ function Details({ c, erp }) {
 function AddName() {
   const erp = useErp()
   const read = useListReader()
-  const { m, scoped: d } = erp
-  const [f, setF] = useState({ date: localToday(), type: 'Sale', from: 'iProperty', ownerId: String(d.staff.find(s => s.status === 'active')?.id || '') })
+  const { m } = erp
+  // The signed-in person's own customer to start with (an office user picks someone).
+  const me = useAccess()?.who?.staffId
+  const [f, setF] = useState({ date: localToday(), type: 'Sale', from: 'iProperty', ownerId: me != null ? String(me) : '' })
   const [error, setError] = useState(null)
   const fb = useFeedback()
   const review = useReview()
@@ -207,7 +208,6 @@ function AddName() {
     if (!await preview()) return
     try { await erp.addCustomer(f); fb.toast(`${f.name} added to the Customer Database`); go('customers') } catch (e) { setError(e.message); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   }
-  const people = d.staff.filter(s => s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
   return (
     <Page title="Add a customer" help={PAGE.customerNew} back={{ to: 'customers', label: 'Customers' }}>
       <Card>
@@ -227,7 +227,7 @@ function AddName() {
           <FormField label="Min. Budget (RM)"><input type="number" style={field} value={f.budgetMin || ''} onChange={set('budgetMin')} /></FormField>
           <FormField label="Max. Budget (RM)"><input type="number" style={field} value={f.budgetMax || ''} onChange={set('budgetMax')} /></FormField>
           <FormField label="Staff">
-            <Select block plain label="Staff" value={f.ownerId} onChange={v => setF({ ...f, ownerId: v })} options={people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))} />
+            <StaffPicker block plain label="Staff" value={f.ownerId} onChange={v => setF({ ...f, ownerId: v })} filters={{ status: 'active' }} all={null} show={s => `${s.short} ${s.code}`} />
           </FormField>
           <FormField label="Remarks" wide><TextArea value={f.remarks || ''} onChange={set('remarks')} /></FormField>
         </div>

@@ -3,7 +3,7 @@ import * as L from '../../../shared/listings.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { useList } from '../useList.js'
-import { AreaSelect, TitlePicker } from '../pickers.jsx'
+import { AreaSelect, TitlePicker, StaffPicker } from '../pickers.jsx'
 import { VENDOR_STATUS, TITLE_STATUS, AREA_STATUS, LISTING_CATEGORY } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Pill, Who, Link, Menu, Stat, Modal, FormField, TextArea, Notice, SelectionBar, cols, go, mono, small, field } from '../ui.jsx'
 import { CARD, COLUMN, PAGE } from '../help.js'
@@ -128,8 +128,6 @@ export function Titles() {
   const order = sort || TITLE_TABS[tab].sort
   const list = useList('titles', { q, category: cate, area, status: TITLE_TABS[tab].status, sort: order })
   const byStatus = list.counts.status || {}
-  const staff = m.data.staff.filter(s => s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
-  const people = first => [{ value: '', label: first }, ...staff.map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` }))]
   const setStatus = (ids, status, done) => fb.run(() => erp.setTitleStatus(ids, status), done).then(ok => ok && setPicked(new Set()))
   const save = async () => {
     setError(null)
@@ -202,8 +200,8 @@ export function Titles() {
             <FormField label="Title name" required wide><input style={field} value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} placeholder="e.g. Residensi Harmoni" autoFocus /></FormField>
             <FormField label="Area" required><AreaSelect block plain value={edit.area} onChange={v => setEdit({ ...edit, area: v })} all="Select area" /></FormField>
             <FormField label="Category"><Select block plain label="Category" value={edit.category} onChange={v => setEdit({ ...edit, category: v })} options={Object.entries(LISTING_CATEGORY).map(([value, label]) => ({ value, label }))} /></FormField>
-            <FormField label="Project Manager (sales)" help={`Taken over by whoever passes ${rmShort(L.LISTING_RULES.projectManager.win)} in full-closed sales here`}><Select block plain label="Manager" value={edit.managerId} onChange={v => setEdit({ ...edit, managerId: v })} options={people('No manager')} /></FormField>
-            <FormField label="Project Handler (rentals)" help={`Taken over by whoever holds the key to ${L.LISTING_RULES.projectHandler.win}+ rentals here`}><Select block plain label="Handler" value={edit.handlerId} onChange={v => setEdit({ ...edit, handlerId: v })} options={people('No handler')} /></FormField>
+            <FormField label="Project Manager (sales)" help={`Taken over by whoever passes ${rmShort(L.LISTING_RULES.projectManager.win)} in full-closed sales here`}><StaffPicker block plain label="Manager" value={edit.managerId} onChange={v => setEdit({ ...edit, managerId: v })} filters={{ status: 'active' }} branch={false} all="No manager" show={s => `${s.short} (${s.code})`} /></FormField>
+            <FormField label="Project Handler (rentals)" help={`Taken over by whoever holds the key to ${L.LISTING_RULES.projectHandler.win}+ rentals here`}><StaffPicker block plain label="Handler" value={edit.handlerId} onChange={v => setEdit({ ...edit, handlerId: v })} filters={{ status: 'active' }} branch={false} all="No handler" show={s => `${s.short} (${s.code})`} /></FormField>
             <FormField label="Remark" wide><TextArea value={edit.remark} onChange={e => setEdit({ ...edit, remark: e.target.value })} /></FormField>
           </div>
         )}
@@ -265,7 +263,6 @@ export function Areas() {
   const list = useList('areas', { q, state, sort, status: tab === 'list' ? '0,1' : '2' })
   const byStatus = list.counts.status || {}
   const states = Object.keys(list.counts.state || {}).sort()
-  const leaders = m.data.staff.filter(s => s.status === 'active').sort((a, b) => (b.role ? 1 : 0) - (a.role ? 1 : 0) || a.short.localeCompare(b.short))
   const save = async () => {
     setError(null)
     try { await erp.saveArea(edit); fb.toast(edit.id ? `${edit.name} saved` : `${edit.name} added`); setEdit(null) } catch (e) { setError(e.message) }
@@ -318,8 +315,8 @@ export function Areas() {
             <FormField label="Area name" required wide><input style={field} value={edit.name} autoFocus onChange={e => setEdit({ ...edit, name: e.target.value })} placeholder="e.g. Taman Desa" /></FormField>
             <FormField label="State"><Select block plain label="State" value={edit.state} onChange={v => setEdit({ ...edit, state: v })} options={[...new Set([...states, ...STATES])].map(x => ({ value: x, label: x }))} /></FormField>
             <FormField label="Branch"><Select block plain label="Branch" value={edit.branchId} onChange={v => setEdit({ ...edit, branchId: v })} options={setup.branches.map(b => ({ value: String(b.id), label: b.name }))} /></FormField>
-            <FormField label="Area Manager" wide><Select block plain label="Manager" value={edit.managerId} onChange={v => setEdit({ ...edit, managerId: v })}
-              options={[{ value: '', label: 'No manager' }, ...leaders.map(s => ({ value: String(s.id), label: `${s.short}${s.role ? ` (${s.role})` : ''} ${s.code}` }))]} /></FormField>
+            <FormField label="Area Manager" wide><StaffPicker block plain label="Manager" value={edit.managerId} onChange={v => setEdit({ ...edit, managerId: v })} filters={{ status: 'active' }} branch={false}
+              all="No manager" show={s => `${s.short}${s.role ? ` (${s.role})` : ''} ${s.code}`} /></FormField>
           </div>
         )}
       </Modal>

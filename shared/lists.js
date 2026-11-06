@@ -211,6 +211,8 @@ export const LISTS = {
       // Automatic rules: pending accounts two days or less from being suspended, active ones locking within 15 days.
       // Each person's tier and commission this year (Reports): everyone of this kind at once.
       standing: { only: () => ({}), custom: 'standingOfEach', keep: STAFF_KEEP },
+      // Active people in each branch (Send a notice: how many it reaches).
+      activeByBranch: { only: () => ({ status: 'active' }), by: 'branchId' },
       suspendSoon: { only: ctx => ({ status: 'pending', joinedTo: addDays(ctx.today, 2 - LISTING_RULES.pendingDays) }) },
       lockSoon: { only: ctx => ({ status: 'active', lastActiveTo: addDays(ctx.today, 14 - LISTING_RULES.idleDays) }) },
       // Leaders of everyone of this kind, by upline level (the Leaders card and the Level filter's choices).

@@ -7,6 +7,7 @@ import { useFeedback } from '../feedback.jsx'
 import { Page, Card, DataTable, Pill, Chips, Segmented, Select, Notice, go } from '../ui.jsx'
 import { CARD, PAGE } from '../help.js'
 import { ACCESS_GROUPS } from '../modules.js'
+import { StaffPicker } from '../pickers.jsx'
 
 // System → Roles & access: what each account type may do in each area, and
 // whose records it sees (rules in shared/access.js). Only the Superadmin
@@ -33,8 +34,6 @@ export default function Access({ parts }) {
   }, [m])
   const [person, setPerson] = useState(null)
   const as = person ?? samplePerson(m.data.staff, role, draft)
-  const staffOptions = useMemo(() => [...m.data.staff].sort((a, b) => a.name.localeCompare(b.name))
-    .map(s => ({ value: s.id, label: `${s.name} · ${m.branchName(s.branchId)}` })), [m])
 
   const setLevel = (area, level) => setDraft({ ...draft, [role]: { ...draft[role], levels: { ...draft[role].levels, [area]: level } } })
   const setScope = scope => setDraft({ ...draft, [role]: { ...draft[role], scope } })
@@ -73,7 +72,7 @@ export default function Access({ parts }) {
           </div>
           {!meta.locked && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {draft[role].scope !== 'all' && <Select label="As" value={as ?? ''} onChange={v => setPerson(Number(v))} options={staffOptions} />}
+              {draft[role].scope !== 'all' && <StaffPicker label="As" value={as ?? ''} onChange={v => setPerson(Number(v))} all={null} branch={false} show={s => `${s.name} · ${m.branchName(s.branchId)}`} />}
               <button style={btn} onClick={viewAs} disabled={as == null && draft[role].scope !== 'all'}>View the ERP as {meta.label}</button>
             </div>
           )}

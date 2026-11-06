@@ -6,7 +6,7 @@ import { C, btn, btnPrimary } from '../styles.js'
 import { useErp } from './ErpContext.jsx'
 import { useAccess, useCan } from './access.jsx'
 import { useFeedback } from './feedback.jsx'
-import { isAgent } from './model.js'
+import { StaffPicker } from './pickers.jsx'
 import { Pill, Modal, FormField, Select, TextArea, Notice, Link, field, small, mono } from './ui.jsx'
 import { missing, needText, markGaps } from './review.jsx'
 import Icon from './Icon.jsx'
@@ -134,7 +134,6 @@ function BookForm({ listing, onClose }) {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const set = k => e => setF(x => ({ ...x, [k]: e.target ? e.target.value : e }))
-  const agents = m.data.staff.filter(s => s.status === 'active' && isAgent(s)).sort((a, b) => a.short.localeCompare(b.short))
   // The agent's active customers; other units in the building on the market; the handler's viewings that day.
   const customers = useList('customers', { ownerId: f.requestedBy || 0, track: '0', sort: 'name', counts: '0' }, { branch: false, pageSize: 200, skip: !f.requestedBy }).rows
   const twins = useList('agency', { titleId: listing.titleId ?? 'none', type: listing.type, status: 'active', counts: '0' }, { branch: false, pageSize: 50, skip: listing.titleId == null }).rows
@@ -162,8 +161,8 @@ function BookForm({ listing, onClose }) {
       <p style={{ fontSize: 13.5, marginTop: 0 }}>{listing.title}, {listing.area}. <b>{m.staffName(listing.holderId)}</b> (the product handler) confirms the time with the owner; you hear back here and in your notifications.</p>
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))' }}>
         <FormField label="Agent bringing the customer" required>
-          <Select block plain label="Agent" value={f.requestedBy} onChange={id => setF(x => ({ ...x, requestedBy: id, customerId: '' }))}
-            options={[{ value: '', label: 'Select agent' }, ...agents.map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` }))]} />
+          <StaffPicker block plain label="Agent" value={f.requestedBy} onChange={id => setF(x => ({ ...x, requestedBy: id, customerId: '' }))}
+            filters={{ kind: 'agent', status: 'active' }} branch={false} all="Select agent" show={s => `${s.short} (${s.code})`} />
         </FormField>
         <FormField label="Customer" required name="Customer" help={customers.length ? 'One of their customers, or type a new one below' : 'Type the customer’s name below'}>
           <Select block plain label="Customer" value={f.customerId} onChange={pickCustomer}

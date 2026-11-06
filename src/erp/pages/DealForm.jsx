@@ -4,8 +4,8 @@ import { C, btn, btnPrimary } from '../../styles.js'
 import { docNames } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { useRecord } from '../useList.js'
-import { ListingPicker } from '../pickers.jsx'
-import { PARTY, DEAL_STATUS, isAgent, r2 } from '../model.js'
+import { ListingPicker, StaffPicker } from '../pickers.jsx'
+import { PARTY, DEAL_STATUS, r2 } from '../model.js'
 import { Page, Card, Segmented, Select, Notice, FormField, FileInput, TextArea, Status, go, field, mono, tabular } from '../ui.jsx'
 import { CARD, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
@@ -82,7 +82,6 @@ function Form({ id, deal, startListing, query }) {
   const setFee = v => setF(s => ({ ...s, fee: v, feePct: s.price && v !== '' ? String(r2(Number(v) / Number(s.price) * 100)) : s.feePct }))
   const setType = t => { setListing(null); setF(s => ({ ...s, type: t, listingId: '', holderId: '', feePct: String(dt[t]?.defaultRate ?? s.feePct), fee: s.price ? String(r2(Number(s.price) * Number(dt[t]?.defaultRate ?? 0) / 100)) : '' })) }
 
-  const agents = m.data.staff.filter(s => (isAgent(s) && s.status === 'active') || String(s.id) === f.agentId).sort((a, b) => a.short.localeCompare(b.short))
   // The listing's holder and co-product handlers (or, when the listing can't be opened, the E-Form's own).
   const holders = (listing ? [...new Set([listing.holderId, ...(listing.share?.coPh || []).map(c => c.staffId)])] : f.holderId ? [Number(f.holderId)] : [])
     .map(sid => m.staff[sid]).filter(Boolean)
@@ -203,8 +202,9 @@ function Form({ id, deal, startListing, query }) {
             )}
             <FormField label="Date" help="Date of the letter of offer / booking"><input type="date" style={field} value={f.date} max={m.today} onChange={e => set('date', e.target.value)} /></FormField>
             <FormField label="Agent Name (Sale Staff)" required>
-              <Select block plain label="Agent" value={f.agentId} onChange={v => set('agentId', v)}
-                options={[{ value: '', label: 'Select the agent' }, ...agents.map(s => ({ value: String(s.id), label: `${s.short} (${s.code})` }))]} />
+              {/* Active agents, searched on the server (the one already chosen stays). */}
+              <StaffPicker block plain label="Agent" value={f.agentId} onChange={v => set('agentId', v)} filters={{ kind: 'agent', status: 'active' }} branch={false}
+                all="Select the agent" show={s => `${s.short} (${s.code})`} />
             </FormField>
             <FormField label="Branch Manager · Area Manager"><input style={{ ...field, background: C.bg }} readOnly value={agent ? `${bm?.short || '—'} · ${am?.short || '—'}` : 'From the agent'} /></FormField>
             {f.type !== 'project' ? (
