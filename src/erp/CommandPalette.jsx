@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { C } from '../styles.js'
-import { projectsOf } from '../api.js'
 import { DEAL_STATUS } from './model.js'
 import { go, Pill } from './ui.jsx'
 import Icon from './Icon.jsx'
 import { rm } from './format.js'
-import { outOfReach, useAccess } from './access.jsx'
+import { useAccess } from './access.jsx'
+import { useList, useRecordReader } from './useList.js'
 
 // The last pages and records opened, for "Recent" when the search is empty.
 const RECENT_KEY = 'ssk-erp-recent'
@@ -43,9 +43,26 @@ export default function CommandPalette({ open, onClose, leaves, erp }) {
     const l = leaves.find(x => x.path === path)
     return l && [l.moduleLabel, l.section !== l.moduleLabel && l.section].filter(Boolean).join(' · ')
   }
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  // Records the server finds (the viewer's reach, whatever branch the top bar shows), only in areas their role opens.
+  const idle = !open || !words.length || !erp.m
+  const found = (key, params, size) => useList(key, { q, counts: '0', ...params }, { pageSize: size, branch: false, skip: idle || !access.can(key === 'staff' ? 'staff' : key) }).rows
+  const deals = found('deals', { sort: '-date' }, 6)
+  const staff = found('staff', { sort: 'name' }, 5)
+  const projects = found('projects', {}, 4)
+  // What was opened last (not this page), each record read once to name it; one gone or out of reach drops out.
+  const [recent, setRecent] = useState([])
+  const readRecord = useRecordReader()
+  useEffect(() => {
+    if (!open) return undefined
+    let live = true
+    const here = window.location.hash.replace(/^#\/?/, '')
+    const paths = readRecent().filter(p => p !== here && access.opens(p))
+    Promise.all(paths.map(p => recentItem(p, erp.m, leaves, groupOf, readRecord))).then(items => { if (live) setRecent(items.filter(Boolean).slice(0, 5)) })
+    return () => { live = false }
+  }, [open, erp.m]) // eslint-disable-line react-hooks/exhaustive-deps
   const results = useMemo(() => {
     if (!open) return []
-    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
     const hit = text => words.every(w => text.toLowerCase().includes(w))
     // Pages match their old menu name too ("H.R Portal", "Request Form"…), and say so.
     const pages = leaves.filter(l => !words.length || hit(`${l.label} ${groupOf(l.path) || ''} ${l.was || ''}`))
@@ -54,25 +71,15 @@ export default function CommandPalette({ open, onClose, leaves, erp }) {
         return { key: `p-${l.path}`, group: 'Pages', icon: l.icon || 'chevron', title: l.label, sub: byOld ? `${groupOf(l.path) || 'Page'} · old name “${l.old || l.was}”` : groupOf(l.path), to: l.path }
       })
     const m = erp.m
-    if (!words.length) {
-      // What you opened last (not the page you are on), then the pages.
-      const here = window.location.hash.replace(/^#\/?/, '')
-      const recent = readRecent().filter(p => p !== here && access.opens(p) && !outOfReach(p.split('/'), erp, access.scope))
-        .map(p => recentItem(p, m, leaves, groupOf)).filter(Boolean).slice(0, 5)
-      return [...recent, ...pages.filter(p => !recent.some(r => r.to === p.to)).slice(0, recent.length ? 5 : 8)]
-    }
+    // Nothing typed: what you opened last, then the pages.
+    if (!words.length) return [...recent, ...pages.filter(p => !recent.some(r => r.to === p.to)).slice(0, recent.length ? 5 : 8)]
     if (!m) return pages.slice(0, 8)
-    // Records only from the viewer's reach, and only in areas their role opens.
-    const reach = access.scope === 'all' ? m.data : erp.scoped
-    const deals = (access.can('deals') ? reach.deals : []).filter(d => hit(`${d.code} ${d.property.title} ${d.property.address} ${d.buyer?.name || ''} ${m.staffName(d.agentId)}`)).slice(0, 6)
-      .map(d => ({ key: `d-${d.id}`, group: 'E-Forms', icon: 'deals', title: `${d.code} · ${d.property.title}`, sub: `${m.staffName(d.agentId)} · ${m.branchName(d.branchId)}`,
-        tag: DEAL_STATUS[d.status], to: `deals/${d.id}` }))
-    const staff = (access.can('staff') ? reach.staff : []).filter(s => hit(`${s.name} ${s.short || ''} ${s.code || ''}`)).slice(0, 5)
-      .map(s => ({ key: `s-${s.id}`, group: 'Staff', icon: 'staff', title: s.name, sub: `${s.code || ''} · ${m.branchName(s.branchId)}`, to: `staff/${s.id}` }))
-    const projects = (access.can('projects') ? projectsOf(m.data, erp.setup) : []).filter(p => hit(`${p.name} ${p.developer} ${p.location}`)).slice(0, 4)
-      .map(p => ({ key: `j-${p.id}`, group: 'Projects', icon: 'project', title: p.name, sub: `${p.developer} · ${p.location}`, to: `projects/${p.id}` }))
-    return [...pages.slice(0, 5), ...deals, ...staff, ...projects]
-  }, [open, q, leaves, erp, access]) // eslint-disable-line react-hooks/exhaustive-deps
+    return [...pages.slice(0, 5),
+      ...deals.map(d => ({ key: `d-${d.id}`, group: 'E-Forms', icon: 'deals', title: `${d.code} · ${d.property.title}`, sub: `${m.staffName(d.agentId)} · ${m.branchName(d.branchId)}`,
+        tag: DEAL_STATUS[d.status], to: `deals/${d.id}` })),
+      ...staff.map(s => ({ key: `s-${s.id}`, group: 'Staff', icon: 'staff', title: s.name, sub: `${s.code || ''} · ${m.branchName(s.branchId)}`, to: `staff/${s.id}` })),
+      ...projects.map(p => ({ key: `j-${p.id}`, group: 'Projects', icon: 'project', title: p.name, sub: `${p.developer} · ${p.location}`, to: `projects/${p.id}` }))]
+  }, [open, q, leaves, erp, recent, deals, staff, projects]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setAt(0) }, [q])
   useEffect(() => { list.current?.querySelector(`[data-i="${at}"]`)?.scrollIntoView({ block: 'nearest' }) }, [at])
@@ -134,20 +141,20 @@ export default function CommandPalette({ open, onClose, leaves, erp }) {
   )
 }
 
-// A remembered address as a result row, or null if the record has gone.
-function recentItem(path, m, leaves, groupOf) {
+// A remembered address as a result row, or null if the record has gone (or is not the viewer's to see).
+// People come from the staff directory; other records are read one at a time (read: useRecordReader).
+const RECORD_LISTS = { deals: 'deals', 'money-in': 'moneyIn', 'money-out': 'moneyOut', customers: 'customers' }
+async function recentItem(path, m, leaves, groupOf, read) {
   const [page, raw] = path.split('/')
   const id = Number(raw)
   const base = { key: `r-${path}`, group: 'Recent', to: path }
   if (m && id) {
-    if (page === 'deals' && m.deals[id]) {
-      const d = m.deals[id]
-      return { ...base, icon: 'deals', title: `${d.code} · ${d.property.title}`, sub: `E-Form · ${m.staffName(d.agentId)}`, tag: DEAL_STATUS[d.status] }
-    }
     if (page === 'staff' && m.staff[id]) return { ...base, icon: 'staff', title: m.staff[id].name, sub: `Agent/Staff · ${m.branchName(m.staff[id].branchId)}` }
-    if (page === 'money-in') { const t = m.data.moneyIn.find(x => x.id === id); if (t) return { ...base, icon: 'moneyIn', title: `${t.code} · ${rm(t.amount)}`, sub: `Transaction · ${t.payer}` } }
-    if (page === 'money-out') { const x = m.data.moneyOut.find(y => y.id === id); if (x) return { ...base, icon: 'moneyOut', title: `${x.voucherNo} · ${rm(x.amount)}`, sub: `Request Form · ${x.payee.name}` } }
-    if (page === 'customers') { const c = m.data.customers.find(y => y.id === id); if (c) return { ...base, icon: 'customers', title: c.name, sub: 'Customer' } }
+    const r = RECORD_LISTS[page] ? await read(RECORD_LISTS[page], id).catch(() => null) : null
+    if (r && page === 'deals') return { ...base, icon: 'deals', title: `${r.code} · ${r.property.title}`, sub: `E-Form · ${m.staffName(r.agentId)}`, tag: DEAL_STATUS[r.status] }
+    if (r && page === 'money-in') return { ...base, icon: 'moneyIn', title: `${r.code} · ${rm(r.amount)}`, sub: `Transaction · ${r.payer}` }
+    if (r && page === 'money-out') return { ...base, icon: 'moneyOut', title: `${r.voucherNo} · ${rm(r.amount)}`, sub: `Request Form · ${r.payee.name}` }
+    if (r && page === 'customers') return { ...base, icon: 'customers', title: r.name, sub: 'Customer' }
   }
   const leaf = leaves.find(l => l.path === path)
   return leaf ? { ...base, icon: leaf.icon || 'chevron', title: leaf.label, sub: groupOf(leaf.path) || 'Page' } : null

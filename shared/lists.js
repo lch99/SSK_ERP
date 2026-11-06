@@ -267,7 +267,8 @@ export const LISTS = {
 
   deals: {
     area: 'deals', readers: { moneyIn: withoutParties },
-    search: ['code', 'buyer.name', 'owner.name', 'property.title', 'property.address'],
+    // The agent's name too (quick search finds an E-Form by who sold it).
+    search: ['code', 'buyer.name', 'owner.name', 'property.title', 'property.address', { via: 'agentId', of: 'staff', fields: ['name', 'short'] }],
     filters: {
       status: { eq: 'status' }, type: { eq: 'type' }, branchId: { eq: 'branchId' }, agentId: { eq: 'agentId' }, holderId: { eq: 'holderId' },
       listingId: { eq: 'listingId' }, projectId: { eq: 'projectId' }, lvStatus: { eq: 'landlordCheck.status' }, lvArchive: { eq: 'landlordCheck.archiveId' },

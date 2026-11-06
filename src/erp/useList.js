@@ -90,22 +90,34 @@ export function useList(key, params, { pageSize = 20, branch = true, skip = fals
 // { record, loading }; record is null while it loads or when the viewer may not
 // see it. Read again after a change to the records. The top bar's branch
 // doesn't hide a record opened by its address.
+// One record with its list's extras, or null when it isn't there or not the viewer's to see.
+function readOne(erp, access, key, id) {
+  const { spec, extra, records, ctx } = source(erp, access, key, { branch: false })
+  return DEMO
+    ? Promise.resolve((rec => (rec ? listPage([rec], spec, { counts: '0' }, ctx).rows[0] : null))(records().find(r => r.id === id)))
+    : getListRecord(key, id, extra).catch(e => (e.status === 404 ? null : Promise.reject(e)))
+}
+
 export function useRecord(key, id) {
   const erp = useErp()
   const access = useAccess()
-  const { spec, extra, records, ctx } = source(erp, access, key, { branch: false })
   const [out, setOut] = useState({ id: null, record: null, loading: false })
   useEffect(() => {
     if (!erp.m || id == null) return undefined
     let live = true
     setOut(o => ({ ...o, loading: true }))
-    const read = DEMO
-      ? Promise.resolve((rec => (rec ? listPage([rec], spec, { counts: '0' }, ctx).rows[0] : null))(records().find(r => r.id === id)))
-      : getListRecord(key, id, extra).catch(e => (e.status === 404 ? null : Promise.reject(e)))
+    const read = readOne(erp, access, key, id)
     read.then(record => { if (live) setOut({ id, record, loading: false }) }, () => { if (live) setOut({ id, record: null, loading: false }) })
     return () => { live = false }
   }, [key, id, erp.m, erp.scoped]) // eslint-disable-line react-hooks/exhaustive-deps
   return id == null ? { record: null, loading: false } : { record: out.id === id ? out.record : null, loading: out.id !== id || out.loading }
+}
+
+// One record read once, when it's needed (quick search's recent visits): read(key, id) → record | null.
+export function useRecordReader() {
+  const erp = useErp()
+  const access = useAccess()
+  return useCallback((key, id) => readOne(erp, access, key, id), [erp, access])
 }
 
 // A list read once, when it's needed (a check before saving, a picker's
