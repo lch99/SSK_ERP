@@ -91,7 +91,7 @@ export default function Listings({ parts }) {
   }
   const list = useList(view === 'market' && !byRole ? 'agency' : 'listings', params, { pageSize: 25 })
   // The listing opened: through the Whole agency, so one outside the viewer's reach opens with its owner hidden.
-  const open = useRecord('agency', openId).record
+  const { record: open, loading: opening } = useRecord('agency', openId)
   const counts = list.counts
 
   // Who to pick for each listing role: branch managers (the top of a chain), area managers, anyone else.
@@ -183,9 +183,9 @@ export default function Listings({ parts }) {
             empty={list.loading ? 'Loading…' : view === 'today' ? 'No listings added today' : 'No listings match'} onClear={filters || q ? clear : undefined} onOrder={onOrder} />
           : <CardGrid list={list} m={m} base={base} />}
       </Card>
-      <Drawer open={openId != null} onClose={() => go(base)} width={620} title={open?.title || 'Loading…'} sub={open ? `${open.code} · ${open.category} · ${open.area}` : ''} nav={layout === 'table' ? nav : null}
+      <Drawer open={openId != null} onClose={() => go(base)} width={620} title={open?.title || (opening ? 'Loading…' : 'Not found')} sub={open ? `${open.code} · ${open.category} · ${open.area}` : ''} nav={layout === 'table' ? nav : null}
         footer={open && <ListingActions key={open.id} l={open} onBook={() => setBook(open)} />}>
-        {open && <ListingDetails l={open} m={m} onBook={() => setBook(open)} />}
+        {open ? <ListingDetails l={open} m={m} onBook={() => setBook(open)} /> : !opening && <Empty title="This listing no longer exists" text="Or it is not one you can see." />}
       </Drawer>
       <BookViewing listing={book} open={!!book} onClose={() => setBook(null)} />
     </Page>

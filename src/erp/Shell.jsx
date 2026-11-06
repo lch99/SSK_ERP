@@ -42,7 +42,7 @@ import OldRecords from './pages/OldRecords.jsx'
 import Profile, { ChangePasswordModal, useProfile } from './pages/Profile.jsx'
 import CommandPalette, { useCommandKey, isMac, kbd, rememberVisit } from './CommandPalette.jsx'
 import Access from './pages/Access.jsx'
-import { AccessProvider, NoAccess, ViewAsBar, outOfReach, roleLabel, useAccess } from './access.jsx'
+import { AccessProvider, NoAccess, ViewAsBar, roleLabel, useAccess } from './access.jsx'
 
 // Pages by the first part of the address (#/<page>/…). `own` pages bring their own layout.
 // System → Settings, and System → Automatic rules at #/system/rules.
@@ -115,8 +115,9 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
   // An office staff member's record (#/staff/<id>) belongs to System → Users, not Agents.
   const person = route[0] === 'staff' && Number(route[1]) ? erp.m?.staff[Number(route[1])] : null
   const active = person && !isAgent(person) && leaves.some(l => l.path === 'staff/office') ? 'staff/office' : activePath(route, leaves)
-  // A page the role does not open, or a record outside its reach, shows why instead.
-  const blocked = !!key && (!access.opens(route.join('/')) || outOfReach(route, erp, access.scope))
+  // A page the role does not open shows why instead. (A record outside the viewer's reach is the
+  // page's own "no longer exists, or not one you can see": the server reads it, and says no more.)
+  const blocked = !!key && !access.opens(route.join('/'))
   // While planned downtime closes the ERP, people see "back soon" instead of any page.
   const { closed } = useDowntime()
 

@@ -66,19 +66,6 @@ export function samplePerson(staff, role, policy) {
   return [...pool].sort((a, b) => Math.abs(size(a) - 6) - Math.abs(size(b) - 6))[0]?.id ?? null
 }
 
-// Is the address a record (#/deals/42) that exists but is outside the
-// viewer's reach? Pages look records up by id, so the shell checks first.
-const RECORDS = { deals: 'deals', staff: 'staff', customers: 'customers', listings: 'listings', 'money-in': 'moneyIn', 'money-out': 'moneyOut' }
-export function outOfReach(route, erp, scope) {
-  const list = RECORDS[route[0]]
-  if (scope === 'all' || !list || !/^\d+$/.test(route[1] || '') || !erp.m || !erp.scoped) return false
-  const id = Number(route[1])
-  // Listings still on the market are open to every agent (the whole agency
-  // sells them), with the owner's details hidden from those not tied to them.
-  if (list === 'listings' && erp.m.listings[id]?.status === 'active') return false
-  return erp.m.data[list].some(x => x.id === id) && !erp.scoped[list].some(x => x.id === id)
-}
-
 // Shown in place of a page the viewer's role does not open.
 export function NoAccess({ text }) {
   const a = useAccess()
