@@ -203,3 +203,15 @@ test('someone with pay records or created listings cannot be deleted: a reason, 
   assert.equal(r.status, 400);
   assert.match(r.body.error, /Set them Inactive instead/);
 });
+
+test('the start-up read sends the small kinds only; an action asked for a small reply gives the same, with the ids it made', async () => {
+  const start = await api.call('GET', '/erp/start');
+  assert.equal(start.status, 200, start.body?.error);
+  for (const k of ['staff', 'titles', 'areas', 'propertyTypes']) assert.ok(start.body.data[k].length > 0, k);
+  for (const k of ['deals', 'listings', 'payouts', 'moneyIn', 'notices', 'customers', 'audit']) assert.deepEqual(start.body.data[k], [], k);
+  assert.deepEqual(start.body.data.v1, { eforms: [], overrides: [] });
+  const r = await api.call('POST', '/erp/actions/addCustomer', { args: [{ name: 'Start Read', phone: '012-000 1111', type: 'Sale', ownerId: sample.staff[0].id }], small: true });
+  assert.equal(r.status, 200, r.body?.error);
+  assert.deepEqual(r.body.data.customers, []);
+  assert.equal((await db('customers').where({ id: r.body.added.customers[0] }).first()).name, 'Start Read');
+});

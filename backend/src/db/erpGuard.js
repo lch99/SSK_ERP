@@ -166,4 +166,26 @@ function changedIds(before, after) {
   return out;
 }
 
-module.exports = { forViewer, actorArgs, checkBefore, checkAfter, changedIds, seesOwner };
+// The start-up read (GET /erp/start, and an action's reply to a page that asks for it): what every page
+// uses and is small, a person's own included: the staff directory, buildings, areas, property types, the
+// last manual checks, their favourites and planned downtime. Every other kind is read a page at a time
+// (/api/erp/<list>), so it goes empty here.
+const START = new Set(['asOf', 'staff', 'titles', 'areas', 'propertyTypes', 'runs', 'favourites', 'downtime']);
+function startUp(data) {
+  return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, START.has(k) ? v : Array.isArray(v) ? []
+    : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).map(x => [x, []])) : v]));
+}
+
+// The ids of the records an action made, by kind (a page opens what it just added).
+function addedIds(before, after) {
+  const out = {};
+  for (const k of Object.keys(after)) {
+    if (!Array.isArray(after[k])) continue;
+    const was = new Set((before[k] || []).map(x => x.id));
+    const ids = after[k].filter(x => !was.has(x.id)).map(x => x.id);
+    if (ids.length) out[k] = ids;
+  }
+  return out;
+}
+
+module.exports = { forViewer, actorArgs, checkBefore, checkAfter, changedIds, seesOwner, startUp, addedIds };

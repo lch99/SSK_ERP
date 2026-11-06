@@ -12,6 +12,7 @@
 //   GET /:list/:id                one record, with the list's extras
 // Stage one (db/erpState.js, db/erpGuard.js), until the pages move to the lists above:
 //   GET /state                    the records this person may see, as the demo store gives them (after the time rules)
+//   GET /start                    the same, but only the start-up kinds (staff directory, buildings, areas…; G.startUp)
 //   POST /actions/:name {args}    one action (shared/erpActions.js; its rule in shared/access.js ACTIONS),
 //                                 checked against the person's reach and saved; replies like /state, and for a
 //                                 project action with `result` (what was saved)
@@ -65,14 +66,18 @@ const changeState = (change, { by } = {}) => oneAtATime(() => db.transaction(asy
   return state;
 }));
 
-router.get('/state', wrap(async (req, res) => {
+// Everything this person may see (after the time rules); `start`: only the start-up read's kinds.
+const readState = start => wrap(async (req, res) => {
   const v = await viewerOf(req);
   await pruneNotices(db, localToday());
   let state = await loadState(db);
   // Something the time rules change (a viewing expired…) is saved once, here.
   if (state.data && A.runClock(state.data, state.setup)) state = await changeState(() => {});
-  res.json({ ...state, data: G.forViewer(state.data, v) });
-}));
+  const data = state.data && G.forViewer(state.data, v);
+  res.json({ ...state, data: start && data ? G.startUp(data) : data });
+});
+router.get('/state', readState(false));
+router.get('/start', readState(true));
 
 // Projects: the demo keeps them in a store of their own (src/demo/projectsApi.js);
 // here they are records like the rest, and the same changes run on them.
@@ -99,7 +104,7 @@ router.post('/actions/:name', wrap(async (req, res) => {
   if (why) return res.status(403).json({ error: why, errors: [why] });
   // Whoever the page says is acting, it is the signed-in person.
   const args = G.actorArgs(name, Array.isArray(req.body?.args) ? req.body.args : [], v);
-  let result, state;
+  let result, state, added = {};
   try {
     state = await changeState(async (s, before, trx) => {
       G.checkBefore(name, args, s.data, v);
@@ -109,6 +114,7 @@ router.post('/actions/:name', wrap(async (req, res) => {
         if (why) throw Object.assign(new Error(why), { status: 400, errors: [why] });
       }
       G.checkAfter(before, s.data, v);
+      added = G.addedIds(before, s.data);
       await audit(req, { action: name, entity: 'erp', detail: { changed: G.changedIds(before, s.data) } }, trx);
     }, { by: req.user.username });
   } catch (err) {
@@ -116,7 +122,9 @@ router.post('/actions/:name', wrap(async (req, res) => {
     if (isInUse(err)) return refused(res, 400, new Error('Other records still use this, so it cannot be removed. Set it Inactive instead.'));
     throw err;
   }
-  res.json({ ...state, data: G.forViewer(state.data, v), ...(forProjects ? { result } : {}) });
+  // small: the page keeps only the start-up read (it reads lists a page at a time); added: the ids made.
+  const data = G.forViewer(state.data, v);
+  res.json({ ...state, data: req.body?.small === true ? G.startUp(data) : data, added, ...(forProjects ? { result } : {}) });
 }));
 
 router.get('/meta', wrap(async (req, res) => {

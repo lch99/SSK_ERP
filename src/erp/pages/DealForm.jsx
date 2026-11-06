@@ -3,7 +3,8 @@ import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { docNames } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { useRecord } from '../useList.js'
+import { useRecord, useRecordReader } from '../useList.js'
+import { madeId, fromReply } from '../../api.js'
 import { ListingPicker, StaffPicker } from '../pickers.jsx'
 import { PARTY, DEAL_STATUS, r2 } from '../model.js'
 import { Page, Card, Segmented, Select, Notice, FormField, FileInput, TextArea, Status, go, field, mono, tabular } from '../ui.jsx'
@@ -46,6 +47,8 @@ export default function DealForm({ id }) {
 
 function Form({ id, deal, startListing, query }) {
   const erp = useErp()
+  // What a save just made or changed, read back from the server (its reply is only the start-up read).
+  const readRecord = useRecordReader()
   const can = useCan()
   const { m, setup } = erp
   const fb = useFeedback()
@@ -150,7 +153,7 @@ function Form({ id, deal, startListing, query }) {
         go(`deals/${deal.id}`)
       } else {
         const s = await erp.addDeal(body({ submit }))
-        const made = s.data.deals.reduce((a, b) => (b.id > a.id ? b : a))
+        const made = await fromReply(s, 'deals', madeId(s, 'deals'), readRecord)
         fb.toast(`${made.code} ${submit ? 'submitted' : 'saved as Draft'}`, { action: { label: 'Add Transaction', onClick: () => go(`money-in/new/${made.id}`) } })
         go(`deals/${made.id}`)
       }

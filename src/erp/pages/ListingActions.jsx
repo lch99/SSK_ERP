@@ -13,6 +13,8 @@ import { useGate } from '../access.jsx'
 import { UPLOADS } from '../../../shared/files.js'
 import { Photo, coverOf, savePreviews } from '../photos.jsx'
 import { useInReach } from '../listingLife.jsx'
+import { useRecordReader } from '../useList.js'
+import { fromReply } from '../../api.js'
 
 // Everyone who hasn't left (status Inactive), for the listing's people pickers.
 const STILL_HERE = 'active,pending,suspended,locked'
@@ -41,6 +43,8 @@ const withCover = list => {
 
 export default function ListingActions({ l, quiet, onBook }) {
   const erp = useErp()
+  // What a save just made or changed, read back from the server (its reply is only the start-up read).
+  const readRecord = useRecordReader()
   const gate = useGate()
   const inReach = useInReach()
   const { m } = erp
@@ -208,7 +212,7 @@ export default function ListingActions({ l, quiet, onBook }) {
           await save(async () => {
             const st = await erp.updateListing(l.id, { share: { users: f.users.map(Number), pmId: f.pmId ? Number(f.pmId) : null,
               coPh: f.coPh.filter(c => c.staffId).map(c => ({ staffId: Number(c.staffId), until: c.until || null, locked: !!c.locked, from: c.from })) } })
-            const now = st.data.listings.find(x => x.id === l.id)?.holderId
+            const now = (await fromReply(st, 'listings', l.id, readRecord, 'agency'))?.holderId
             if (now !== was) fb.toast(`${m.staffName(now)} is now the product handler`)
           }, `${l.code} sharing saved`)
         })}>

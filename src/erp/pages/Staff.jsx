@@ -19,6 +19,7 @@ import { NoAccess, useAccess, useCan, useGate } from '../access.jsx'
 import * as L from '../../../shared/listings.js'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
 import { useList, useRecord, useListReader, useListDownload } from '../useList.js'
+import { madeId } from '../../api.js'
 import { StaffPicker } from '../pickers.jsx'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
@@ -490,7 +491,7 @@ function StaffFormFor({ s, office }) {
       } else {
         if (!f.password) throw new Error('Password is required.')
         const st = await erp.addStaff({ ...body, nameCard: body.short })
-        const made = st.data.staff.at(-1)
+        const made = { id: madeId(st, 'staff') }
         if (f.active) await erp.setStaffStatus(made.id, 'active')
         fb.toast(`${body.short} added${f.active ? '' : ' as Pending. Switch on Active Staff Account when HR is done'}`)
         go(`staff/${made.id}`)

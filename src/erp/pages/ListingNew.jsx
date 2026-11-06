@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { LISTING_SETTINGS, CATEGORIES } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { useList, useRecord } from '../useList.js'
+import { useList, useRecord, useRecordReader } from '../useList.js'
+import { madeId, fromReply } from '../../api.js'
 import { isAgent } from '../model.js'
 import { Page, Card, Notice, FormField, FileInput, go, field } from '../ui.jsx'
 import { PAGE } from '../help.js'
@@ -26,6 +27,8 @@ export default function ListingNew() {
 
 function ListingForm({ vr, state }) {
   const erp = useErp()
+  // What a save just made or changed, read back from the server (its reply is only the start-up read).
+  const readRecord = useRecordReader()
   const fb = useFeedback()
   const review = useReview()
   const { scoped: d, m } = erp
@@ -72,7 +75,7 @@ function ListingForm({ vr, state }) {
       const keys = await savePreviews(photoFiles)
       const photoSet = photoFiles.map((file, i) => ({ id: i + 1, name: file.name, published: true, cover: i === 0, preview: keys[i] }))
       const st = await erp.addListing({ ...f, draft, photoSet, videos, askPrice: f.askPrice, ownerName: f.ownerName, ownerPhone: f.ownerPhone, address: [f.unit, f.title, f.area].filter(Boolean).join(', ') })
-      const made = st.data.listings.reduce((a, b) => (b.id > a.id ? b : a))
+      const made = await fromReply(st, 'listings', madeId(st, 'listings'), readRecord)
       if (vr) await erp.setVendorRequest(vr.id, 2, made.id)
       fb.toast(`${made.code} ${draft ? 'saved as draft' : 'published'}${vr ? ` · ticket ${vr.ticket} set to Listing Created` : ''}`)
       go(`listings/${made.id}`)

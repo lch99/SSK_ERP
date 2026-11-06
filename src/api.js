@@ -106,7 +106,8 @@ export const unlockUser = id => request(`/users/${id}/unlock`, { method: 'POST' 
 // ERP records. The demo makes them up from the saved Setup and keeps them in
 // this browser (src/demo/erpApi.js); the server reads them from its tables and
 // runs the same actions on them (backend/src/db/erpState.js).
-export const getErp = () => (DEMO ? erp.getErp() : request('/erp/state'))
+// The server sends only the start-up read (the staff directory, buildings…): pages read the rest a page at a time.
+export const getErp = () => (DEMO ? erp.getErp() : request('/erp/start'))
 export const resetErp = () => (DEMO ? erp.resetErp() : Promise.reject(new Error('The sample records can only be reset in the demo.')))
 // One page of a list (shared/lists.js) from the server: { rows, total, counts, page, size }.
 // Pages use useList (src/erp/useList.js), which runs the same list in the demo.
@@ -124,7 +125,13 @@ export async function downloadListFile(list, params) {
   const filename = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || `${list}.xlsx`
   return { bytes: new Uint8Array(await res.arrayBuffer()), filename }
 }
-const act = name => (...args) => (DEMO ? erp[name](...args) : request(`/erp/actions/${name}`, { method: 'POST', body: { args } }))
+// An action's reply is the start-up read again (small), with the ids of what it made (`added`).
+const act = name => (...args) => (DEMO ? erp[name](...args) : request(`/erp/actions/${name}`, { method: 'POST', body: { args, small: true } }))
+// The id of the record an action just made: from `added` on the server, the newest in the demo's records.
+export const madeId = (reply, kind) => reply.added?.[kind]?.[0] ?? Math.max(0, ...(reply.data?.[kind] || []).map(x => x.id))
+// That record (or one it changed): from the reply when the reply holds it (the demo's has every record), else
+// read from the server. read: useRecordReader(); list: the list to read it through.
+export const fromReply = (reply, kind, id, read, list = kind) => Promise.resolve((reply.data?.[kind] || []).find(x => x.id === id) || read(list, id))
 export const approvePayouts = act('approvePayouts')
 export const queryPayouts = act('queryPayouts')
 export const archiveCases = act('archiveCases')
@@ -202,7 +209,7 @@ export const endDowntime = act('endDowntime')
 export const projectsOf = (data, setup) => (DEMO ? projects.getProjects(data, setup).projects : data?.projects || [])
 const projectAct = (name, inBrowser) => (...args) => (DEMO
   ? Promise.resolve().then(() => inBrowser(...args)).then(result => erp.getErp().then(s => ({ ...s, result })))
-  : request(`/erp/actions/${name}`, { method: 'POST', body: { args } }))
+  : request(`/erp/actions/${name}`, { method: 'POST', body: { args, small: true } }))
 export const saveProject = projectAct('saveProject', projects.saveProject)
 export const saveIncentive = projectAct('saveIncentive', projects.saveIncentive)
 export const deleteIncentive = projectAct('deleteIncentive', projects.deleteIncentive)
