@@ -163,7 +163,7 @@ const STAFF = {
     ids: { eq: 'id' },
     // agent: Agent and Sales Agent accounts; office: everyone else (src/erp/model.js isAgent).
     kind: { oneOf: 'type', sets: { agent: AGENT_TYPES, office: { not: AGENT_TYPES } } },
-    teamOf: { team: ['id'], self: false },
+    teamOf: { team: ['id'], self: false }, inTeam: { team: ['id'] },
     joinedFrom: { from: 'joined' }, joinedTo: { to: 'joined' }, expiresFrom: { from: 'expiresOn' }, expiresBy: { to: 'expiresOn' },
     // Still working here and the account runs out before this day (renew it).
     expiringBefore: { custom: 'expiringBefore', values: ['2026-12-01'] },
@@ -255,8 +255,8 @@ export const LISTS = {
       listingId: { eq: 'listingId' }, projectId: { eq: 'projectId' }, lvStatus: { eq: 'landlordCheck.status' }, title: { eq: 'property.title' },
       // Either side of the deal (the sales agent or the listing holder).
       staffId: { eq: ['agentId', 'holderId'] },
-      // A leader and everyone under them, on either side.
-      teamOf: { team: ['agentId', 'holderId'] },
+      // A leader and everyone under them, on either side; agentTeam: as the sales agent only.
+      teamOf: { team: ['agentId', 'holderId'] }, agentTeam: { team: ['agentId'] },
       // Cleared cash that can be closed now (readyLeft).
       ready: { custom: 'readyToClose' },
       from: { from: 'date' }, to: { to: 'date' }, closedFrom: { from: 'closedOn' }, closedTo: { to: 'closedOn' },
@@ -282,6 +282,11 @@ export const LISTS = {
       collecting: { only: () => ({ status: 'submitted,partial' }), custom: 'collected', keep: HOME },
       branchesMonth: { only: ctx => ({ from: monthStart(ctx.today), to: monthEnd(ctx.today), status: LIVE }), by: 'branchId', sum: 'fee' },
       branchesYear: { only: ctx => ({ ...yearOf(ctx), status: LIVE }), by: 'branchId', sum: 'fee' },
+      // An agent's Home (agentId, agentTeam): their billing this month and last, their team's month, E-Forms short of cash.
+      ownByMonth: { only: ctx => ({ from: monthsBefore(ctx.today, 1), status: LIVE }), by: 'date', month: true, sum: 'money.billed', keep: ['agentId'] },
+      teamFees: { only: ctx => ({ from: monthStart(ctx.today), to: monthEnd(ctx.today), status: LIVE }), sum: 'fee', keep: ['agentTeam'] },
+      teamBilled: { only: ctx => ({ from: monthStart(ctx.today), to: monthEnd(ctx.today), status: LIVE }), sum: 'money.billed', keep: ['agentTeam'] },
+      short: { only: () => ({ status: 'submitted,partial' }), custom: 'shortOfCash', keep: ['agentId'] },
     },
     extras: {
       listingCode: { field: 'code', of: 'listings', from: 'listingId' },
@@ -300,7 +305,7 @@ export const LISTS = {
     filters: {
       status: { eq: 'status' }, dealId: { eq: 'dealId' }, method: { eq: 'method' }, purpose: { eq: 'purpose' },
       // The E-Form's branch (the top bar's branch) and its sales agent.
-      branchId: viaDeal({ eq: 'branchId' }), agentId: viaDeal({ eq: 'agentId' }),
+      branchId: viaDeal({ eq: 'branchId' }), agentId: viaDeal({ eq: 'agentId' }), staffId: viaDeal({ eq: ['agentId', 'holderId'] }),
       from: { from: 'date' }, to: { to: 'date' }, clearedFrom: { from: 'clearsOn' }, clearedTo: { to: 'clearsOn' },
       // The same slip recorded twice: the same reference or cheque, or the same amount banked in on the same day.
       ref: { is: 'ref' }, amount: { eq: 'amount' }, bankOn: { eq: 'bankOn' },
@@ -312,6 +317,8 @@ export const LISTS = {
       // Draft and Pending: still to check against the bank statement.
       toCheck: { only: () => ({ status: 'draft,pending' }), sum: 'amount', keep: ['branchId'] },
       returned60: { only: ctx => ({ status: 'returned', from: addDays(ctx.today, -60) }), keep: HOME },
+      // An agent's Home (staffId): returned or rejected in the last 60 days.
+      bounced60: { only: ctx => ({ status: 'returned,invalid', from: addDays(ctx.today, -60) }), keep: ['staffId'] },
       clearedThisMonth: { only: ctx => ({ status: 'cleared', clearedFrom: monthStart(ctx.today), clearedTo: monthEnd(ctx.today) }), sum: 'amount', keep: ['branchId'] },
     },
     extras: {
@@ -345,11 +352,14 @@ export const LISTS = {
   closes: {
     area: 'payouts',
     search: [],
-    filters: { dealId: { eq: 'dealId' }, from: { from: 'date' }, to: { to: 'date' }, branchId: viaDeal({ eq: 'branchId' }) },
+    filters: { dealId: { eq: 'dealId' }, from: { from: 'date' }, to: { to: 'date' }, branchId: viaDeal({ eq: 'branchId' }),
+      staffId: viaDeal({ eq: ['agentId', 'holderId'] }) },
     sorts: { date: 'date' },
     sort: '-date',
-    // Home: ten months of net commission closed, everything claimed, and the year's net by the E-Form's branch.
+    // Home: ten months of net commission closed, everything claimed, and the year's net by the E-Form's branch;
+    // an agent's closes this month (staffId: on either side of the E-Form).
     counts: {
+      thisMonth: { only: ctx => ({ from: monthStart(ctx.today), to: monthEnd(ctx.today) }), keep: ['staffId', 'branchId'] },
       netByMonth: { only: ctx => tenMonths(ctx), by: 'date', month: true, sum: 'net', keep: HOME },
       claimed: { only: () => ({}), sum: 'claim', keep: HOME },
       netByBranchYear: { only: ctx => yearOf(ctx), custom: 'netByDealBranch' },
@@ -534,7 +544,7 @@ export const LISTS = {
     search: ['code', 'customer.name', { via: 'requestedBy', of: 'staff', fields: ['short', 'name'] }, { via: 'handlerId', of: 'staff', fields: ['short', 'name'] },
       { via: 'listingIds.0', of: 'listings', fields: ['code', 'title'] }],
     filters: {
-      status: { eq: 'status' }, staffId: { eq: ['requestedBy', 'handlerId'] }, handlerId: { eq: 'handlerId' }, from: { from: 'date' }, to: { to: 'date' },
+      status: { eq: 'status' }, staffId: { eq: ['requestedBy', 'handlerId'] }, handlerId: { eq: 'handlerId' }, requestedBy: { eq: 'requestedBy' }, from: { from: 'date' }, to: { to: 'date' },
       // The (first) listing's branch (the top bar's); one listing among those viewed.
       branchId: { via: 'listingIds.0', of: 'listings', rule: { eq: 'branchId' } }, listing: { custom: 'viewsListing' },
       // Waiting for the viewer: to confirm as the host, or to review as the one who booked (the server puts their key in).
@@ -705,6 +715,16 @@ export const CUSTOM_COUNTS = {
       collected: r2(hits.reduce((t, d) => t + Math.min(cash.get(d.id)?.cleared || 0, Number(d.money?.billed || 0)), 0)) }
   },
   netByDealBranch: (hits, ctx) => byDealBranch(hits, ctx, 'net'),
+  // E-Forms whose payments in (not returned or invalid) don't cover the bill yet: how many, and the first one's id.
+  shortOfCash: (hits, ctx) => {
+    const got = ctx.once('received', () => {
+      const m = new Map()
+      for (const t of ctx.data?.moneyIn || []) if (t.status !== 'invalid' && t.status !== 'returned') m.set(t.dealId, (m.get(t.dealId) || 0) + Number(t.amount || 0))
+      return m
+    })
+    const short = hits.filter(d => r2(got.get(d.id) || 0) < Number(d.money?.billed || 0))
+    return { n: short.length, first: short.length ? Math.min(...short.map(d => d.id)) : null }
+  },
   paidByDealBranch: (hits, ctx) => byDealBranch(hits, ctx, 'amount'),
   tierCounts: (hits, ctx) => {
     const out = {}

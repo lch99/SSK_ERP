@@ -35,6 +35,7 @@ const byStaff = { branch: (b, v) => mine(b, v, 'staff_id'), team: (b, v) => mine
 // Cash on an E-Form, in SQL: what cleared, and what is closed already.
 const CLEARED = "(select coalesce(sum(m.amount), 0) from money_in m where m.deal_id = deals.id and m.status = 'cleared')";
 const CLOSED = '(select coalesce(sum(c.claim), 0) from closes c where c.deal_id = deals.id)';
+const RECEIVED = "(select coalesce(sum(m.amount), 0) from money_in m where m.deal_id = deals.id and m.status not in ('invalid', 'returned'))";
 const GOT = `(case when ${CLEARED} < deals.billed then ${CLEARED} else deals.billed end)`;
 // shared/lists.js byDealBranch: { branchId: { n, sum } } of the found rows, by their E-Form's branch.
 const byDealBranch = async (q, b, table, col) => {
@@ -256,6 +257,11 @@ const SERVER = {
         const r = await q('deals').whereIn('deals.id', b.select('deals.id')).count({ n: '*' }).sum({ billed: 'deals.billed' })
           .select(q.raw(`sum(${GOT}) as got`)).first();
         return { n: Number(r.n), billed: r2(Number(r.billed) || 0), collected: r2(Number(r.got) || 0) };
+      },
+      // shared/lists.js CUSTOM_COUNTS.shortOfCash: payments in (not returned or invalid) below the bill.
+      shortOfCash: async (q, b) => {
+        const r = await q('deals').whereIn('deals.id', b.select('deals.id')).whereRaw(`${RECEIVED} < deals.billed`).count({ n: '*' }).min({ first: 'deals.id' }).first();
+        return { n: Number(r.n), first: r.first == null ? null : Number(r.first) };
       },
     },
   },
