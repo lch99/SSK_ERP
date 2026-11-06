@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { C } from '../../styles.js'
 import { Avatar, Pill, Progress, go, tabular } from '../ui.jsx'
+import { useErp } from '../ErpContext.jsx'
+import { tierStanding } from '../model.js'
 import { rm, rmShort, monthLabel, ago, num } from '../format.js'
 import Icon from '../Icon.jsx'
 
@@ -315,7 +317,10 @@ function Medal({ place, size = 30 }) {
   )
 }
 
+// rows: staff records from a list read, each with its credit from the server ($.credit), which gives the tier.
 export function Leaderboard({ rows, m, showBranch }) {
+  const { setup } = useErp()
+  const standing = s => (s.$?.credit ? tierStanding(s, s.$.credit.lifetime, s.$.credit.yearly, setup) : m.tierInfo(s.id))
   if (!rows.length) return <p style={{ color: C.muted, margin: 0 }}>No closed deals yet this year.</p>
   const max = rows[0].v
   const order = [1, 0, 2].filter(i => rows[i])
@@ -334,14 +339,14 @@ export function Leaderboard({ rows, m, showBranch }) {
               <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.short}</div>
               {/* Shrinks with the box, so a full amount (2 dp) fits even on a phone. */}
               <div style={{ fontSize: 'clamp(10.5px, 10cqi, 15px)', fontWeight: 800, fontFamily: C.fontHead, marginTop: 2, whiteSpace: 'nowrap' }}><CountUp value={v} format={rm} /></div>
-              <div style={{ marginTop: 4 }}><Pill tone="gray" dot={false}>{m.tierInfo(s.id).tier.name}</Pill></div>
+              <div style={{ marginTop: 4 }}><Pill tone="gray" dot={false}>{standing(s).tier.name}</Pill></div>
             </button>
           )
         })}
       </div>
       <div style={{ display: 'grid', gap: 10 }}>
         {rows.slice(3).map(({ s, v }, k) => {
-          const t = m.tierInfo(s.id)
+          const t = standing(s)
           return (
             <a key={s.id} href={`#/staff/${s.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: C.text }}>
               <span style={{ width: 22, textAlign: 'center', fontWeight: 700, color: C.muted, fontSize: 13 }}>{k + 4}</span>
