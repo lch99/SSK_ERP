@@ -262,6 +262,7 @@ test('people keep their ids, codes, uplines and branch (the B.M account up their
 test('listings: codes, prices, flags, the people on them and their open E-Form', async () => {
   const l = await one('listings', 100);
   assert.equal(l.code, 'LIST-000100');
+  assert.equal(json((await one('titles', 7)).more).managerId, 11);  // the building's Project Manager, where the ERP reads it
   assert.equal(l.type, 'sale');
   assert.equal(l.title, 'Kepong Sentral');
   assert.equal(l.category, 'Condominium');

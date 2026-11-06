@@ -54,7 +54,7 @@
 // area: null                     everyone may read it (their own)
 import { teamOf } from './access.js'
 import { payslipTotals, tiersFor, computeTierIndex, DEAL_TYPES } from './payout.js'
-import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, reviewOverdue, isHandedAway, KEY_FLAG } from './listings.js'
+import { buildingRankings, noticeFor, categoryGroup, priceRating, hotLists, reviewOverdue, isHandedAway, isOutdated, KEY_FLAG, RATING, HOT_LISTS, LISTING_RULES } from './listings.js'
 import { projectDeals, incentiveProgress } from './projects.js'
 import { DEAL_STATUS, MONEY_IN_STATUS, PURPOSES, METHODS, CASH_METHODS, MONEY_OUT_STATUS, MONEY_OUT_TYPES, STAFF_STATUS, ACCOUNT_TYPES } from './labels.js'
 
@@ -133,6 +133,8 @@ const LISTINGS = {
     freeFor: { custom: 'freeForDeal', values: ['0', '1'] },
     // Held by a stand-in while this person's account was off (shared/listings.js handedAway).
     handedAwayFrom: { custom: 'handedAwayFrom', values: ['1', '2', '3', '9'] },
+    // Active and not updated within the outdated window by that day (shared/listings.js isOutdated).
+    outdatedBy: { custom: 'outdatedBy', values: ['2026-11-02', '2027-03-01'] },
   },
   sorts: { created: 'created', updated: 'updated', price: 'askPrice', priceUpdated: 'priceUpdated', photosOn: 'photosOn', code: 'code', views: 'views',
     title: 'title', followUp: { last: 'followUps', field: 'date' } },
@@ -142,6 +144,14 @@ const LISTINGS = {
     status: 'status', type: 'type', category: 'category', area: 'area',
     group1: { set: { group: '1' } }, group2: { set: { group: '2' } }, group3: { set: { group: '3' } },
     hotSale: { set: { hot: 'hotSale' } }, superHot: { set: { hot: 'superHot' } }, rentKing: { set: { hot: 'rentKing' } },
+    // System → Automatic rules: active listings, by price band and hot list, past the outdated window, who handles
+    // them; and looks at owners' details in the last 30 days.
+    active: { only: () => ({ status: 'active' }) },
+    ...Object.fromEntries(Object.keys(RATING).map(k => [`band_${k}`, { only: () => ({ status: 'active', band: k }) }])),
+    ...Object.fromEntries(Object.keys(HOT_LISTS).map(k => [`activeHot_${k}`, { only: () => ({ status: 'active', hot: k }) }])),
+    pastWindow: { only: ctx => ({ outdatedBy: ctx.today }) },
+    handlers: { only: () => ({ status: 'active' }), custom: 'handlerMix' },
+    ownerLooks: { only: () => ({}), custom: 'ownerLooks' },
   },
   extras: {
     deal: { pick: ['code', 'date', 'price', 'status'], of: 'deals', from: 'dealId' },
@@ -164,7 +174,7 @@ const STAFF = {
     // agent: Agent and Sales Agent accounts; office: everyone else (src/erp/model.js isAgent).
     kind: { oneOf: 'type', sets: { agent: AGENT_TYPES, office: { not: AGENT_TYPES } } },
     teamOf: { team: ['id'], self: false }, inTeam: { team: ['id'] },
-    joinedFrom: { from: 'joined' }, joinedTo: { to: 'joined' }, expiresFrom: { from: 'expiresOn' }, expiresBy: { to: 'expiresOn' },
+    joinedFrom: { from: 'joined' }, joinedTo: { to: 'joined' }, lastActiveTo: { to: 'lastActive' }, expiresFrom: { from: 'expiresOn' }, expiresBy: { to: 'expiresOn' },
     // Still working here and the account runs out before this day (renew it).
     expiringBefore: { custom: 'expiringBefore', values: ['2026-12-01'] },
     // The tier each is on today (by their commission so far: tierCredit), by its code (T1…).
@@ -195,6 +205,9 @@ export const LISTS = {
     ...STAFF,
     counts: {
       ...STAFF.counts,
+      // Automatic rules: pending accounts two days or less from being suspended, active ones locking within 15 days.
+      suspendSoon: { only: ctx => ({ status: 'pending', joinedTo: addDays(ctx.today, 2 - LISTING_RULES.pendingDays) }) },
+      lockSoon: { only: ctx => ({ status: 'active', lastActiveTo: addDays(ctx.today, 14 - LISTING_RULES.idleDays) }) },
       // Leaders of everyone of this kind, by upline level (the Leaders card and the Level filter's choices).
       leaders: { only: () => ({ hasRole: 'true' }), by: 'role', keep: STAFF_KEEP },
       // How many are on each tier, of everyone of this kind (the Tier filter's choices).
@@ -514,7 +527,8 @@ export const LISTS = {
     search: ['name', 'area'],
     filters: { status: { eq: 'status' }, branchId: { eq: 'branchId' }, category: { eq: 'category' }, area: { eq: 'area' } },
     sorts: { name: 'name', area: 'area', requestedOn: 'requestedOn', listings: { count: 'listings', by: 'titleId' } }, sort: 'name',
-    counts: { status: 'status' },
+    // leads: approved buildings with a Project Manager / Project Handler, held for good, close to changing hands (Automatic rules).
+    counts: { status: 'status', leads: { only: () => ({ status: '0' }), custom: 'buildingLeads' } },
     extras: { listings: { count: true, of: 'listings', by: 'titleId' }, ranking: { custom: 'buildingRanking' } },
   },
 
@@ -560,6 +574,7 @@ export const LISTS = {
       done30: { only: ctx => ({ status: 'done', from: addDays(ctx.today, -30) }), keep: ['branchId'] },
       // Today or tomorrow and still not confirmed by the product handler.
       unconfirmed: { only: ctx => ({ status: 'new,rescheduled', to: addDays(ctx.today, 1) }), keep: HOME },
+      overdue: { only: ctx => ({ reviewDue: `${ctx.today} 23:59` }) },
     },
     extras: { listings: { pick: ['code', 'title', 'area', 'category', 'type', 'status', 'holderId', 'titleId', 'branchId'], of: 'listings', from: 'listingIds', many: true } },
   },
@@ -667,6 +682,7 @@ const CUSTOM = {
   viewsListing: (r, v) => personId(v) != null && (r.listingIds || []).includes(personId(v)),
   waitingFor: (r, v) => personId(v) != null && ((r.handlerId === personId(v) && ['new', 'rescheduled'].includes(r.status)) || (r.requestedBy === personId(v) && r.status === 'review')),
   reviewDue: (r, v) => reviewOverdue(r, String(v)),
+  outdatedBy: (r, v) => isOutdated(r, String(v).slice(0, 10)),
   // Not read yet by that person (their key: staff id, 0 = an office account).
   unreadBy: (r, v) => personId(v) != null && !(r.readBy || []).includes(personId(v)),
   readyPay: (r, v, ctx) => !!ctx.once(`readyPay:${v}`, () => {
@@ -694,6 +710,19 @@ export function areaManagers(staff, setup) {
 const isReady = p => p.status === 'approved' && p.requestId == null && p.archiveId == null
 
 // Counts worked out in code (the server runs the same on the rows its SQL finds).
+// Buildings (approved): how many have a Project Manager / Project Handler, how many hold the post for good,
+// and how many are close to changing hands (the leader among the rest is past 60% of the threshold).
+// rankings: shared/listings.js buildingRankings (the server works them out for these buildings only).
+export function leadCounts(titles, rankings) {
+  const close = kind => titles.filter(t => {
+    const top = rankings.get(t.id)?.[kind]?.[0]
+    const rule = kind === 'sale' ? LISTING_RULES.projectManager : LISTING_RULES.projectHandler
+    return top && top.n >= rule.win * 0.6 && top.n < rule.win && top.staffId !== (kind === 'sale' ? t.managerId : t.handlerId)
+  }).length
+  return { pm: titles.filter(t => t.managerId).length, ph: titles.filter(t => t.handlerId).length,
+    forGood: titles.filter(t => t.managerPermanent || t.handlerPermanent).length, closePm: close('sale'), closePh: close('rental') }
+}
+
 // { value: { n, sum } } of records grouped by their E-Form's branch (closes and payout lines have none of their own).
 const byDealBranch = (hits, ctx, field) => {
   const out = {}
@@ -715,6 +744,24 @@ export const CUSTOM_COUNTS = {
       collected: r2(hits.reduce((t, d) => t + Math.min(cash.get(d.id)?.cleared || 0, Number(d.money?.billed || 0)), 0)) }
   },
   netByDealBranch: (hits, ctx) => byDealBranch(hits, ctx, 'net'),
+  // Active listings: handled by a co-product handler (the last pick), by their main product handler,
+  // with a co-PH slot locked in (key or exclusive), with a slot ending within 7 days.
+  handlerMix: (hits, ctx) => {
+    const week = addDays(ctx.today, 7)
+    const slots = l => l.share?.coPh || []
+    return {
+      byCoPh: hits.filter(l => ['coPh', 'locked'].includes(l.phLog?.at(-1)?.from)).length,
+      byMain: hits.filter(l => l.share?.pmId && l.share.pmId === l.holderId).length,
+      ending: hits.filter(l => slots(l).some(c => !c.locked && c.until && c.until >= ctx.today && c.until <= week)).length,
+      locked: hits.filter(l => slots(l).some(c => c.locked)).length,
+    }
+  },
+  // Looks at an owner's details in the last 30 days (each Show is logged on the listing).
+  ownerLooks: (hits, ctx) => {
+    const from = addDays(ctx.today, -30)
+    return { n: hits.reduce((t, l) => t + (l.ownerViews || []).filter(x => x.at >= from).length, 0) }
+  },
+  buildingLeads: (hits, ctx) => leadCounts(hits, ctx.once('buildingRankings', () => buildingRankings({ listings: ctx.data?.listings || [], deals: ctx.data?.deals || [] }))),
   // E-Forms whose payments in (not returned or invalid) don't cover the bill yet: how many, and the first one's id.
   shortOfCash: (hits, ctx) => {
     const got = ctx.once('received', () => {

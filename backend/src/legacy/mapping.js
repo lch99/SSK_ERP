@@ -298,7 +298,7 @@ const TABLES = {
         status: [0, 1, 2].includes(status) ? status : ctx.unknownCode('db_property_title.title_draft', r.title_draft, 1),
         requested_by: status === 1 ? ctx.person(r.staff_id) : null, requested_on: null,
         more: JSON.stringify(Object.fromEntries(Object.entries({
-          projectManagerId: ctx.person(r.manager_id), subCategory: ctx.subName(r.sub_id) || null, description: textOrNull(r.title_description),
+          managerId: ctx.person(r.manager_id), subCategory: ctx.subName(r.sub_id) || null, description: textOrNull(r.title_description),
           searchAddress: textOrNull(r.search_address), remark: textOrNull(r.remark), photo: textOrNull(r.title_photo_url),
         }).filter(([, v]) => v != null))),
       };

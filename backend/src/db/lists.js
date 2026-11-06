@@ -8,7 +8,7 @@ const LR = require('../../../shared/listings.js');
 const { buildingRankings } = LR;
 const { loadSetup } = require('./setupStore');
 const { MODELS, KINDS, parseJson, toRecords } = require('./records');
-const { localToday } = require('./days');
+const { localToday, addDays } = require('./days');
 const { teamIds, rawRows } = require('./list');
 
 const r2 = n => Math.round(n * 100) / 100;
@@ -72,6 +72,12 @@ const raw = (b, [sql, bindings]) => b.whereRaw(sql, bindings);
 const LATEST_ACTION = '(select f.action from listing_follow_ups f where f.listing_id = listings.id order by f.id desc limit 1)';
 
 const LISTING_RULES = {
+  // shared/listings.js isOutdated: active, and not updated (else created) within the window by that day.
+  outdatedBy: {
+    apply: (b, v) => b.where('listings.status', 'active').whereRaw(
+      "coalesce(listings.updated_on, listings.created_on) < date_sub(?, interval (case when listings.type = 'rental' then ? else ? end) day)",
+      [String(v).slice(0, 10), LR.LISTING_RULES.outdatedDays.rental, LR.LISTING_RULES.outdatedDays.sale]),
+  },
   categoryGroup: {
     apply: (b, v) => {
       const three = any(LR.GROUP_WORDS[3].map(w => hasWord(b, 'listings.category', w)));
@@ -179,6 +185,36 @@ async function teamSizes(q, ids) {
   return { team: new Map(team.map(r => [Number(r.root), Number(r.n)])), direct: new Map(direct.map(r => [Number(r.upline_id), Number(r.n)])) };
 }
 
+// shared/lists.js CUSTOM_COUNTS for listings (System → Automatic rules), in SQL on the JSON they keep:
+// the product handler log (more.phLog), the share slots (share.coPh, share.pmId), owner looks (more.ownerViews).
+const coPhSlots = where => `exists (select 1 from json_table(coalesce(listings.share, '{}'), '$.coPh[*]' columns (locked varchar(5) path '$.locked', until varchar(20) path '$.until')) s where ${where})`;
+const LISTING_COUNTS = {
+  handlerMix: async (q, b, ctx) => {
+    const r = await q('listings').whereIn('listings.id', b.select('listings.id')).select(
+      q.raw("coalesce(sum(json_unquote(json_extract(listings.more, '$.phLog[last].from')) in ('coPh', 'locked')), 0) as by_co"),
+      q.raw("coalesce(sum(json_extract(listings.share, '$.pmId') = listings.holder_id), 0) as by_main"),
+      q.raw(`coalesce(sum(${coPhSlots("coalesce(s.locked, 'false') <> 'true' and s.until is not null and s.until <> '' and s.until >= ? and s.until <= ?")}), 0) as ending`, [ctx.today, addDays(ctx.today, 7)]),
+      q.raw(`coalesce(sum(${coPhSlots("s.locked = 'true'")}), 0) as locked`),
+    ).first();
+    return { byCoPh: Number(r.by_co), byMain: Number(r.by_main), ending: Number(r.ending), locked: Number(r.locked) };
+  },
+  ownerLooks: async (q, b, ctx) => {
+    const r = await q.from({ l: 'listings' })
+      .joinRaw("cross join json_table(coalesce(json_extract(l.more, '$.ownerViews'), json_array()), '$[*]' columns (at varchar(20) path '$.at')) as v")
+      .whereIn('l.id', b.select('listings.id')).where('v.at', '>=', addDays(ctx.today, -30)).count({ n: '*' }).first();
+    return { n: Number(r.n) };
+  },
+};
+
+// shared/listings.js buildingRankings for these buildings only: their listings and full-closed sales.
+async function rankingsFor(q, ids) {
+  const listings = ids.length ? (await q('listings').whereIn('title_id', ids).orderBy('id').select('id', 'title_id', 'type', 'status', 'flags', 'holder_id'))
+    .map(l => ({ id: l.id, titleId: l.title_id, type: l.type, status: l.status, flags: parseJson(l.flags) || [], holderId: l.holder_id })) : [];
+  const deals = listings.length ? (await q('deals').whereIn('listing_id', listings.map(l => l.id)).where({ status: 'closed', type: 'sale' }).orderBy('id')
+    .select('listing_id', 'holder_id', 'price', 'status', 'type')).map(d => ({ listingId: d.listing_id, holderId: d.holder_id, price: Number(d.price), status: d.status, type: d.type })) : [];
+  return buildingRankings({ listings, deals });
+}
+
 const STAFF_SCOPE = { branch: (b, v) => inBranch(b, v, 'staff.branch_id'), team: (b, v) => b.whereIn('staff.id', v.team) };
 
 const SERVER = {
@@ -229,9 +265,9 @@ const SERVER = {
       },
     },
   },
-  listings: { table: 'listings', scope: { branch: inBranch, team: either(['holder_id', 'creator_id']) }, custom: LISTING_RULES },
+  listings: { table: 'listings', scope: { branch: inBranch, team: either(['holder_id', 'creator_id']) }, custom: LISTING_RULES, counts: LISTING_COUNTS },
   agency: {
-    table: 'listings', custom: LISTING_RULES, rows: hideOwners,
+    table: 'listings', custom: LISTING_RULES, rows: hideOwners, counts: LISTING_COUNTS,
     // Their reach, and every active listing.
     scope: {
       branch: (b, v) => b.where(x => x.where('listings.branch_id', v.branchId).orWhere('listings.status', 'active')),
@@ -313,12 +349,18 @@ const SERVER = {
       // shared/lists.js CUSTOM_EXTRAS.buildingRanking: the same rankings, from the listings and closed sales of the page's buildings only.
       buildingRanking: async (q, rows) => {
         const ids = rows.map(r => r.id);
-        const listings = ids.length ? (await q('listings').whereIn('title_id', ids).orderBy('id').select('id', 'title_id', 'type', 'status', 'flags', 'holder_id'))
-          .map(l => ({ id: l.id, titleId: l.title_id, type: l.type, status: l.status, flags: parseJson(l.flags) || [], holderId: l.holder_id })) : [];
-        const deals = listings.length ? (await q('deals').whereIn('listing_id', listings.map(l => l.id)).where({ status: 'closed', type: 'sale' }).orderBy('id')
-          .select('listing_id', 'holder_id', 'price', 'status', 'type')).map(d => ({ listingId: d.listing_id, holderId: d.holder_id, price: Number(d.price), status: d.status, type: d.type })) : [];
-        const all = buildingRankings({ listings, deals });
+        const all = await rankingsFor(q, ids);
         return new Map(ids.map(id => [id, all.get(id) || { sale: [], rental: [] }]));
+      },
+    },
+    counts: {
+      // shared/lists.js CUSTOM_COUNTS.buildingLeads (leadCounts): the leads kept on each building, and the rankings.
+      buildingLeads: async (q, b) => {
+        const titles = (await q('titles').whereIn('titles.id', b.select('titles.id')).select('id', 'handler_id', 'more')).map(r => {
+          const more = parseJson(r.more) || {};
+          return { id: r.id, handlerId: r.handler_id, managerId: more.managerId ?? null, managerPermanent: !!more.managerPermanent, handlerPermanent: !!more.handlerPermanent };
+        });
+        return SHARED.leadCounts(titles, await rankingsFor(q, titles.map(t => t.id)));
       },
     },
   },

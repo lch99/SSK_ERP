@@ -1,7 +1,7 @@
-import { useMemo } from 'react'
 import * as L from '../../../shared/listings.js'
 import { C, btn } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
+import { useList } from '../useList.js'
 import { useCan } from '../access.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { Page, Card, Pill, Link, go } from '../ui.jsx'
@@ -35,48 +35,33 @@ const Count = ({ n, label, tone = 'gray', to }) => {
   return to && n ? <Link to={to}>{pill}</Link> : pill
 }
 
+// One read of a list for its counts only: everything the viewer may see, whatever branch the top bar shows.
+const useCounts = (key, names, skip) => useList(key, { counts: names.join(',') }, { branch: false, pageSize: 1, skip }).counts
+
 export default function Rules() {
   const erp = useErp()
   const { m } = erp
   const can = useCan()
   const fb = useFeedback()
-  const d = m.data
-  const runs = d.runs || {}
+  const runs = m.data.runs || {}
   const full = can('listings', 'full')
-  const now = useMemo(() => {
-    const active = d.listings.filter(l => l.status === 'active')
-    const last = l => l.phLog?.at(-1)
-    const bands = {}
-    for (const l of active) { const r = L.priceRating(l); bands[r?.band || 'none'] = (bands[r?.band || 'none'] || 0) + 1 }
-    const hot = {}
-    for (const l of active) for (const k of L.hotLists(l)) hot[k] = (hot[k] || 0) + 1
-    const weekAhead = L.addDays(m.today, 7)
-    const rankings = L.buildingRankings(d)
-    const titles = d.titles.filter(t => t.status === 0)
-    const close = kind => titles.filter(t => {
-      const top = rankings.get(t.id)?.[kind]?.[0]
-      const rule = kind === 'sale' ? R.projectManager : R.projectHandler
-      return top && top.n >= rule.win * 0.6 && top.n < rule.win && top.staffId !== (kind === 'sale' ? t.managerId : t.handlerId)
-    }).length
-    const stamp = `${m.today} 23:59`
-    return {
-      active: active.length,
-      byCoPh: active.filter(l => ['coPh', 'locked'].includes(last(l)?.from)).length,
-      byMain: active.filter(l => l.share?.pmId && l.share.pmId === l.holderId).length,
-      ending: active.filter(l => (l.share?.coPh || []).some(c => !c.locked && c.until && c.until >= m.today && c.until <= weekAhead)).length,
-      locked: active.filter(l => (l.share?.coPh || []).some(c => c.locked)).length,
-      pm: titles.filter(t => t.managerId).length, ph: titles.filter(t => t.handlerId).length,
-      forGood: titles.filter(t => t.managerPermanent || t.handlerPermanent).length, closePm: close('sale'), closePh: close('rental'),
-      bands, hot, outdated: active.filter(l => L.isOutdated(l, m.today)).length,
-      toConfirm: (d.viewings || []).filter(v => v.status === 'new' || v.status === 'rescheduled').length,
-      overdue: (d.viewings || []).filter(v => L.reviewOverdue(v, stamp)).length,
-      pending: d.staff.filter(s => s.status === 'pending').length,
-      suspendSoon: d.staff.filter(s => s.status === 'pending' && L.daysBetween(s.joined, m.today) >= R.pendingDays - 2).length,
-      lockSoon: d.staff.filter(s => s.status === 'active' && s.lastActive && L.daysBetween(String(s.lastActive).slice(0, 10), m.today) > R.idleDays - 15).length,
-      suspended: d.staff.filter(s => s.status === 'suspended').length, lockedStaff: d.staff.filter(s => s.status === 'locked').length,
-      looks: d.listings.reduce((t, l) => t + (l.ownerViews || []).filter(x => x.at >= L.addDays(m.today, -30)).length, 0),
-    }
-  }, [d, m.today])
+  // What each rule affects right now, added up by the server (shared/lists.js counts).
+  const lc = useCounts('listings', ['active', ...Object.keys(L.RATING).map(k => `band_${k}`), ...Object.keys(L.HOT_LISTS).map(k => `activeHot_${k}`),
+    'pastWindow', 'handlers', 'ownerLooks'], !can('listings', 'view'))
+  const tc = useCounts('titles', ['leads'], !can('listings', 'view'))
+  const vc = useCounts('viewings', ['status', 'overdue'], !can('listings', 'view'))
+  const sc = useCounts('staff', ['everyone', 'suspendSoon', 'lockSoon'], !can('staff', 'view'))
+  const h = lc.handlers || {}, leads = tc.leads || {}, people = sc.everyone || {}
+  const bands = Object.fromEntries(Object.keys(L.RATING).map(k => [k, lc[`band_${k}`]?.n || 0]))
+  const now = {
+    byCoPh: h.byCoPh || 0, byMain: h.byMain || 0, ending: h.ending || 0, locked: h.locked || 0,
+    pm: leads.pm || 0, ph: leads.ph || 0, forGood: leads.forGood || 0, closePm: leads.closePm || 0, closePh: leads.closePh || 0,
+    bands: { ...bands, none: Math.max(0, (lc.active?.n || 0) - Object.values(bands).reduce((a, b) => a + b, 0)) },
+    hot: Object.fromEntries(Object.keys(L.HOT_LISTS).map(k => [k, lc[`activeHot_${k}`]?.n || 0])), outdated: lc.pastWindow?.n || 0,
+    toConfirm: (vc.status?.new || 0) + (vc.status?.rescheduled || 0), overdue: vc.overdue?.n || 0,
+    pending: people.pending || 0, suspendSoon: sc.suspendSoon?.n || 0, lockSoon: sc.lockSoon?.n || 0,
+    suspended: people.suspended || 0, lockedStaff: people.locked || 0, looks: lc.ownerLooks?.n || 0,
+  }
   const run = (fn, key, label) => async () => {
     const st = await fb.run(fn)
     if (st) { const n = st.data.runs?.[key]?.changed || 0; fb.toast(n ? `${fmt(n)} ${label}` : 'Checked: nothing to change') }
