@@ -138,7 +138,7 @@ export function useListDownload(key) {
 }
 
 // `value`, once it has stopped changing for `ms` (typing in a search box).
-function useDebounced(value, ms) {
+export function useDebounced(value, ms) {
   const [v, setV] = useState(value)
   useEffect(() => {
     if (!ms) { setV(value); return undefined }

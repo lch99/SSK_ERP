@@ -204,6 +204,20 @@ const LISTING_COUNTS = {
       .whereIn('l.id', b.select('listings.id')).where('v.at', '>=', addDays(ctx.today, -30)).count({ n: '*' }).first();
     return { n: Number(r.n) };
   },
+  // shared/lists.js CUSTOM_COUNTS.followUpsBy (Reports): the page's period, from its params.
+  followUpsBy: async (q, b, ctx) => {
+    const { from, to } = ctx.params || {};
+    const f = q('listing_follow_ups as f').whereIn('f.listing_id', b.select('listings.id')).whereNotNull('f.by_id');
+    if (from) f.where('f.date', '>=', from);
+    if (to) f.where('f.date', '<=', to);
+    const out = {};
+    for (const r of await f.groupBy('f.by_id', 'f.action').select({ v: 'f.by_id', a: 'f.action' }).count({ n: '*' })) {
+      const g = (out[r.v] ||= { n: {}, total: 0 });
+      g.n[r.a] = Number(r.n);
+      g.total += Number(r.n);
+    }
+    return out;
+  },
 };
 
 // shared/listings.js buildingRankings for these buildings only: their listings and full-closed sales.
@@ -233,6 +247,12 @@ const SERVER = {
       yearly: async q => new Map([...(await tiersNow(q))].map(([id, t]) => [id, t.yearly])),
     },
     counts: {
+      // shared/lists.js CUSTOM_COUNTS.standingOfEach: the tier and this year's commission of each one found.
+      standingOfEach: async (q, b) => {
+        const ids = (await b.select('staff.id')).map(r => r.id);
+        const t = await tiersNow(q, ids);
+        return Object.fromEntries(ids.map(id => [id, { tier: t.get(id)?.tier ?? null, yearly: t.get(id)?.yearly ?? 0 }]));
+      },
       tierCounts: async (q, b) => {
         const ids = (await b.select('staff.id')).map(r => r.id);
         const out = {};
@@ -299,17 +319,73 @@ const SERVER = {
         const r = await q('deals').whereIn('deals.id', b.select('deals.id')).whereRaw(`${RECEIVED} < deals.billed`).count({ n: '*' }).min({ first: 'deals.id' }).first();
         return { n: Number(r.n), first: r.first == null ? null : Number(r.first) };
       },
+      // shared/lists.js CUSTOM_COUNTS (Reports): cleared up to each bill, by sales agent.
+      clearedByAgent: async (q, b) => {
+        const got = await q('deals').whereIn('deals.id', b.select('deals.id')).groupBy('deals.agent_id').select({ v: 'deals.agent_id' }).select(q.raw(`sum(${GOT}) as s`));
+        return Object.fromEntries(got.map(r => [r.v ?? '', r2(Number(r.s) || 0)]));
+      },
+      // Full closes by their listing's building.
+      byBuilding: async (q, b) => {
+        const got = await q('deals').join('listings', 'listings.id', 'deals.listing_id').join('titles', 'titles.id', 'listings.title_id')
+          .whereIn('deals.id', b.select('deals.id')).groupBy('titles.id').select({ v: 'titles.id' })
+          .select(q.raw(`sum(deals.type <> 'rental') as sales, coalesce(sum(case when deals.type <> 'rental' then deals.price end), 0) as sale_value,
+            sum(deals.type = 'rental') as rentals, coalesce(sum(case when deals.type = 'rental' then deals.price end), 0) as rent_value, coalesce(sum(deals.billed), 0) as fees`));
+        return Object.fromEntries(got.map(r => [r.v, { sales: Number(r.sales), saleValue: r2(Number(r.sale_value)), rentals: Number(r.rentals), rentValue: r2(Number(r.rent_value)), fees: r2(Number(r.fees)) }]));
+      },
+      // Each person on either side (once an E-Form): the two sides unpivoted with JSON_TABLE.
+      byPerson: async (q, b) => {
+        const got = await q.from({ d: 'deals' })
+          .joinRaw("cross join json_table(json_array(d.agent_id, case when d.agent_id is null or d.holder_id <> d.agent_id then d.holder_id end), '$[*]' columns (pid int path '$')) as p")
+          .whereIn('d.id', b.select('deals.id')).whereNotNull('p.pid').groupBy('p.pid').select({ v: 'p.pid' }).count({ cases: '*' })
+          .select(q.raw("sum(d.type = 'rental') as rental, sum(d.type <> 'rental') as sales, coalesce(sum(d.price), 0) as price, coalesce(sum(case when d.status <> 'draft' then d.billed else 0 end), 0) as submission"));
+        return Object.fromEntries(got.map(r => [r.v, { cases: Number(r.cases), sales: Number(r.sales), rental: Number(r.rental), price: r2(Number(r.price)), submission: r2(Number(r.submission)) }]));
+      },
+      productSide: async (q, b) => {
+        const got = await q('deals').whereIn('deals.id', b.select('deals.id')).whereNotNull('deals.holder_id')
+          .where(x => x.whereNull('deals.agent_id').orWhereRaw('deals.holder_id <> deals.agent_id')).groupBy('deals.holder_id').select({ v: 'deals.holder_id' }).count({ n: '*' });
+        return Object.fromEntries(got.map(r => [r.v, Number(r.n)]));
+      },
     },
   },
   moneyIn: { table: 'money_in', scope: { branch: viaDeal, team: viaDeal } },
   closes: {
     table: 'closes', scope: { branch: viaDeal, team: viaDeal },
-    counts: { netByDealBranch: (q, b) => byDealBranch(q, b, 'closes', 'net') },
+    counts: {
+      netByDealBranch: (q, b) => byDealBranch(q, b, 'closes', 'net'),
+      // shared/lists.js CUSTOM_COUNTS (Reports): claims by the E-Form's sales agent; each person on the sides.
+      claimByDealAgent: async (q, b) => {
+        const got = await q('closes').join('deals', 'deals.id', 'closes.deal_id').whereIn('closes.id', b.select('closes.id'))
+          .groupBy('deals.agent_id').select({ v: 'deals.agent_id' }).sum({ s: 'closes.claim' });
+        return Object.fromEntries(got.map(r => [r.v ?? '', r2(Number(r.s) || 0)]));
+      },
+      sidesByPerson: async (q, b) => {
+        const per = q.from({ c: 'closes' })
+          .joinRaw("cross join json_table(coalesce(c.sides, json_array()), '$[*]' columns (sid int path '$.staffId', base double path '$.base')) as s")
+          .whereIn('c.id', b.select('closes.id')).whereNotNull('s.sid').groupBy('c.id', 's.sid', 'c.claim')
+          .select({ sid: 's.sid', claim: 'c.claim' }).sum({ base: 's.base' });
+        const got = await q.from(per.as('x')).groupBy('x.sid').select({ v: 'x.sid' }).sum({ closing: 'x.claim' }).sum({ comm: 'x.base' });
+        return Object.fromEntries(got.map(r => [r.v, { closing: r2(Number(r.closing) || 0), comm: r2(Number(r.comm) || 0) }]));
+      },
+    },
   },
   sst: { table: 'closes', scope: { branch: viaDeal, team: viaDeal } },
   payouts: {
     table: 'payout_lines', scope: { branch: viaDeal, team: (b, v) => b.whereIn('staff_id', v.team) },
-    counts: { paidByDealBranch: (q, b) => byDealBranch(q, b, 'payout_lines', 'amount') },
+    counts: {
+      paidByDealBranch: (q, b) => byDealBranch(q, b, 'payout_lines', 'amount'),
+      // shared/lists.js CUSTOM_COUNTS.linesByPerson (Reports).
+      linesByPerson: async (q, b) => {
+        const got = await q('payout_lines').whereIn('payout_lines.id', b.select('payout_lines.id')).groupBy('payout_lines.staff_id')
+          .select({ v: 'payout_lines.staff_id' }).sum({ payout: 'payout_lines.amount' })
+          .select(q.raw('count(distinct case when payout_lines.archive_id is not null then payout_lines.deal_id end) as archived'));
+        return Object.fromEntries(got.map(r => [r.v ?? '', { payout: r2(Number(r.payout) || 0), archived: Number(r.archived) }]));
+      },
+      payByKind: async (q, b) => {
+        const got = await q('payout_lines').whereIn('payout_lines.id', b.select('payout_lines.id')).groupBy('payout_lines.staff_id').select({ v: 'payout_lines.staff_id' })
+          .select(q.raw("coalesce(sum(case when coalesce(payout_lines.role, '') = '' then payout_lines.amount else 0 end), 0) as own, coalesce(sum(case when coalesce(payout_lines.role, '') <> '' then payout_lines.amount else 0 end), 0) as incentive"));
+        return Object.fromEntries(got.map(r => [r.v ?? '', { own: r2(Number(r.own)), incentive: r2(Number(r.incentive)) }]));
+      },
+    },
     custom: {
       // shared/lists.js closeKind(): partial = not full; balance = full after a partial (part 2 on); full = the rest.
       closeType: {
@@ -369,6 +445,20 @@ const SERVER = {
   propertyTypes: { table: 'property_types' },
   viewings: {
     table: 'viewings', columns: { 'listingIds.0': 'listing_id' },
+    counts: {
+      // shared/lists.js CUSTOM_COUNTS.viewingsBy (Reports): booked, viewed and keen by who booked; hosted by the handler.
+      viewingsBy: async (q, b) => {
+        const out = {};
+        const row = id => (out[id ?? ''] ||= { booked: 0, hosted: 0, done: 0, keen: 0 });
+        const found = () => b.clone().select('viewings.id');
+        for (const r of await q('viewings').whereIn('viewings.id', found()).groupBy('viewings.requested_by').select({ v: 'viewings.requested_by' }).count({ n: '*' })
+          .select(q.raw(`sum(viewings.status = 'done') as done, sum(viewings.status = 'done' and json_unquote(json_extract(viewings.review, '$.outcome')) in (${SHARED.KEEN.map(() => '?').join(', ')})) as keen`, SHARED.KEEN))) {
+          Object.assign(row(r.v), { booked: Number(r.n), done: Number(r.done) || 0, keen: Number(r.keen) || 0 });
+        }
+        for (const r of await q('viewings').whereIn('viewings.id', found()).groupBy('viewings.handler_id').select({ v: 'viewings.handler_id' }).count({ n: '*' })) row(r.v).hosted = Number(r.n);
+        return out;
+      },
+    },
     // Booked or hosted by someone in the viewer's reach (visibleData).
     scope: {
       branch: (b, v) => b.where(x => x.where(y => mine(y, v, 'viewings.requested_by')).orWhere(y => mine(y, v, 'viewings.handler_id'))),

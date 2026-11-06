@@ -4,6 +4,7 @@
 //   GET /meta                     the Setup view the pages pay by, and who is asking
 //   GET /org/children?of=&branchId=&page=   one level of the org chart, with team sizes
 //   GET /org/trail/:id            the uplines above someone, top first
+//   GET /deals/history?q=&page=&size=   every E-Form's history in reach, newest first (Reports → E-Form change log)
 //   GET /deals/:id/history        the E-Form update tracker for one E-Form
 //   GET /deals/:id/credit         its agent's and listing holder's tier credit (the payout preview)
 //   GET /:list?q=&sort=&page=&size=&<filters>   { rows, total, counts, page, size }
@@ -190,6 +191,28 @@ async function oneRecord(spec, viewer, id) {
   if (spec.extras) rec.$ = (await extrasFor(db, spec.extras, [rec])).get(rec.id);
   return rec;
 }
+
+// Every E-Form's history in the person's reach, newest first, a page at a time (Reports → E-Form change log).
+// q: part of the E-Form's code or of who made the change. audit_log keeps the E-Form's id as text (compared as a number:
+// its collation is not the deals table's).
+router.get('/deals/history', needs('deals'), wrap(async (req, res) => {
+  const v = await viewerOf(req);
+  const size = Math.min(200, Math.max(1, Number.parseInt(req.query.size, 10) || 25));
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const q = String(req.query.q || '').trim();
+  const ids = sub => { sub.select('deals.id').from('deals'); scopeFor(LISTS.deals, v)(sub); };
+  const dealId = db.raw('cast(audit_log.entity_id as unsigned)');
+  const found = () => {
+    const b = db('audit_log').where('audit_log.entity', 'deal').whereIn(dealId, ids);
+    if (q) b.where(x => x.where('audit_log.username', 'like', `%${q}%`).orWhereIn(dealId, sub => { ids(sub); sub.where('deals.code', 'like', `%${q}%`); }));
+    return b;
+  };
+  const { n } = await found().count({ n: '*' }).first();
+  const rows = await found().orderBy([{ column: 'audit_log.created_at', order: 'desc' }, { column: 'audit_log.id', order: 'desc' }]).limit(size).offset((page - 1) * size)
+    .select('audit_log.id', 'audit_log.username', 'audit_log.entity_id', 'audit_log.detail', 'audit_log.created_at');
+  const codes = new Map((await db('deals').whereIn('id', [...new Set(rows.map(r => Number(r.entity_id)))]).select('id', 'code')).map(d => [d.id, d.code]));
+  res.json({ total: Number(n), page, size, rows: rows.map(r => ({ id: r.id, at: KINDS.at.read(r.created_at), by: r.username, dealId: Number(r.entity_id), code: codes.get(Number(r.entity_id)) || null, ...parseJson(r.detail) })) });
+}));
 
 router.get('/deals/:id/history', needs('deals'), wrap(async (req, res) => {
   const v = await viewerOf(req);

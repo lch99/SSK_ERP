@@ -116,6 +116,8 @@ export const getListPage = (list, params) => request(`/erp/${list}?${listQuery(p
 export const getListRecord = (list, id, params = {}) => request(`/erp/${list}/${id}?${listQuery(params)}`)
 // The tier credit of an E-Form's agent and listing holder: { [staffId]: { lifetime, yearly } } (server only).
 export const getDealCredit = id => request(`/erp/deals/${id}/credit`)
+// Every E-Form's history in reach, a page at a time: { rows, total } (server mode; the demo reads its own records).
+export const getDealsHistory = params => request(`/erp/deals/history?${listQuery(params)}`)
 // Every row of a list that matches `params`, as the Excel file the server builds: { bytes, filename }.
 export async function downloadListFile(list, params) {
   const res = await send(`/erp/${list}/download?${listQuery(params)}`)

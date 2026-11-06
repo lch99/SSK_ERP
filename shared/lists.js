@@ -31,7 +31,8 @@
 //                                sum; month: true groups a date by its month, 'YYYY-MM': a trend in one read)
 //                                with distinct: field, also how many different values it has ({ n, sum, distinct });
 //                                with range: field, its lowest and highest value ({ …, range: { min, max } })
-//         { only, custom: name, keep? }   CUSTOM_COUNTS below here over those records, and the same on the server
+//         { only?, custom: name, keep? }  CUSTOM_COUNTS below here over those records (without only: those the page finds), and the same
+//                                on the server; it may read the page's params (a report's period)
 //         { sum?, distinct?, range?, by? }   the same over the page's own search and filters
 //         ?counts=a,b asks for those counts only; ?counts=0 for none (a later page)
 // extras (on each row as `$`):
@@ -152,6 +153,8 @@ const LISTINGS = {
     pastWindow: { only: ctx => ({ outdatedBy: ctx.today }) },
     handlers: { only: () => ({ status: 'active' }), custom: 'handlerMix' },
     ownerLooks: { only: () => ({}), custom: 'ownerLooks' },
+    // Reports: the follow-ups each person made in the page's period (from, to), by action.
+    followUpsBy: { custom: 'followUpsBy' },
   },
   extras: {
     deal: { pick: ['code', 'date', 'price', 'status'], of: 'deals', from: 'dealId' },
@@ -206,6 +209,8 @@ export const LISTS = {
     counts: {
       ...STAFF.counts,
       // Automatic rules: pending accounts two days or less from being suspended, active ones locking within 15 days.
+      // Each person's tier and commission this year (Reports): everyone of this kind at once.
+      standing: { only: () => ({}), custom: 'standingOfEach', keep: STAFF_KEEP },
       suspendSoon: { only: ctx => ({ status: 'pending', joinedTo: addDays(ctx.today, 2 - LISTING_RULES.pendingDays) }) },
       lockSoon: { only: ctx => ({ status: 'active', lastActiveTo: addDays(ctx.today, 14 - LISTING_RULES.idleDays) }) },
       // Leaders of everyone of this kind, by upline level (the Leaders card and the Level filter's choices).
@@ -265,7 +270,8 @@ export const LISTS = {
     search: ['code', 'buyer.name', 'owner.name', 'property.title', 'property.address'],
     filters: {
       status: { eq: 'status' }, type: { eq: 'type' }, branchId: { eq: 'branchId' }, agentId: { eq: 'agentId' }, holderId: { eq: 'holderId' },
-      listingId: { eq: 'listingId' }, projectId: { eq: 'projectId' }, lvStatus: { eq: 'landlordCheck.status' }, title: { eq: 'property.title' },
+      listingId: { eq: 'listingId' }, projectId: { eq: 'projectId' }, lvStatus: { eq: 'landlordCheck.status' }, lvArchive: { eq: 'landlordCheck.archiveId' },
+      title: { eq: 'property.title' },
       // Either side of the deal (the sales agent or the listing holder).
       staffId: { eq: ['agentId', 'holderId'] },
       // A leader and everyone under them, on either side; agentTeam: as the sales agent only.
@@ -300,6 +306,18 @@ export const LISTS = {
       teamFees: { only: ctx => ({ from: monthStart(ctx.today), to: monthEnd(ctx.today), status: LIVE }), sum: 'fee', keep: ['agentTeam'] },
       teamBilled: { only: ctx => ({ from: monthStart(ctx.today), to: monthEnd(ctx.today), status: LIVE }), sum: 'money.billed', keep: ['agentTeam'] },
       short: { only: () => ({ status: 'submitted,partial' }), custom: 'shortOfCash', keep: ['agentId'] },
+      // Reports, over the page's own filters: by sales agent (billed, fees, cleared up to each bill),
+      // by building (full closes), by person on either side.
+      perAgent: { by: 'agentId', sum: 'money.billed' },
+      feesPerAgent: { by: 'agentId', sum: 'fee' },
+      clearedPerAgent: { custom: 'clearedByAgent' },
+      perBuilding: { custom: 'byBuilding' },
+      perPerson: { custom: 'byPerson' },
+      // Listings on the product side only (the holder is not also the sales agent), by holder.
+      productSide: { custom: 'productSide' },
+      // Landlord checks: everyone's by status, and the unverified ones by archive.
+      checks: { only: () => ({}), by: 'landlordCheck.status' },
+      unverifiedByArchive: { only: () => ({ lvStatus: '-1' }), by: 'landlordCheck.archiveId' },
     },
     extras: {
       listingCode: { field: 'code', of: 'listings', from: 'listingId' },
@@ -374,6 +392,10 @@ export const LISTS = {
     counts: {
       thisMonth: { only: ctx => ({ from: monthStart(ctx.today), to: monthEnd(ctx.today) }), keep: ['staffId', 'branchId'] },
       netByMonth: { only: ctx => tenMonths(ctx), by: 'date', month: true, sum: 'net', keep: HOME },
+      claimByMonth: { only: ctx => tenMonths(ctx), by: 'date', month: true, sum: 'claim', keep: HOME },
+      // Reports, over the page's own filters: claimed by the E-Form's sales agent; by each person on a side.
+      claimPerAgent: { custom: 'claimByDealAgent' },
+      perPerson: { custom: 'sidesByPerson' },
       claimed: { only: () => ({}), sum: 'claim', keep: HOME },
       netByBranchYear: { only: ctx => yearOf(ctx), custom: 'netByDealBranch' },
     },
@@ -403,6 +425,10 @@ export const LISTS = {
       // New and Pending Queries: waiting for approval, on how many closes.
       waiting: { only: () => ({ status: 'new,queried', archived: 'false' }), sum: 'amount', distinct: 'closeId', keep: ['branchId'] },
       queried: { only: () => ({ status: 'queried', archived: 'false' }), distinct: 'dealId', keep: HOME },
+      // Reports, over the page's own filters: each person's payout, and on how many archived E-Forms.
+      perPerson: { custom: 'linesByPerson' },
+      // Each person's own pay (no upline level) and incentives (an upline level).
+      payByKind: { custom: 'payByKind' },
       paidByBranchYear: { only: ctx => yearOf(ctx), custom: 'paidByDealBranch' },
       // Ready, salary not requested yet, for how many people.
       ready: { only: () => ({ status: 'approved', requested: 'false', archived: 'false' }), sum: 'amount', distinct: 'staffId', keep: ['branchId'] },
@@ -575,6 +601,8 @@ export const LISTS = {
       // Today or tomorrow and still not confirmed by the product handler.
       unconfirmed: { only: ctx => ({ status: 'new,rescheduled', to: addDays(ctx.today, 1) }), keep: HOME },
       overdue: { only: ctx => ({ reviewDue: `${ctx.today} 23:59` }) },
+      // Reports, over the page's own filters: booked, hosted, viewed and with a keen buyer, by person.
+      perPerson: { custom: 'viewingsBy' },
     },
     extras: { listings: { pick: ['code', 'title', 'area', 'category', 'type', 'status', 'holderId', 'titleId', 'branchId'], of: 'listings', from: 'listingIds', many: true } },
   },
@@ -723,6 +751,16 @@ export function leadCounts(titles, rankings) {
     forGood: titles.filter(t => t.managerPermanent || t.handlerPermanent).length, closePm: close('sale'), closePh: close('rental') }
 }
 
+// A viewing's review outcomes that mean the buyer is keen.
+export const KEEN = ['interested', 'second', 'offer']
+// { key: total } of [key, amount] pairs from each record (a missing key is '').
+function sumsBy(hits, pairs) {
+  const out = {}
+  for (const r of hits) for (const [k, v] of pairs(r)) out[countKey(k)] = (out[countKey(k)] || 0) + v
+  for (const k of Object.keys(out)) out[k] = r2(out[k])
+  return out
+}
+
 // { value: { n, sum } } of records grouped by their E-Form's branch (closes and payout lines have none of their own).
 const byDealBranch = (hits, ctx, field) => {
   const out = {}
@@ -760,6 +798,98 @@ export const CUSTOM_COUNTS = {
   ownerLooks: (hits, ctx) => {
     const from = addDays(ctx.today, -30)
     return { n: hits.reduce((t, l) => t + (l.ownerViews || []).filter(x => x.at >= from).length, 0) }
+  },
+  // Reports. Each E-Form's cleared cash, capped at its bill, by its sales agent.
+  clearedByAgent: (hits, ctx) => {
+    const cash = ctx.cash()
+    return sumsBy(hits, d => [[d.agentId, Math.min(cash.get(d.id)?.cleared || 0, Number(d.money?.billed || 0))]])
+  },
+  // Full closes by their listing's building: how many sales and rentals, their prices, and the fees.
+  byBuilding: (hits, ctx) => {
+    const out = {}
+    for (const d of hits) {
+      const t = ctx.byId('listings').get(d.listingId)?.titleId
+      if (t == null || !ctx.byId('titles').has(t)) continue
+      const g = (out[countKey(t)] ||= { sales: 0, saleValue: 0, rentals: 0, rentValue: 0, fees: 0 })
+      if (d.type === 'rental') { g.rentals++; g.rentValue += Number(d.price || 0) } else { g.sales++; g.saleValue += Number(d.price || 0) }
+      g.fees += Number(d.money?.billed || 0)
+    }
+    for (const g of Object.values(out)) for (const k of ['saleValue', 'rentValue', 'fees']) g[k] = r2(g[k])
+    return out
+  },
+  // Each person on either side of the E-Forms (once each): how many, sales and rentals, prices, and billed when sent.
+  byPerson: hits => {
+    const out = {}
+    for (const d of hits) for (const id of new Set([d.agentId, d.holderId].filter(x => x != null))) {
+      const g = (out[countKey(id)] ||= { cases: 0, sales: 0, rental: 0, price: 0, submission: 0 })
+      g.cases++
+      if (d.type === 'rental') g.rental++; else g.sales++
+      g.price += Number(d.price || 0)
+      if (d.status !== 'draft') g.submission += Number(d.money?.billed || 0)
+    }
+    for (const g of Object.values(out)) { g.price = r2(g.price); g.submission = r2(g.submission) }
+    return out
+  },
+  productSide: hits => {
+    const out = {}
+    for (const d of hits) if (d.holderId != null && d.holderId !== d.agentId) out[countKey(d.holderId)] = (out[countKey(d.holderId)] || 0) + 1
+    return out
+  },
+  payByKind: hits => {
+    const out = {}
+    for (const l of hits) { const g = (out[countKey(l.staffId)] ||= { own: 0, incentive: 0 }); g[l.role ? 'incentive' : 'own'] += Number(l.amount || 0) }
+    for (const g of Object.values(out)) { g.own = r2(g.own); g.incentive = r2(g.incentive) }
+    return out
+  },
+  standingOfEach: (hits, ctx) => Object.fromEntries(hits.map(r => { const t = tiersNow(ctx).get(r.id); return [countKey(r.id), { tier: t?.tier ?? null, yearly: t?.yearly ?? 0 }] })),
+  // Closes by their E-Form's sales agent: the claims.
+  claimByDealAgent: (hits, ctx) => sumsBy(hits, c => [[ctx.byId('deals').get(c.dealId)?.agentId, Number(c.claim || 0)]]),
+  // Each person on a close's sides: the claims they were on (once a close) and their sides' base.
+  sidesByPerson: hits => {
+    const out = {}
+    for (const c of hits) {
+      const base = new Map()
+      for (const sd of c.sides || []) if (sd.staffId != null) base.set(sd.staffId, (base.get(sd.staffId) || 0) + Number(sd.base || 0))
+      for (const [id, b] of base) { const g = (out[countKey(id)] ||= { closing: 0, comm: 0 }); g.closing += Number(c.claim || 0); g.comm += b }
+    }
+    for (const g of Object.values(out)) { g.closing = r2(g.closing); g.comm = r2(g.comm) }
+    return out
+  },
+  // Each person's payout lines: the total, and on how many E-Forms some were archived.
+  linesByPerson: hits => {
+    const out = {}, archived = {}
+    for (const l of hits) {
+      const k = countKey(l.staffId)
+      const g = (out[k] ||= { payout: 0, archived: 0 })
+      g.payout += Number(l.amount || 0)
+      if (l.archiveId) (archived[k] ||= new Set()).add(l.dealId)
+    }
+    for (const [k, g] of Object.entries(out)) { g.payout = r2(g.payout); g.archived = archived[k]?.size || 0 }
+    return out
+  },
+  // The follow-ups each person made in the page's period, by action (0 calls, 1 viewing, 2 nego, 3 closing).
+  followUpsBy: (hits, ctx) => {
+    const { from = '', to = '9999-12-31' } = ctx.params || {}
+    const out = {}
+    for (const l of hits) for (const f of l.followUps || []) {
+      if (f.by == null || f.date < from || f.date > to) continue
+      const g = (out[countKey(f.by)] ||= { n: {}, total: 0 })
+      g.n[f.action] = (g.n[f.action] || 0) + 1
+      g.total++
+    }
+    return out
+  },
+  // Viewings by person: booked, hosted, viewed (done), and done with a keen buyer.
+  viewingsBy: hits => {
+    const out = {}
+    const row = id => (out[countKey(id)] ||= { booked: 0, hosted: 0, done: 0, keen: 0 })
+    for (const v of hits) {
+      const b = row(v.requestedBy)
+      b.booked++
+      if (v.status === 'done') { b.done++; if (KEEN.includes(v.review?.outcome)) b.keen++ }
+      row(v.handlerId).hosted++
+    }
+    return out
   },
   buildingLeads: (hits, ctx) => leadCounts(hits, ctx.once('buildingRankings', () => buildingRankings({ listings: ctx.data?.listings || [], deals: ctx.data?.deals || [] }))),
   // E-Forms whose payments in (not returned or invalid) don't cover the bill yet: how many, and the first one's id.
@@ -968,6 +1098,8 @@ function run(all_records, spec, params, ctx, all) {
   let cashByDeal = null
   const c = {
     ...ctx,
+    // The page's own params (a report's period, for a count that reads it).
+    params,
     once: (key, fn) => { if (!memo.has(key)) memo.set(key, fn()); return memo.get(key) },
     team: id => { if (!teams.has(id)) teams.set(id, ctx.team ? ctx.team(id) : teamOf(id, ctx.data?.staff || [])); return teams.get(id) },
     cash: () => (cashByDeal ||= extrasOf(DEAL_CASH, ctx.data?.deals || [], ctx.data || {}, c)),
@@ -1034,7 +1166,7 @@ function run(all_records, spec, params, ctx, all) {
       const set = typeof def.set === 'function' ? def.set(c) : def.set
       counts[key] = records.filter(r => pass(r, def.ignores || [], set)).length
     } else {
-      counts[key] = def.by ? groupBy(matching, def) : addUp(matching, def)
+      counts[key] = def.custom ? CUSTOM_COUNTS[def.custom](matching, c) : def.by ? groupBy(matching, def) : addUp(matching, def)
     }
   }
 

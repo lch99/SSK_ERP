@@ -168,7 +168,8 @@ async function whereOf(q, spec, params, scope) {
 
 // ctx: { today } (what dated counts are worked out from; today by default).
 async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
-  const ctx = { today: localToday(), ...given };
+  // The page's own params too: a custom count may read them (a report's period).
+  const ctx = { today: localToday(), ...given, params };
   const { where, active, prepareSet } = await whereOf(q, spec, params, scope);
 
   const size = Math.min(MAX_SIZE, Math.max(1, Number.parseInt(params.size, 10) || DEFAULT_SIZE));

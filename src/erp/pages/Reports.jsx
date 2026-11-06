@@ -1,9 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { payoutForClose } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
-import { DEAL_STATUS, LANDLORD_STATUS, isAgent, sum, r2 } from '../model.js'
+import { useCan } from '../access.jsx'
+import { useList, useRecord, useDebounced } from '../useList.js'
+import { DealPicker } from '../pickers.jsx'
+import { DEMO, getDealCredit, getDealsHistory } from '../../api.js'
+import { tierCredit } from '../../../shared/erpRules.js'
+import { DEAL_STATUS, LANDLORD_STATUS, isAgent, r2 } from '../model.js'
 import { Page, Card, SearchBox, DateFilter, DataTable, Who, Pill, Link, Status, Modal, Notice, FormField, TextArea, Toolbar, Select, cols, Stat, mono, tabular, field } from '../ui.jsx'
 import { RankBars } from '../charts.jsx'
 import { rm, pct, date, monthName, lastMonths, amt } from '../format.js'
@@ -46,17 +51,28 @@ function useRange(m) {
   return { from, to, ui, inRange: d => d >= from && d <= to }
 }
 
+// Each figure is a count the server adds up over the period (shared/lists.js), never every record.
+const LIVE = 'submitted,partial,closed', SENT = 'submitted,partial,closed,cancelled'
+const useCounts = (key, params, skip) => useList(key, { counts: '0', ...params }, { pageSize: 1, skip }).counts
+const agentsOf = (m, ...maps) => [...new Set(maps.flatMap(x => Object.keys(x || {})))].map(Number).filter(id => m.staff[id] && isAgent(m.staff[id])).map(id => m.staff[id])
+
 function Total() {
-  const { m, scoped: d } = useErp()
+  const { m } = useErp()
+  const can = useCan()
   const r = useRange(m)
-  const rows = d.staff.filter(isAgent).map(s => {
-    const mine = d.deals.filter(x => x.agentId === s.id && x.status !== 'draft' && r.inRange(x.date))
-    const closed = d.closes.filter(c => r.inRange(c.date) && m.deals[c.dealId].agentId === s.id)
-    return { s, n: mine.length, total: sum(mine, x => x.money.billed), closing: sum(closed, c => c.claim), cleared: sum(mine, x => Math.min(m.cleared(x.id), x.money.billed)) }
-  }).filter(x => x.n || x.closing).sort((a, b) => b.total - a.total)
+  const period = { from: r.from, to: r.to }
+  const noCloses = !can('payouts', 'view')
+  const deals = useCounts('deals', { ...period, status: SENT, counts: 'perAgent,clearedPerAgent' })
+  const closes = useCounts('closes', { ...period, counts: 'claimPerAgent' }, noCloses)
+  const byMonth = useCounts('deals', { counts: 'billedByMonth' })
+  const claims = useCounts('closes', { counts: 'claimByMonth' }, noCloses)
+  const rows = agentsOf(m, deals.perAgent, closes.claimPerAgent).map(s => {
+    const a = deals.perAgent?.[s.id] || { n: 0, sum: 0 }
+    return { s, n: a.n, total: a.sum, closing: closes.claimPerAgent?.[s.id] || 0, cleared: deals.clearedPerAgent?.[s.id] || 0 }
+  }).filter(x => x.n || x.closing).sort((a, b) => b.total - a.total || a.s.id - b.s.id)
   const months = lastMonths(m.today, 10).reverse().map(mo => {
-    const ds = d.deals.filter(x => x.date.startsWith(mo) && x.status !== 'draft')
-    return { mo, n: ds.length, total: sum(ds, x => x.money.billed), closing: sum(d.closes.filter(c => c.date.startsWith(mo)), c => c.claim) }
+    const a = byMonth.billedByMonth?.[mo] || { n: 0, sum: 0 }
+    return { mo, n: a.n, total: a.sum, closing: claims.claimByMonth?.[mo]?.sum || 0 }
   })
   return (
     <>
@@ -85,22 +101,12 @@ function Total() {
 // The current ERP's Total Transaction Value (Project Manager): what closed in
 // full in each building in the period, and who leads the building.
 function Buildings() {
-  const { m, scoped: d } = useErp()
+  const { m } = useErp()
   const r = useRange(m)
   const [q, setQ] = useState('')
-  const rows = useMemo(() => {
-    const by = new Map()
-    for (const x of d.deals) {
-      if (x.status !== 'closed' || !x.closedOn || !r.inRange(x.closedOn)) continue
-      const t = m.titles[m.listings[x.listingId]?.titleId]
-      if (!t) continue
-      const row = by.get(t.id) || { t, sales: 0, saleValue: 0, rentals: 0, rentValue: 0, fees: 0 }
-      if (x.type === 'rental') { row.rentals++; row.rentValue += Number(x.price || 0) } else { row.sales++; row.saleValue += Number(x.price || 0) }
-      row.fees += Number(x.money?.billed || 0)
-      by.set(t.id, row)
-    }
-    return [...by.values()].sort((a, b) => b.saleValue - a.saleValue || b.rentals - a.rentals)
-  }, [d.deals, m, r.from, r.to]) // eslint-disable-line react-hooks/exhaustive-deps
+  const per = useCounts('deals', { status: 'closed', closedFrom: r.from, closedTo: r.to, counts: 'perBuilding' }).perBuilding || {}
+  const rows = Object.entries(per).filter(([id]) => m.titles[id]).map(([id, x]) => ({ t: m.titles[id], ...x }))
+    .sort((a, b) => b.saleValue - a.saleValue || b.rentals - a.rentals || a.t.id - b.t.id)
   const shown = rows.filter(x => !q || `${x.t.name} ${x.t.area}`.toLowerCase().includes(q.toLowerCase()))
   return (
     <Card pad={16}>
@@ -120,20 +126,15 @@ function Buildings() {
 
 // The current ERP's listing follow-up staff action report, with viewings.
 function FollowUps() {
-  const { m, scoped: d } = useErp()
+  const { m } = useErp()
   const r = useRange(m)
-  const rows = useMemo(() => {
-    const by = new Map()
-    const row = id => { if (!by.has(id)) by.set(id, { id, n: {}, total: 0, booked: 0, hosted: 0, done: 0, keen: 0 }); return by.get(id) }
-    for (const l of d.listings) for (const f of l.followUps) if (f.by != null && r.inRange(f.date)) { const x = row(f.by); x.n[f.action] = (x.n[f.action] || 0) + 1; x.total++ }
-    for (const v of d.viewings || []) {
-      if (!r.inRange(v.date)) continue
-      const b = row(v.requestedBy); b.booked++
-      if (v.status === 'done') { b.done++; if (['interested', 'second', 'offer'].includes(v.review?.outcome)) b.keen++ }
-      row(v.handlerId).hosted++
-    }
-    return [...by.values()].filter(x => m.staff[x.id]).sort((a, b) => b.total + b.booked - a.total - a.booked)
-  }, [d, m, r.from, r.to]) // eslint-disable-line react-hooks/exhaustive-deps
+  const period = { from: r.from, to: r.to }
+  const follow = useCounts('listings', { ...period, counts: 'followUpsBy' }).followUpsBy || {}
+  const views = useCounts('viewings', { ...period, counts: 'perPerson' }).perPerson || {}
+  const empty = { n: {}, total: 0, booked: 0, hosted: 0, done: 0, keen: 0 }
+  const rows = [...new Set([...Object.keys(follow), ...Object.keys(views)])].filter(id => m.staff[id])
+    .map(id => ({ ...empty, ...follow[id], ...views[id], id: Number(id) }))
+    .sort((a, b) => b.total + b.booked - a.total - a.booked || a.id - b.id)
   const ACTIONS = [[0, 'Calls'], [1, 'Viewing'], [2, 'Nego'], [3, 'Closing']]
   return (
     <Card pad={16}>
@@ -152,13 +153,18 @@ function FollowUps() {
 }
 
 function StaffSummary() {
-  const { m, scoped: d, setup } = useErp()
-  const rows = d.staff.filter(s => isAgent(s) && s.status !== 'pending').map(s => {
-    const deals = m.dealsOf(s.id).filter(x => x.date.startsWith(m.year) && x.status !== 'cancelled' && x.status !== 'draft')
-    const lines = (m.payoutsByStaff[s.id] || []).filter(p => p.date.startsWith(m.year))
-    return { s, tier: m.tierInfo(s.id).tier, sales: deals.filter(x => x.agentId === s.id).length, product: deals.filter(x => x.holderId === s.id && x.agentId !== s.id).length,
-      credit: m.credit(s.id).year, own: sum(lines.filter(p => !p.role), p => p.amount), incentive: sum(lines.filter(p => p.role), p => p.amount) }
-  }).sort((a, b) => b.credit - a.credit)
+  const { m, setup } = useErp()
+  const can = useCan()
+  const year = { from: `${m.year}-01-01`, to: `${m.year}-12-31` }
+  const deals = useCounts('deals', { ...year, status: LIVE, counts: 'perAgent,productSide' })
+  const pay = useCounts('payouts', { ...year, counts: 'payByKind' }, !can('payouts', 'view') && !can('salary', 'view')).payByKind || {}
+  const standing = useCounts('staff', { kind: 'agent', counts: 'standing' }, !can('staff', 'view')).standing || {}
+  const tierOf = s => P.tiersFor(setup, s.branchId).find(t => t.name === standing[s.id]?.tier) || P.tiersFor(setup, s.branchId)[0]
+  // Everyone in the viewer's reach (the people the standing count covers).
+  const rows = Object.keys(standing).map(id => m.staff[id]).filter(s => s && isAgent(s) && s.status !== 'pending').map(s => ({
+    s, tier: tierOf(s), sales: deals.perAgent?.[s.id]?.n || 0, product: deals.productSide?.[s.id] || 0,
+    credit: standing[s.id]?.yearly || 0, own: pay[s.id]?.own || 0, incentive: pay[s.id]?.incentive || 0,
+  })).sort((a, b) => b.credit - a.credit)
   return (
     <Card pad={16}>
       <Toolbar><span style={{ fontSize: 13, color: C.muted }}>{m.year} so far</span><span style={{ flex: 1 }} />
@@ -166,7 +172,7 @@ function StaffSummary() {
           rows.map(r => [r.s.code, r.s.name, m.branchName(r.s.branchId), P.tierLabel(r.tier), r.sales, r.product, r.credit, r.own, r.incentive]))} /></Toolbar>
       <DataTable rows={rows} rowKey={r => r.s.id} narrowAt={900} columns={[
         { key: 'who', label: 'Staff', render: r => <Who name={r.s.short} to={`staff/${r.s.id}`} sub={m.branchName(r.s.branchId)} size={26} /> },
-        { key: 'tier', label: 'Position', render: r => <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}><Pill tone="gray" dot={false}>{r.tier.name}</Pill><RoleTag code={r.s.role} setup={setup} /></span> },
+        { key: 'tier', label: 'Position', render: r => <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}><Pill tone="gray" dot={false}>{r.tier?.name}</Pill><RoleTag code={r.s.role} setup={setup} /></span> },
         { key: 'deals', label: 'Cases (sales · product)', align: 'right', render: r => `${r.sales} · ${r.product}` },
         { key: 'credit', label: 'Commission', align: 'right', render: r => rm(r.credit) },
         { key: 'own', label: 'Salary', align: 'right', render: r => rm(r.own) },
@@ -178,10 +184,10 @@ function StaffSummary() {
 }
 
 function Agents() {
-  const { m, scoped: d } = useErp()
+  const { m } = useErp()
   const r = useRange(m)
-  const rows = d.staff.filter(isAgent).map(s => ({ s, v: sum(d.deals.filter(x => x.agentId === s.id && x.status !== 'draft' && x.status !== 'cancelled' && r.inRange(x.date)), x => x.fee) }))
-    .filter(x => x.v > 0).sort((a, b) => b.v - a.v).slice(0, 20)
+  const fees = useCounts('deals', { from: r.from, to: r.to, status: LIVE, counts: 'feesPerAgent' }).feesPerAgent || {}
+  const rows = agentsOf(m, fees).map(s => ({ s, v: fees[s.id]?.sum || 0 })).filter(x => x.v > 0).sort((a, b) => b.v - a.v || a.s.id - b.s.id).slice(0, 20)
   return (
     <Card pad={16}>
       <Toolbar>{r.ui}</Toolbar>
@@ -192,40 +198,62 @@ function Agents() {
   )
 }
 
+// Every change to the E-Forms in reach, newest first: from the server a page at a time (searched there by
+// case No. or user); in the demo from this browser's records, by the same rule.
 function Tracker() {
-  const { m, scoped: d } = useErp()
+  const { m, scoped } = useErp()
   const [q, setQ] = useState('')
-  const ids = new Set(d.deals.map(x => x.id))
-  const rows = m.data.audit.filter(a => ids.has(a.dealId) && (!q || `${m.deals[a.dealId]?.code} ${a.by}`.toLowerCase().includes(q.toLowerCase())))
+  const typed = useDebounced(q.trim(), DEMO ? 0 : 250)
+  const [got, setGot] = useState({ rows: [], total: 0, page: 1, loading: !DEMO })
+  const read = page => getDealsHistory({ q: typed, page, size: 25 })
+  useEffect(() => {
+    if (DEMO) return undefined
+    let live = true
+    setGot(g => ({ ...g, loading: true }))
+    read(1).then(r => { if (live) setGot({ rows: r.rows, total: r.total, page: 1, loading: false }) }, () => { if (live) setGot({ rows: [], total: 0, page: 1, loading: false }) })
+    return () => { live = false }
+  }, [typed, m]) // eslint-disable-line react-hooks/exhaustive-deps
+  const more = () => { setGot(g => ({ ...g, loading: true })); read(got.page + 1).then(r => setGot(g => ({ rows: [...g.rows, ...r.rows], total: r.total, page: g.page + 1, loading: false }))) }
+  const local = useMemo(() => {
+    if (!DEMO) return null
+    const ids = new Set(scoped.deals.map(x => x.id))
+    const word = typed.toLowerCase()
+    return m.data.audit.filter(a => ids.has(a.dealId) && (!word || `${m.deals[a.dealId]?.code} ${a.by}`.toLowerCase().includes(word))).map(a => ({ ...a, code: m.deals[a.dealId]?.code }))
+  }, [scoped, m, typed])
+  const rows = DEMO ? local : got.rows
   return (
     <Card pad={16}>
       <Toolbar><SearchBox value={q} onChange={setQ} placeholder="Case No. or user" /></Toolbar>
-      <DataTable rows={rows} rowKey={a => `${a.at}-${a.dealId}-${a.field}`} pageSize={25} narrowAt={760} columns={[
-        { key: 'at', label: 'Updated at', nowrap: true, render: a => <span style={{ ...tabular, fontSize: 13 }}>{date(a.at.slice(0, 10))} {a.at.slice(11)}</span> },
-        { key: 'by', label: 'Updated by', render: a => <span style={mono}>{a.by}</span> },
-        { key: 'case', label: 'Case No.', render: a => <Link to={`deals/${a.dealId}`} style={mono}>{m.deals[a.dealId]?.code}</Link> },
-        { key: 'type', label: 'Type', render: a => a.field },
-        { key: 'before', label: 'Before', render: a => <span style={{ color: C.muted }}>{a.before}</span> },
-        { key: 'after', label: 'After', render: a => <b>{a.after}</b> },
-      ]} />
+      <DataTable rows={rows} rowKey={a => a.id ?? `${a.at}-${a.dealId}-${a.field}`} narrowAt={760}
+        {...(DEMO ? { pageSize: 25 } : { paged: { total: got.total, sort: '-at', onSort: () => {}, onMore: more, loading: got.loading } })} columns={[
+          { key: 'at', label: 'Updated at', nowrap: true, render: a => <span style={{ ...tabular, fontSize: 13 }}>{date(a.at.slice(0, 10))} {a.at.slice(11)}</span> },
+          { key: 'by', label: 'Updated by', render: a => <span style={mono}>{a.by}</span> },
+          { key: 'case', label: 'Case No.', render: a => <Link to={`deals/${a.dealId}`} style={mono}>{a.code}</Link> },
+          { key: 'type', label: 'Type', render: a => a.field },
+          { key: 'before', label: 'Before', render: a => <span style={{ color: C.muted }}>{a.before}</span> },
+          { key: 'after', label: 'After', render: a => <b>{a.after}</b> },
+        ]} />
     </Card>
   )
 }
 
 function Summary() {
-  const { m, scoped: d } = useErp()
+  const { m, setup } = useErp()
+  const can = useCan()
   const r = useRange(m)
   const [type, setType] = useState('')
   const [status, setStatus] = useState('')
-  const rows = d.staff.filter(isAgent).map(s => {
-    const deals = d.deals.filter(x => (x.agentId === s.id || x.holderId === s.id) && r.inRange(x.date) && (!type || x.type === type) && (!status || x.status === status))
-    const lines = (m.payoutsByStaff[s.id] || []).filter(p => r.inRange(p.date))
-    const closes = d.closes.filter(c => r.inRange(c.date) && c.sides.some(x => x.staffId === s.id))
-    return { s, tier: m.tierInfo(s.id).tier, submission: sum(deals.filter(x => x.status !== 'draft'), x => x.money.billed), price: sum(deals, x => x.price),
-      closing: sum(closes, c => c.claim), cases: deals.length, archived: new Set(lines.filter(p => p.archiveId).map(p => p.dealId)).size,
-      sales: deals.filter(x => x.type !== 'rental').length, rental: deals.filter(x => x.type === 'rental').length,
-      comm: sum(closes.flatMap(c => c.sides.filter(x => x.staffId === s.id)), x => x.base), payout: sum(lines, p => p.amount) }
-  }).filter(x => x.cases).sort((a, b) => b.submission - a.submission)
+  const period = { from: r.from, to: r.to }
+  const deals = useCounts('deals', { ...period, ...(type && { type }), ...(status && { status }), counts: 'perPerson' }).perPerson || {}
+  const lines = useCounts('payouts', { ...period, counts: 'perPerson' }, !can('payouts', 'view') && !can('salary', 'view')).perPerson || {}
+  const closes = useCounts('closes', { ...period, counts: 'perPerson' }, !can('payouts', 'view')).perPerson || {}
+  const standing = useCounts('staff', { kind: 'agent', counts: 'standing' }, !can('staff', 'view')).standing || {}
+  const tierOf = s => P.tiersFor(setup, s.branchId).find(t => t.name === standing[s.id]?.tier) || P.tiersFor(setup, s.branchId)[0]
+  const rows = agentsOf(m, deals).map(s => {
+    const d = deals[s.id] || {}
+    return { s, tier: tierOf(s), submission: d.submission || 0, price: d.price || 0, closing: closes[s.id]?.closing || 0, cases: d.cases || 0,
+      archived: lines[s.id]?.archived || 0, sales: d.sales || 0, rental: d.rental || 0, comm: closes[s.id]?.comm || 0, payout: lines[s.id]?.payout || 0 }
+  }).filter(x => x.cases).sort((a, b) => b.submission - a.submission || a.s.id - b.s.id)
   return (
     <Card pad={16}>
       <Toolbar>{r.ui}
@@ -249,33 +277,41 @@ function Summary() {
   )
 }
 
-// E-Forms Case Summary: pick a case, type a claim, see the payout lines it would make.
+// E-Forms Case Summary: pick a case, type a claim, see the payout lines it would make
+// (the E-Form from one read, its earners' tier credit from the server, as on the E-Form page).
 function CaseSummary() {
-  const { m, scoped: d, setup } = useErp()
-  const open = d.deals.filter(x => x.status !== 'draft' && x.status !== 'cancelled').sort((a, b) => b.date.localeCompare(a.date))
-  const [id, setId] = useState(String(open[0]?.id || ''))
-  const deal = m.deals[Number(id)]
+  const { m, setup } = useErp()
+  const latest = useList('deals', { status: LIVE, sort: '-date', counts: '0' }, { pageSize: 1 }).rows[0]
+  const [picked, setPicked] = useState('')
+  const id = picked || String(latest?.id || '')
+  const deal = useRecord('deals', Number(id) || null).record
   const [claim, setClaim] = useState('')
+  const [credit, setCredit] = useState(null)
+  useEffect(() => {
+    if (!deal || DEMO) return undefined
+    let live = true
+    setCredit(null)
+    getDealCredit(deal.id).then(c => { if (live) setCredit(c) }, () => { if (live) setCredit({}) })
+    return () => { live = false }
+  }, [deal?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // In the demo, from the records in this browser, by the same rule.
+  const creditOf = DEMO ? sid => tierCredit(m.staff[sid], m.data.closes, m.year) : credit && (sid => credit[sid] || { lifetime: 0, yearly: 0 })
   const amount = Number(claim || deal?.money.billed || 0)
   const preview = useMemo(() => {
-    if (!deal || !(amount > 0)) return null
+    if (!deal || !(amount > 0) || !creditOf) return null
     const net = r2(deal.money.net * Math.min(amount, deal.money.billed) / deal.money.billed)
-    return { net, ...payoutForClose(setup, m.staff, deal, net, sid => ({ lifetime: m.tierInfo(sid).lifetime, yearly: m.tierInfo(sid).yearly })) }
-  }, [deal, amount, setup, m])
+    return { net, ...payoutForClose(setup, m.staff, deal, net, creditOf) }
+  }, [deal, amount, setup, m, credit]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', alignItems: 'start' }}>
       <Card title="Case">
         <div style={{ display: 'grid', gap: 12 }}>
-          <FormField label="E-Form">
-            <select style={{ ...sel, width: '100%' }} value={id} onChange={e => { setId(e.target.value); setClaim('') }}>
-              {open.map(x => <option key={x.id} value={x.id}>{x.code} · {x.property.title}</option>)}
-            </select>
-          </FormField>
+          <DealPicker value={id} onChange={v => { setPicked(String(v || '')); setClaim('') }} statuses={LIVE} />
           {deal && (
             <>
               <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
                 {deal.property.address}<br />Sale Staff <b style={{ color: C.text }}>{m.staffName(deal.agentId)}</b> · Product Handler <b style={{ color: C.text }}>{deal.holderId != null ? m.staffName(deal.holderId) : '—'}</b><br />
-                Claim from owner {rm(deal.money.billed)} · cleared {rm(m.cleared(deal.id))} · <Status of={DEAL_STATUS} value={deal.status} />
+                Claim from owner {rm(deal.money.billed)} · cleared {rm(deal.$?.cleared || 0)} · <Status of={DEAL_STATUS} value={deal.status} />
               </div>
               <FormField label="Claim (RM)" help="What is being closed, SST included. Defaults to the full claim from owner.">
                 <input type="number" style={field} value={claim} placeholder={String(deal.money.billed)} onChange={e => setClaim(e.target.value)} />
@@ -307,14 +343,16 @@ function CaseSummary() {
 
 function Landlord() {
   const erp = useErp()
-  const { m, scoped: d } = erp
+  const { m } = erp
   const [status, setStatus] = useState('')
   const [arc, setArc] = useState('')
   const [verify, setVerify] = useState(null)
   const [form, setForm] = useState({ status: 1, remarks: '' })
   const [error, setError] = useState(null)
-  const cases = d.deals.filter(x => x.landlordCheck && (status === '' || x.landlordCheck.status === Number(status)) && (!arc || x.landlordCheck.archiveId === Number(arc)))
-  const pending = d.deals.filter(x => x.landlordCheck?.status === -1)
+  // E-Forms with a landlord check, a page at a time; how many by status, and the unverified ones per archive.
+  const list = useList('deals', { lvStatus: status || '-1,0,1', ...(arc && { lvArchive: arc }), sort: '-date', counts: 'checks,unverifiedByArchive' }, { pageSize: 25 })
+  const checks = list.counts.checks || {}, unverified = list.counts.unverifiedByArchive || {}
+  const archives = useList('archives', { sort: '-date', counts: '0' }, { pageSize: 200 }).rows
   const save = async () => {
     setError(null)
     try { await erp.verifyLandlord(verify.id, Number(form.status), form.remarks); setVerify(null) } catch (e) { setError(e.message) }
@@ -322,14 +360,14 @@ function Landlord() {
   return (
     <>
       <div style={{ ...cols(200, 14), marginBottom: 16 }}>
-        {[-1, 1, 0].map(s => <Stat key={s} label={LANDLORD_STATUS[s].label} value={d.deals.filter(x => x.landlordCheck?.status === s).length} tone={LANDLORD_STATUS[s].tone} onClick={() => setStatus(String(s))} />)}
+        {[-1, 1, 0].map(s => <Stat key={s} label={LANDLORD_STATUS[s].label} value={checks[s] || 0} tone={LANDLORD_STATUS[s].tone} onClick={() => setStatus(String(s))} />)}
       </div>
       <Card pad={16}>
         <Toolbar>
-          <Select label="Archive" value={arc} onChange={setArc} options={[{ value: '', label: 'All archives' }, ...[...m.data.archives].reverse().map(a => ({ value: String(a.id), label: `${a.code} (${pending.filter(x => x.landlordCheck.archiveId === a.id).length} Unverified)` }))]} />
+          <Select label="Archive" value={arc} onChange={setArc} options={[{ value: '', label: 'All archives' }, ...archives.map(a => ({ value: String(a.id), label: `${a.code} (${unverified[a.id] || 0} Unverified)` }))]} />
           <Select label="Verification" value={status} onChange={setStatus} options={[{ value: '', label: 'Select verification status' }, ...Object.entries(LANDLORD_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
         </Toolbar>
-        <DataTable rows={cases} pageSize={25} narrowAt={900} columns={[
+        <DataTable rows={list.rows} paged={{ total: list.total, sort: '-date', onSort: () => {}, onMore: list.more, loading: list.loading }} narrowAt={900} columns={[
           { key: 'form', label: 'Form', render: x => <Link to={`deals/${x.id}`} style={mono}>{x.code}</Link> },
           { key: 'address', label: 'Address', render: x => <span style={{ fontSize: 13 }}>{x.property.address}</span> },
           { key: 'price', label: 'Price (RM)', align: 'right', render: x => amt(x.price) },
