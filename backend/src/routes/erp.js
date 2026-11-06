@@ -28,7 +28,8 @@ const { LISTS, scopeFor } = require('../db/lists');
 const { listPage, listAll, extrasFor, rawRows } = require('../db/list');
 const { MODELS, toRecords, KINDS, parseJson } = require('../db/records');
 const { loadSetup } = require('../db/setupStore');
-const { loadState, saveChanges } = require('../db/erpState');
+const { loadState } = require('../db/erpState');
+const { changeState } = require('../db/erpRun');
 const { pruneNotices } = require('../db/notices');
 const G = require('../db/erpGuard');
 const { audit } = require('../db/audit');
@@ -50,34 +51,23 @@ const idOf = v => (/^\d+$/.test(String(v)) ? Number(v) : null);
 const placeholders = ids => ids.map(() => '?').join(', ');
 
 // ── Stage one: the records at once, and the shared actions ──────────────────
-// One change at a time, so two saves never hand out the same new id or code.
-let queue = Promise.resolve();
-const oneAtATime = fn => { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; };
-// Reads every record in one transaction, runs the time rules (as the demo does
-// before every action), lets `change(state, before, trx)` alter the records and
-// saves the difference. A refusal thrown by `change` saves nothing.
-const changeState = (change, { by } = {}) => oneAtATime(() => db.transaction(async trx => {
-  const state = await loadState(trx);
-  if (!state.data) throw Object.assign(new Error(state.blockers[0]), { status: 400, errors: [state.blockers[0]] });
-  const before = structuredClone(state.data);
-  A.runClock(state.data, state.setup);
-  await change(state, before, trx);
-  await saveChanges(trx, before, state.data, { by });
-  return state;
-}));
+// (db/erpRun.js: one change at a time, on every record, after the time rules.)
 
-// Everything this person may see (after the time rules); `start`: only the start-up read's kinds.
-const readState = start => wrap(async (req, res) => {
+// Everything this person may see, after the time rules (the tests compare it with the demo).
+router.get('/state', wrap(async (req, res) => {
   const v = await viewerOf(req);
   await pruneNotices(db, localToday());
   let state = await loadState(db);
   // Something the time rules change (a viewing expired…) is saved once, here.
   if (state.data && A.runClock(state.data, state.setup)) state = await changeState(() => {});
-  const data = state.data && G.forViewer(state.data, v);
-  res.json({ ...state, data: start && data ? G.startUp(data) : data });
-});
-router.get('/state', readState(false));
-router.get('/start', readState(true));
+  res.json({ ...state, data: G.forViewer(state.data, v) });
+}));
+// The start-up read: only its own small kinds are read (the time rules run on a schedule: src/index.js).
+router.get('/start', wrap(async (req, res) => {
+  const v = await viewerOf(req);
+  const state = await loadState(db, { only: G.START_KINDS });
+  res.json({ ...state, data: state.data && G.startUp(G.forViewer(state.data, v)) });
+}));
 
 // Projects: the demo keeps them in a store of their own (src/demo/projectsApi.js);
 // here they are records like the rest, and the same changes run on them.

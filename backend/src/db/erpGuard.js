@@ -171,6 +171,8 @@ function changedIds(before, after) {
 // last manual checks, their favourites and planned downtime. Every other kind is read a page at a time
 // (/api/erp/<list>), so it goes empty here.
 const START = new Set(['asOf', 'staff', 'titles', 'areas', 'propertyTypes', 'runs', 'favourites', 'downtime']);
+// The record kinds of it, for loadState({ only }).
+const START_KINDS = ['staff', 'titles', 'areas', 'propertyTypes', 'downtime'];
 function startUp(data) {
   return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, START.has(k) ? v : Array.isArray(v) ? []
     : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).map(x => [x, []])) : v]));
@@ -188,4 +190,4 @@ function addedIds(before, after) {
   return out;
 }
 
-module.exports = { forViewer, actorArgs, checkBefore, checkAfter, changedIds, seesOwner, startUp, addedIds };
+module.exports = { forViewer, actorArgs, checkBefore, checkAfter, changedIds, seesOwner, startUp, addedIds, START_KINDS };

@@ -215,3 +215,13 @@ test('the start-up read sends the small kinds only; an action asked for a small 
   assert.deepEqual(r.body.data.customers, []);
   assert.equal((await db('customers').where({ id: r.body.added.customers[0] }).first()).name, 'Start Read');
 });
+
+test('opening the ERP no longer runs the time rules; the scheduled run does', async () => {
+  const { runTimeRules } = require('../src/db/erpRun');
+  const v = await db('viewings').orderBy('id').first();
+  await db('viewings').where('id', v.id).update({ status: 'new', date: '2020-01-01' });
+  assert.equal((await api.call('GET', '/erp/start')).status, 200);
+  assert.equal((await db('viewings').where('id', v.id).first()).status, 'new');
+  assert.equal(await runTimeRules(), true);
+  assert.equal((await db('viewings').where('id', v.id).first()).status, 'expired');
+});

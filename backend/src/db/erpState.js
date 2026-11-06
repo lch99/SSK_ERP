@@ -24,21 +24,23 @@ const ORDER_BY = {
   customers: ['date', 'id'], moneyIn: ['date', 'id'], closes: ['date', 'id'], requests: ['date', 'id'], moneyOut: ['date', 'id'], viewings: ['code'],
 };
 
-async function loadState(q) {
+// only: the kinds to read (the start-up read: a few small ones); the others come back empty.
+async function loadState(q, { only = null } = {}) {
   const setup = await loadSetup(q);
   const blockers = erpBlockers(setup);
   if (blockers.length) return { setup, data: null, blockers };
   const data = { asOf: localToday() };
+  const wanted = key => !only || only.includes(key);
   for (const key of KINDS) {
     const m = MODELS[key];
-    data[key] = await toRecords(q, m, await q(m.table).orderBy(ORDER_BY[key] || 'id'));
+    data[key] = wanted(key) ? await toRecords(q, m, await q(m.table).orderBy(ORDER_BY[key] || 'id')) : [];
   }
-  data.v1 = {
+  data.v1 = !wanted('v1') ? { eforms: [], overrides: [] } : {
     eforms: await toRecords(q, MODELS.v1Eforms, await q('v1_eforms').orderBy(newest('date'))),
     overrides: await toRecords(q, MODELS.v1Overrides, await q('v1_overrides').orderBy(['year', 'id'])),
   };
   // The E-Form update tracker, newest first (the demo unshifts new entries).
-  data.audit = (await q('audit_log').where('entity', 'deal').orderBy([{ column: 'created_at', order: 'desc' }, { column: 'id', order: 'desc' }]))
+  data.audit = !wanted('audit') ? [] : (await q('audit_log').where('entity', 'deal').orderBy([{ column: 'created_at', order: 'desc' }, { column: 'id', order: 'desc' }]))
     .map(r => ({ at: String(r.created_at).replace('T', ' ').slice(0, 16), by: r.username, dealId: Number(r.entity_id), ...parseJson(r.detail) }));
   data.favourites = Object.fromEntries((await q('favourites')).map(f => [f.viewer_id, { listings: parseJson(f.listings) || [], titles: parseJson(f.titles) || [] }]));
   const runs = await q('settings').where('key', RUNS_KEY).first();
