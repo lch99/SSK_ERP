@@ -25,7 +25,8 @@ const ORDER_BY = {
 };
 
 // only: the kinds to read (the start-up read: a few small ones); the others come back empty.
-async function loadState(q, { only = null } = {}) {
+// listings: only these listing ids (an action's own: db/actionScope.js); null for all.
+async function loadState(q, { only = null, listings = null } = {}) {
   const setup = await loadSetup(q);
   const blockers = erpBlockers(setup);
   if (blockers.length) return { setup, data: null, blockers };
@@ -33,7 +34,9 @@ async function loadState(q, { only = null } = {}) {
   const wanted = key => !only || only.includes(key);
   for (const key of KINDS) {
     const m = MODELS[key];
-    data[key] = wanted(key) ? await toRecords(q, m, await q(m.table).orderBy(ORDER_BY[key] || 'id')) : [];
+    const rows = q(m.table).orderBy(ORDER_BY[key] || 'id');
+    if (key === 'listings' && listings) rows.whereIn('id', listings.length ? listings : [0]);
+    data[key] = wanted(key) ? await toRecords(q, m, await rows) : [];
   }
   data.v1 = !wanted('v1') ? { eforms: [], overrides: [] } : {
     eforms: await toRecords(q, MODELS.v1Eforms, await q('v1_eforms').orderBy(newest('date'))),

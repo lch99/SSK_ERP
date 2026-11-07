@@ -108,7 +108,7 @@ router.post('/actions/:name', wrap(async (req, res) => {
       added = G.addedIds(before, s.data);
       await G.checkAfter(trx, added, v);
       await audit(req, { action: name, entity: 'erp', detail: { changed: G.changedIds(before, s.data) } }, trx);
-    }, { by: req.user.username });
+    }, { by: req.user.username, name, args });
     // ERP_TRACE_READS=1: which kinds each action read (to see which still read a big one).
     if (process.env.ERP_TRACE_READS) console.log(`action ${name} read: ${done.read.join(', ')}`);
   } catch (err) {

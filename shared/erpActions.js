@@ -313,7 +313,8 @@ export const addListing = body => change((data, setup, today) => {
   if (errors.length) return errors.join(' ')
   const holder = data.staff.find(s => s.id === Number(body.holderId)) || data.staff[0]
   const branch = setup.branches.find(b => b.id === holder.branchId)
-  const last = data.listings.reduce((m, l) => Math.max(m, Number(l.code.slice(5)) || 0), 122300)
+  // The server loads only this building's listings and gives the highest code (codeFloor).
+  const last = data.listings.reduce((m, l) => Math.max(m, Number(l.code.slice(5)) || 0), Math.max(122300, (data[RAW] || data).codeFloor?.listing || 0))
   const ask = Number(body.askPrice)
   // Photos picked on the form, each pointing at its small preview (src/erp/photos.jsx).
   const photoSet = Array.isArray(body.photoSet) && body.photoSet.length

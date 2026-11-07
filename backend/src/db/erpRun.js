@@ -7,6 +7,7 @@ const db = require('./connection');
 const A = require('../../../shared/erpActions.js');
 const { loadState, saveChanges, KINDS } = require('./erpState');
 const { MODELS } = require('./records');
+const { listingsFor, codeFloor } = require('./actionScope');
 const { pruneNotices } = require('./notices');
 const { localToday } = require('./days');
 
@@ -50,12 +51,15 @@ const watch = (data, loaded, asked) => new Proxy(data, {
 // run is saved. run({ setup, data }, trx) changes only `data` (a refusal it throws saves nothing, unless it
 // asked for more); finish(state, before, trx) then checks what was saved and logs it (a refusal undoes it). After five rounds
 // every record is loaded. The time rules are not run here: src/index.js runs them on a schedule.
-const act = (run, finish, { by } = {}) => oneAtATime(() => db.transaction(async trx => {
+// name, args: the action's, so it loads only its own listings (db/actionScope.js).
+const act = (run, finish, { by, name, args = [] } = {}) => oneAtATime(() => db.transaction(async trx => {
   let loaded = new Set(ALWAYS);
+  const listings = name ? await listingsFor(trx, name, args) : null;
   for (let round = 1; ; round++) {
-    const state = await loadState(trx, { only: [...loaded] });
+    const state = await loadState(trx, { only: [...loaded], listings: loaded.size === WATCHED.size ? null : listings });
     if (!state.data) throw Object.assign(new Error(state.blockers[0]), { status: 400, errors: [state.blockers[0]] });
     state.data.idFloor = await topId(trx);
+    if (listings) state.data.codeFloor = await codeFloor(trx);
     const before = structuredClone(state.data);
     const asked = new Set();
     let refused = null;
@@ -65,12 +69,11 @@ const act = (run, finish, { by } = {}) => oneAtATime(() => db.transaction(async 
       continue;
     }
     if (refused) throw refused;
-    delete state.data.idFloor;
-    delete before.idFloor;
+    for (const k of ['idFloor', 'codeFloor']) { delete state.data[k]; delete before[k]; }
     await saveChanges(trx, before, state.data, { by });
     // Checks on what is saved, and the log: a refusal here rolls the whole save back.
     await finish(state, before, trx);
-    return { ...state, read: [...loaded] };
+    return { ...state, read: [...loaded].map(k => (k === 'listings' && listings ? `listings (${state.data.listings.length} of them)` : k)) };
   }
 }));
 
