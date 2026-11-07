@@ -10,19 +10,20 @@ import { tierCredit, payoutForClose } from '../../../shared/erpRules.js'
 import { DEAL_STATUS, LANDLORD_STATUS, isAgent, r2 } from '../model.js'
 import { Page, Card, SearchBox, DateFilter, DataTable, Who, Pill, Link, Status, Modal, Notice, FormField, TextArea, Toolbar, Select, cols, Stat, mono, tabular, field } from '../ui.jsx'
 import { RankBars } from '../charts.jsx'
+import { makeXlsx, XLSX_TYPE } from '../../../shared/xlsx.js'
+import { download } from '../../setup/sheet.js'
 import { rm, pct, date, monthName, lastMonths, amt } from '../format.js'
 import { RoleTag } from './Staff.jsx'
 import { useDealProject } from './DealPage.jsx'
 
-// Save rows as a CSV file (opens in Excel).
-function downloadCsv(name, head, rows) {
-  const esc = v => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v))
-  const blob = new Blob([[head, ...rows].map(r => r.map(esc).join(',')).join('\n')], { type: 'text/csv' })
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name })
-  a.click()
-  URL.revokeObjectURL(a.href)
+// Save a report as an Excel file: its rows are the server's summary (one per person or
+// building), already all here; numbers stay numbers, so they add up in Excel.
+function downloadXlsx(name, head, rows) {
+  const sheet = name.replace(/-\d{4}$/, '').replace(/-/g, ' ').replace(/^./, c => c.toUpperCase()).slice(0, 31)
+  const widths = head.map((h, i) => Math.min(40, Math.max(12, String(h).length + 2, ...rows.slice(0, 200).map(r => String(r[i] ?? '').length + 2))))
+  download(makeXlsx([{ name: sheet, rows: [head, ...rows], widths }]), `${name}.xlsx`, XLSX_TYPE)
 }
-const Download = ({ onClick }) => <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={onClick}>Download CSV</button>
+const Download = ({ onClick }) => <button style={{ ...btn, fontSize: 13, padding: '5px 12px' }} onClick={onClick}>Download Excel</button>
 
 const REPORTS = {
   total: ['Agent totals', 'What each person submitted and closed, by date (Total Report).'],
@@ -40,7 +41,7 @@ export default function Reports({ parts }) {
   const key = REPORTS[parts[1]] ? parts[1] : 'total'
   const [title, sub] = REPORTS[key]
   const Comp = { total: Total, staff: StaffSummary, agents: Agents, tracker: Tracker, summary: Summary, cases: CaseSummary, landlord: Landlord, buildings: Buildings, followups: FollowUps }[key]
-  return <Page title={title} sub={sub} help={`${sub}\nNarrow it down with the filters at the top. Download CSV, where shown, opens the report in Excel.`}><Comp /></Page>
+  return <Page title={title} sub={sub} help={`${sub}\nNarrow it down with the filters at the top. Download Excel, where shown, saves the report as an Excel file.`}><Comp /></Page>
 }
 
 // Date range filter shared by the reports.
@@ -77,7 +78,7 @@ function Total() {
   return (
     <>
       <Card pad={16} style={{ marginBottom: 16 }}>
-        <Toolbar>{r.ui}<span style={{ flex: 1 }} /><Download onClick={() => downloadCsv('total-report.csv', ['Staff', 'Name', 'E-Forms', 'Submission Total', 'Cleared', 'Closing Total'], rows.map(x => [x.s.code, x.s.name, x.n, x.total, x.cleared, x.closing]))} /></Toolbar>
+        <Toolbar>{r.ui}<span style={{ flex: 1 }} /><Download onClick={() => downloadXlsx('total-report', ['Staff', 'Name', 'E-Forms', 'Submission Total', 'Cleared', 'Closing Total'], rows.map(x => [x.s.code, x.s.name, x.n, x.total, x.cleared, x.closing]))} /></Toolbar>
         <DataTable rows={rows} rowKey={x => x.s.id} narrowAt={680} columns={[
           { key: 's', label: 'Staff', render: x => <Who name={x.s.short} sub={`${x.s.code} · ${m.branchName(x.s.branchId)}`} to={`staff/${x.s.id}`} size={26} /> },
           { key: 'n', label: 'E-Forms', align: 'right', render: x => x.n },
@@ -111,7 +112,7 @@ function Buildings() {
   return (
     <Card pad={16}>
       <Toolbar>{r.ui}<SearchBox value={q} onChange={setQ} placeholder="Building or area" /><span style={{ flex: 1 }} />
-        <Download onClick={() => downloadCsv('sales-by-building.csv', ['Building', 'Area', 'Sales closed', 'Sale value', 'Rentals closed', 'Monthly rent', 'Agency fees', 'Project Manager', 'Project Handler'],
+        <Download onClick={() => downloadXlsx('sales-by-building', ['Building', 'Area', 'Sales closed', 'Sale value', 'Rentals closed', 'Monthly rent', 'Agency fees', 'Project Manager', 'Project Handler'],
           shown.map(x => [x.t.name, x.t.area, x.sales, x.saleValue, x.rentals, x.rentValue, x.fees, x.t.managerId ? m.staffName(x.t.managerId) : '', x.t.handlerId ? m.staffName(x.t.handlerId) : '']))} /></Toolbar>
       <DataTable rows={shown} rowKey={x => x.t.id} narrowAt={860} empty="Nothing closed in full in these dates" columns={[
         { key: 'b', label: 'Building', render: x => <span><b>{x.t.name}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.t.area}</span></span> },
@@ -139,7 +140,7 @@ function FollowUps() {
   return (
     <Card pad={16}>
       <Toolbar>{r.ui}<span style={{ flex: 1 }} />
-        <Download onClick={() => downloadCsv('follow-ups-by-person.csv', ['Code', 'Name', ...ACTIONS.map(a => a[1]), 'Follow-ups', 'Viewings booked', 'Viewings hosted', 'Viewed', 'Interested'],
+        <Download onClick={() => downloadXlsx('follow-ups-by-person', ['Code', 'Name', ...ACTIONS.map(a => a[1]), 'Follow-ups', 'Viewings booked', 'Viewings hosted', 'Viewed', 'Interested'],
           rows.map(x => [m.staff[x.id].code, m.staff[x.id].name, ...ACTIONS.map(([k]) => x.n[k] || 0), x.total, x.booked, x.hosted, x.done, x.keen]))} /></Toolbar>
       <DataTable rows={rows} rowKey={x => x.id} narrowAt={900} empty="No follow-ups or viewings in these dates" columns={[
         { key: 'who', label: 'Staff', render: x => <Who name={m.staffName(x.id)} sub={m.branchName(m.staff[x.id].branchId)} to={`staff/${x.id}`} size={26} /> },
@@ -168,7 +169,7 @@ function StaffSummary() {
   return (
     <Card pad={16}>
       <Toolbar><span style={{ fontSize: 13, color: C.muted }}>{m.year} so far</span><span style={{ flex: 1 }} />
-        <Download onClick={() => downloadCsv(`staff-summary-${m.year}.csv`, ['Code', 'Name', 'Branch', 'Position', 'Sales side', 'Product side', 'Commission', 'Salary', 'Incentives'],
+        <Download onClick={() => downloadXlsx(`staff-summary-${m.year}`, ['Code', 'Name', 'Branch', 'Position', 'Sales side', 'Product side', 'Commission', 'Salary', 'Incentives'],
           rows.map(r => [r.s.code, r.s.name, m.branchName(r.s.branchId), P.tierLabel(r.tier), r.sales, r.product, r.credit, r.own, r.incentive]))} /></Toolbar>
       <DataTable rows={rows} rowKey={r => r.s.id} narrowAt={900} columns={[
         { key: 'who', label: 'Staff', render: r => <Who name={r.s.short} to={`staff/${r.s.id}`} sub={m.branchName(r.s.branchId)} size={26} /> },
@@ -260,7 +261,7 @@ function Summary() {
         <Select label="Type" value={type} onChange={setType} options={[['', 'Sales and rentals'], ['sale', 'Sales'], ['rental', 'Rental']].map(([value, label]) => ({ value, label }))} />
         <Select label="Status" value={status} onChange={setStatus} options={[{ value: '', label: 'All statuses' }, ...Object.entries(DEAL_STATUS).map(([value, s]) => ({ value, label: s.label }))]} />
         <span style={{ flex: 1 }} />
-        <Download onClick={() => downloadCsv('eforms-summary.csv', ['Name', 'Position', 'Submission Total', 'Sales/Rent Total', 'Closing Total', 'Total Cases', 'Archived Cases', 'Sales', 'Rental', 'Total Net Commission', 'Total Payout'],
+        <Download onClick={() => downloadXlsx('eforms-summary', ['Name', 'Position', 'Submission Total', 'Sales/Rent Total', 'Closing Total', 'Total Cases', 'Archived Cases', 'Sales', 'Rental', 'Total Net Commission', 'Total Payout'],
           rows.map(x => [x.s.name, P.tierLabel(x.tier), x.submission, x.price, x.closing, x.cases, x.archived, x.sales, x.rental, x.comm, x.payout]))} />
       </Toolbar>
       <DataTable rows={rows} rowKey={x => x.s.id} narrowAt={1000} columns={[
