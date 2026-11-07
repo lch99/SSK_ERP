@@ -2,6 +2,7 @@
 // sample alike: dates, pay days, who approves a payout, what Setup must have,
 // the documents an E-Form needs, and one close's payout lines.
 import * as P from './payout.js'
+import { projectPayout } from './projects.js'
 
 const r2 = n => Math.round(n * 100) / 100
 
@@ -78,7 +79,9 @@ export function docNames(type, coBroke) {
 // share. Used for the sample history and for closing a deal in the demo.
 // The rules are the ones in force on the E-Form's date (P.rulesAt); `on` is the
 // close date, for whether an agent had left by then.
-export function payoutForClose(current, staffById, deal, net, creditOf, on = localToday()) {
+// project: a project E-Form's project (projectOfDeal): its own payout rule (as Setup, a boost, or its own
+// totals per tier: projectPayout) changes each side's agent rate and total.
+export function payoutForClose(current, staffById, deal, net, creditOf, on = localToday(), project = null) {
   const setup = P.rulesAt(current, deal.date)
   const roles = setup.roles || []
   const all = P.dealSides(deal, setup.sideSharePct)
@@ -98,10 +101,11 @@ export function payoutForClose(current, staffById, deal, net, creditOf, on = loc
     const credit = creditOf(earner.id)
     const tier = tiers[P.computeTierIndex(credit.lifetime, credit.yearly, tiers, floor)]
     const total = P.resolveTotal(setup.totals, { branchId: earner.branchId, dealType: deal.type, tierId: tier.id })
+    const rate = project ? projectPayout(project, tier, total?.pct ?? null) : { agentRate: tier.agentRate, totalPct: total?.pct ?? null }
     const holders = P.uplineHolders(staffById, earner.id, roles)
-    const out = P.payoutLines({ amount: base, earnerId: earner.id, agentRate: tier.agentRate, totalPct: total?.pct, holders, splits: setup.splits, roles })
-    sides.push({ side: side.side, staffId: earner.id, sharePct: side.pct, base, tierId: tier.id, agentRate: tier.agentRate,
-      totalPct: total?.pct ?? null, company: out.company })
+    const out = P.payoutLines({ amount: base, earnerId: earner.id, agentRate: rate.agentRate, totalPct: rate.totalPct ?? undefined, holders, splits: setup.splits, roles })
+    sides.push({ side: side.side, staffId: earner.id, sharePct: side.pct, base, tierId: tier.id, agentRate: rate.agentRate,
+      totalPct: rate.totalPct ?? null, company: out.company })
     for (const l of out.lines) lines.push({ ...l, side: side.side, base, tierId: l.role ? null : tier.id })
   })
   return { sides, lines }

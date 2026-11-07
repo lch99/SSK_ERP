@@ -625,9 +625,10 @@ export const LISTS = {
   },
 
   // Developers' projects, with their sales and each incentive's progress (counted for the whole company).
+  // Whoever reads E-Forms may read a project's name and payout rule (the E-Form page's payout preview), not its incentives or sales.
   projects: {
-    area: 'projects',
-    search: ['name', 'developer', 'location'], filters: { status: { eq: 'status' } },
+    area: 'projects', readers: { deals: p => ({ id: p.id, name: p.name, developer: p.developer, status: p.status, payout: p.payout }) },
+    search: ['name', 'developer', 'location'], filters: { status: { eq: 'status' }, name: { is: 'name' } },
     sorts: { name: 'name', launchedOn: 'launchedOn', added: 'id' }, sort: 'name',
     counts: { status: 'status' },
     extras: { sales: { custom: 'projectSales' } },

@@ -33,6 +33,10 @@ export function projectPayout(project, tier, normalTotal) {
   return { agentRate: agent, totalPct: total };
 }
 
+// A project E-Form's project: the one it is named after (as projectDeals finds them); null for any other E-Form.
+export const projectOfDeal = (projects, deal) =>
+  deal?.type === "project" ? (projects || []).find(p => p.name === deal.property?.title) || null : null;
+
 export function describePayout(project) {
   const rule = project?.payout || { mode: "setup" };
   if (rule.mode === "boost") return `Negotiator +${Number(rule.boostPct) || 0}% on every tier`;

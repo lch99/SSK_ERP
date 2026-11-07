@@ -108,6 +108,18 @@ test('every kind of action saves what the demo saves', async () => {
   d = await both('createRequests', [...new Set(lines.map(l => l.staffId))], 'salary');
   d = await both('archiveCases');
 
+  // A project E-Form pays by its project's own rule (the sample's first project gives the negotiator a boost).
+  const boosted = d.projects.find(p => p.payout?.mode === 'boost');
+  d = await both('addDeal', { type: 'project', agentId: agent.id, price: 800000, fee: 24000, date: today, submit: true,
+    property: { title: boosted.name, address: 'A-1-1, Test Park' }, buyer: party('Buyer'), owner: party('Developer'), files: { SPA: 'spa.pdf' } });
+  const pd = d.deals.at(-1);
+  d = await both('addTransaction', { dealId: pd.id, amount: pd.money.billed, bankOn: today, method: 'online', reference: 'IBG2', purpose: 'deposit', remark: 'In full', file: 'slip.pdf' });
+  d = await both('setMoneyInStatus', d.moneyIn.at(-1).id, 'cleared');
+  d = await both('closeDeal', pd.id);
+  const side = d.closes.at(-1).sides[0];
+  const tier = state.setup.tiers.find(t => t.id === side.tierId);
+  assert.equal(side.agentRate, Math.min(100, Number(tier.agentRate) + Number(boosted.payout.boostPct)), 'the project boost is paid');
+
   // Listings, customers, staff, titles, areas, videos, owner requests, enquiries.
   d = await both('addListing', { type: 'rental', title: 'Test Residences', area: listing.area, askPrice: 2000, unit: 'A-1-1', ownerName: 'Owner Two', ownerPhone: '0123456789',
     holderId: agent.id, desc: 'Nice', remarks: 'Private' });

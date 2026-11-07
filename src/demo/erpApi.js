@@ -7,6 +7,7 @@ import { setupView } from './localApi.js'
 import * as A from '../../shared/erpActions.js'
 import { noticeExpired } from '../../shared/listings.js'
 import { makeErpSample, setupSignature, erpBlockers, localToday, ERP_VERSION } from './erpSample.js'
+import { getProjects } from './projectsApi.js'
 
 const KEY = 'ssk-demo-erp-v1'
 let memory = null
@@ -47,7 +48,11 @@ export const resetErp = () => reply(current({ rebuild: true }))
 function change(fn) {
   const state = current()
   if (!state.data) return fail(state.blockers[0])
+  // Projects live in a store of their own (projectsApi.js): the action sees them (a project E-Form pays by
+  // its project's rule), and they are not saved into this one.
+  state.data.projects = getProjects(state.data, state.setup).projects
   const err = fn(state.data, state.setup, localToday())
+  delete state.data.projects
   if (err) return fail(err)
   // Expired notifications go (noticeExpired, as the server does once a day), and this
   // browser keeps the latest 1,500 of the rest (it has little room).

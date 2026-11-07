@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary, sel } from '../../styles.js'
-import { payoutForClose } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { useCan } from '../access.jsx'
 import { useList, useRecord, useDebounced } from '../useList.js'
 import { DealPicker } from '../pickers.jsx'
 import { DEMO, getDealCredit, getDealsHistory } from '../../api.js'
-import { tierCredit } from '../../../shared/erpRules.js'
+import { tierCredit, payoutForClose } from '../../../shared/erpRules.js'
 import { DEAL_STATUS, LANDLORD_STATUS, isAgent, r2 } from '../model.js'
 import { Page, Card, SearchBox, DateFilter, DataTable, Who, Pill, Link, Status, Modal, Notice, FormField, TextArea, Toolbar, Select, cols, Stat, mono, tabular, field } from '../ui.jsx'
 import { RankBars } from '../charts.jsx'
 import { rm, pct, date, monthName, lastMonths, amt } from '../format.js'
 import { RoleTag } from './Staff.jsx'
+import { useDealProject } from './DealPage.jsx'
 
 // Save rows as a CSV file (opens in Excel).
 function downloadCsv(name, head, rows) {
@@ -297,11 +297,12 @@ function CaseSummary() {
   // In the demo, from the records in this browser, by the same rule.
   const creditOf = DEMO ? sid => tierCredit(m.staff[sid], m.data.closes, m.year) : credit && (sid => credit[sid] || { lifetime: 0, yearly: 0 })
   const amount = Number(claim || deal?.money.billed || 0)
+  const { project, ready } = useDealProject(deal)
   const preview = useMemo(() => {
-    if (!deal || !(amount > 0) || !creditOf) return null
+    if (!deal || !(amount > 0) || !creditOf || !ready) return null
     const net = r2(deal.money.net * Math.min(amount, deal.money.billed) / deal.money.billed)
-    return { net, ...payoutForClose(setup, m.staff, deal, net, creditOf) }
-  }, [deal, amount, setup, m, credit]) // eslint-disable-line react-hooks/exhaustive-deps
+    return { net, ...payoutForClose(setup, m.staff, deal, net, creditOf, undefined, project) }
+  }, [deal, amount, setup, m, credit, project, ready]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', alignItems: 'start' }}>
       <Card title="Case">

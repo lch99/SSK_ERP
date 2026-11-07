@@ -1,5 +1,6 @@
 import * as P from '../../../shared/payout.js'
-import { tierCredit } from '../../../shared/erpRules.js'
+import { tierCredit, payoutForClose } from '../../../shared/erpRules.js'
+import { projectOfDeal, describePayout } from '../../../shared/projects.js'
 import { useEffect, useState } from 'react'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { ROLE_COLORS, AGENT_COLOR, COMPANY_COLOR } from '../../setup/colors.js'
@@ -33,8 +34,9 @@ export default function DealPage({ id }) {
 }
 
 // The E-Form's payments in and out, closes and payout lines, each read only for
-// a role that sees that area; and its earners' tier credit for the payout
-// preview, until the case is closed.
+// a role that sees that area; and, for the payout preview until the case is
+// closed, its earners' tier credit and a project E-Form's project (its own
+// payout rule).
 function useDealRecords(deal) {
   const { m } = useErp()
   const can = useCan()
@@ -55,7 +57,17 @@ function useDealRecords(deal) {
   }, [deal.id, preview, m])
   // In the demo, from the records in this browser, by the same rule.
   const creditOf = !preview ? null : DEMO ? sid => tierCredit(m.staff[sid], m.data.closes, m.year) : credit && (sid => credit[sid] || { lifetime: 0, yearly: 0 })
-  return { payments, outs, closes: closes.rows, lines: lines.rows, creditOf, preview }
+  const { project, ready: projectReady } = useDealProject(preview ? deal : null)
+  return { payments, outs, closes: closes.rows, lines: lines.rows, creditOf, preview, project, projectReady }
+}
+
+// A project E-Form's project (the one it is named after), for its own payout rule
+// (shared/projects.js projectPayout); ready: false while it is being read.
+export function useDealProject(deal) {
+  const can = useCan()
+  const sees = deal?.type === 'project' && !!deal.property?.title && (can('deals', 'view') || can('projects', 'view'))
+  const projects = useList('projects', { name: deal?.property?.title || '', counts: '0' }, { branch: false, pageSize: 5, skip: !sees })
+  return { project: sees ? projectOfDeal(projects.rows, deal) : null, ready: !sees || !projects.loading || projects.rows.length > 0 }
 }
 
 function DealView({ deal }) {
@@ -162,7 +174,7 @@ function Figure({ label, value, sub }) {
 // closed, otherwise a preview on everyone's tier today (creditOf: each
 // earner's tier credit; null while it loads). Both use the payout rules in
 // force on the E-Form's date.
-function sidesOf(deal, m, setup, { closes, lines, creditOf, preview }) {
+function sidesOf(deal, m, setup, { closes, lines, creditOf, preview, project, projectReady }) {
   const rules = P.rulesAt(setup, deal.date)
   if (!preview && closes.length) {
     return P.dealSides(deal, rules.sideSharePct).map(sd => {
@@ -180,19 +192,13 @@ function sidesOf(deal, m, setup, { closes, lines, creditOf, preview }) {
         totalPct: last.totalPct, retracted: parts.some(p => p.retracted), lines: Object.values(keyed), preview: false }
     })
   }
-  if (!creditOf) return null
-  return P.dealSides(deal, rules.sideSharePct).map((sd, i, all) => {
-    const base = i === all.length - 1 ? r2(deal.money.net - (all.length > 1 ? r2(deal.money.net * all[0].pct / 100) : 0)) : r2(deal.money.net * sd.pct / 100)
-    if (P.sideRetracted(sd, m.staff)) return { ...sd, base, company: base, retracted: true, tierId: null, agentRate: null, totalPct: null, lines: [], preview: true }
-    const earner = m.staff[sd.staffId]
-    const credit = creditOf(earner.id)
-    // The ladder of the rules in force on the E-Form's date (earlier rules have their own), by the earner's commission so far.
-    const tiers = P.tiersFor(rules, earner.branchId)
-    const tier = tiers[P.computeTierIndex(credit.lifetime, credit.yearly, tiers, Math.max(0, tiers.findIndex(t => t.id === earner.tierFloorId)))]
-    const total = P.resolveTotal(rules.totals, { branchId: earner.branchId, dealType: deal.type, tierId: tier.id })
-    const holders = P.uplineHolders(m.staff, earner.id, rules.roles)
-    const out = P.payoutLines({ amount: base, earnerId: earner.id, agentRate: tier.agentRate, totalPct: total?.pct, holders, splits: rules.splits, roles: rules.roles })
-    return { ...sd, base, company: out.company, tierId: tier.id, agentRate: tier.agentRate, totalPct: total?.pct ?? null, lines: out.lines, preview: true }
+  if (!creditOf || !projectReady) return null
+  // What closing it today would pay: the same rule the close runs (payoutForClose), with a project's own rule.
+  const out = payoutForClose(setup, m.staff, deal, deal.money.net, creditOf, undefined, project)
+  return P.dealSides(deal, rules.sideSharePct).map(sd => {
+    const s = out.sides.find(x => x.side === sd.side)
+    return { ...sd, base: s.base, company: s.company, retracted: !!s.retracted, tierId: s.tierId, agentRate: s.agentRate, totalPct: s.totalPct,
+      lines: out.lines.filter(l => l.side === sd.side), preview: true }
   })
 }
 
@@ -226,6 +232,11 @@ function Split({ deal, m, setup, recs }) {
         {money.referral > 0 && <Row label={`Referral fee ${setup.dealTypes.referralPct}%`} value={`− ${rm(money.referral)}`} muted />}
         <Row label="Net commission to share" value={rm(money.net)} strong />
       </div>
+      {recs.project && (recs.project.payout?.mode || 'setup') !== 'setup' && (
+        <p style={{ fontSize: 12.5, color: C.muted, margin: '0 0 12px', lineHeight: 1.45 }}>
+          {recs.project.name} pays by its own rule: {describePayout(recs.project).toLowerCase()}.
+        </p>
+      )}
       {rules.rulesUntil && (
         <p style={{ fontSize: 12.5, color: C.muted, margin: '0 0 12px', lineHeight: 1.45 }}>
           Paid on the payout rules for E-Forms dated before {date(rules.rulesUntil)}: this one is dated {date(deal.date)}, so later changes to tiers and splits don’t apply to it.

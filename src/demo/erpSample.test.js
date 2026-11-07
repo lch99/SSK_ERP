@@ -3,6 +3,7 @@ import * as P from '../../shared/payout.js'
 import { sampleState, view, applyStep } from '../../shared/setupState.js'
 import { makeErpSample, nextPayDate, payoutForClose } from './erpSample.js'
 import * as A from '../../shared/agents.js'
+import { projectOfDeal } from '../../shared/projects.js'
 
 const AS_OF = '2026-10-21'
 const setup = view(sampleState())
@@ -153,5 +154,30 @@ describe('two agents on one deal', () => {
     const staff = { 1: person(1, 'active') }
     const { sides } = payoutForClose(setup, staff, { agentId: 1, holderId: null, listingId: 5, type: 'sale', date: AS_OF }, 1000, newcomer)
     expect(sides.map(s => [s.side, s.base, !!s.retracted])).toEqual([['sales', 500, false], ['listing', 500, true]])
+  })
+})
+
+describe('a project E-Form pays by its project', () => {
+  const b = setup.branches[0].id
+  const staff = { 1: { id: 1, branchId: b, status: 'active', uplineId: null, role: null, tierFloorId: null } }
+  const newcomer = () => ({ lifetime: 0, yearly: 0 })
+  const t1 = P.tiersFor(setup, b)[0]
+  const deal = { agentId: 1, holderId: null, listingId: null, type: 'project', date: AS_OF, property: { title: 'Sky Park' } }
+  const pay = project => payoutForClose(setup, staff, deal, 1000, newcomer, undefined, project)
+  it('a boost adds to the negotiator’s rate', () => {
+    const { sides, lines } = pay({ name: 'Sky Park', payout: { mode: 'boost', boostPct: 3 } })
+    expect(sides[0].agentRate).toBe(Math.min(100, t1.agentRate + 3))
+    expect(lines.find(l => !l.role).amount).toBe(r2(1000 * Math.min(100, t1.agentRate + 3) / 100))
+  })
+  it('its own totals set each tier’s total payout', () => {
+    expect(pay({ name: 'Sky Park', payout: { mode: 'custom', customTotals: { [t1.id]: 95 } } }).sides[0].totalPct).toBe(95)
+  })
+  it('“same as Setup” pays as if there were no project', () => {
+    expect(pay({ name: 'Sky Park', payout: { mode: 'setup' } })).toEqual(pay(null))
+  })
+  it('closing finds the project by the E-Form’s building name', () => {
+    const projects = [{ name: 'Other', payout: { mode: 'boost', boostPct: 9 } }, { name: 'Sky Park', payout: { mode: 'boost', boostPct: 3 } }]
+    expect(projectOfDeal(projects, deal).payout.boostPct).toBe(3)
+    expect(projectOfDeal(projects, { ...deal, type: 'sale' })).toBe(null)
   })
 })

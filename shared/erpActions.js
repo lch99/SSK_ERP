@@ -10,8 +10,11 @@ import { UPLOADS } from './files.js'
 import * as L from './listings.js'
 import * as M from './maintenance.js'
 import { nextPayDate, payoutApprovers, payoutForClose, tierCredit, localToday, docNames } from './erpRules.js'
+import { projectOfDeal } from './projects.js'
 
 const change = fn => fn
+// A project E-Form's project (its own payout rule); the projects are read only for one (the server loads the kinds an action reads).
+const projectFor = (data, deal) => (deal?.type === 'project' ? projectOfDeal(data.projects, deal) : null)
 const r2 = n => Math.round(n * 100) / 100
 const sum = (xs, f) => r2(xs.reduce((t, x) => t + Number(f(x) || 0), 0))
 const rm = n => `RM ${Number(n).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -223,7 +226,8 @@ export const closeDeal = id => change((data, setup, today) => {
   const creditOf = sid => tierCredit(staffById[sid], data.closes, year)
   const closeNet = full ? r2(net - sum(before, c => c.net)) : r2(net * claim / billed)
   const closeSst = full ? r2(sst - sum(before, c => c.sst)) : r2(sst * claim / billed)
-  const { sides, lines } = payoutForClose(setup, staffById, deal, closeNet, creditOf)
+  // A project E-Form pays by its project's own rule.
+  const { sides, lines } = payoutForClose(setup, staffById, deal, closeNet, creditOf, undefined, projectFor(data, deal))
   let nextId = newId(data)
   const close = { id: nextId++, dealId: id, date: today, claim, full, partNo: before.length + 1, net: closeNet, sst: closeSst, sides }
   data.closes.push(close)
@@ -610,7 +614,7 @@ export const rerunClose = closeId => change((data, setup, today) => {
   if (old.some(l => l.requestId || l.archiveId || l.status === 'paid')) return 'Some of these lines are already requested for salary, so the case cannot be re-run.'
   const deal = data.deals.find(d => d.id === close.dealId)
   const staffById = Object.fromEntries(data.staff.map(s => [s.id, s]))
-  const { sides, lines } = payoutForClose(setup, staffById, deal, close.net, creditWithout(data, closeId, today))
+  const { sides, lines } = payoutForClose(setup, staffById, deal, close.net, creditWithout(data, closeId, today), undefined, projectFor(data, deal))
   close.sides = sides
   const codes = old.map(l => l.code)
   let last = data.payouts.reduce((m, p) => Math.max(m, Number(p.code.slice(5)) || 0), 110400)
