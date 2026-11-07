@@ -5,7 +5,8 @@
 // own, on a schedule (src/index.js), so reading the ERP never has to run them.
 const db = require('./connection');
 const A = require('../../../shared/erpActions.js');
-const { loadState, saveChanges } = require('./erpState');
+const { loadState, saveChanges, KINDS } = require('./erpState');
+const { MODELS } = require('./records');
 const { pruneNotices } = require('./notices');
 const { localToday } = require('./days');
 
@@ -23,6 +24,56 @@ const changeState = (change, { by } = {}) => oneAtATime(() => db.transaction(asy
   return state;
 }));
 
+// ── An action on only the records it reads ──────────────────────────────────
+// The kinds an action may ask for (the staff directory always comes: who is acting, and reach).
+const WATCHED = new Set([...KINDS, 'v1', 'audit']);
+const ALWAYS = ['staff'];
+
+// The highest id in every table of the one id space (shared/erpActions.js newId).
+async function topId(q) {
+  const [rows] = await q.raw(`select max(m) as m from (${A.ID_KINDS.map(k => `select max(id) as m from \`${MODELS[k].table}\``).join(' union all ')}) t`);
+  return Number(rows[0]?.m) || 0;
+}
+
+// The records as the action sees them: a kind not loaded yet is noted (and reads as empty this time);
+// RAW hands over the records themselves (newId reads its floor and the ids there).
+const watch = (data, loaded, asked) => new Proxy(data, {
+  get(t, k, r) {
+    if (k === A.RAW) return t;
+    if (typeof k === 'string' && WATCHED.has(k) && !loaded.has(k)) asked.add(k);
+    return Reflect.get(t, k, r);
+  },
+});
+
+// Runs an action on the kinds it reads, not every record (a save on the real data read 600 MB): run it
+// on what is loaded, note any other kind it asked for, load that and run again from the tables; the last
+// run is saved. run({ setup, data }, trx) changes only `data` (a refusal it throws saves nothing, unless it
+// asked for more); finish(state, before, trx) then checks what was saved and logs it (a refusal undoes it). After five rounds
+// every record is loaded. The time rules are not run here: src/index.js runs them on a schedule.
+const act = (run, finish, { by } = {}) => oneAtATime(() => db.transaction(async trx => {
+  let loaded = new Set(ALWAYS);
+  for (let round = 1; ; round++) {
+    const state = await loadState(trx, { only: [...loaded] });
+    if (!state.data) throw Object.assign(new Error(state.blockers[0]), { status: 400, errors: [state.blockers[0]] });
+    state.data.idFloor = await topId(trx);
+    const before = structuredClone(state.data);
+    const asked = new Set();
+    let refused = null;
+    try { await run({ ...state, data: watch(state.data, loaded, asked) }, trx); } catch (err) { refused = err; }
+    if (asked.size) {
+      loaded = round >= 5 ? new Set(WATCHED) : new Set([...loaded, ...asked]);
+      continue;
+    }
+    if (refused) throw refused;
+    delete state.data.idFloor;
+    delete before.idFloor;
+    await saveChanges(trx, before, state.data, { by });
+    // Checks on what is saved, and the log: a refusal here rolls the whole save back.
+    await finish(state, before, trx);
+    return { ...state, read: [...loaded] };
+  }
+}));
+
 // The time rules (viewings expire or wait for review, co-PH slots end, accounts suspend or lock and
 // hand their listings on) and the notification clean-up: what the ERP does by itself, saved if it
 // changed anything. Returns whether it ran (not before Setup is done).
@@ -34,4 +85,4 @@ async function runTimeRules() {
   return true;
 }
 
-module.exports = { changeState, runTimeRules };
+module.exports = { changeState, runTimeRules, act };

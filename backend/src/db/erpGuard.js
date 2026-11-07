@@ -7,6 +7,7 @@
 const AC = require('../../../shared/access.js');
 const L = require('../../../shared/listings.js');
 const SL = require('../../../shared/lists.js');
+const { LISTS, scopeFor } = require('./lists');
 const { AGENT_TYPES } = SL;
 
 // Kinds of record limited by reach (visibleData), and the access area each belongs to.
@@ -121,7 +122,16 @@ function actorArgs(name, args, v) {
 
 // Before: the records the action works on are in reach, and a staff record's
 // protected fields are not changed by the person themselves or without Full.
-function checkBefore(name, args, data, v) {
+// Which of these records the person may reach, asked of the tables: each list's reach in SQL
+// (db/lists.js, kept the same as visibleData by a test), so a check never reads every record.
+async function inReach(q, kind, ids, v) {
+  const spec = LISTS[kind];
+  const b = q(spec.table).whereIn(`${spec.table}.id`, ids.map(Number));
+  scopeFor(spec, v)(b);
+  return new Set((await b.select(`${spec.table}.id`)).map(r => r.id));
+}
+
+async function checkBefore(q, name, args, data, v) {
   if (name === 'revealOwner') {
     const l = data.listings.find(x => x.id === args[0]);
     if (l && !seesOwner(l, v, data)) throw refuse('Only the people tied to this listing may see its owner.');
@@ -138,18 +148,19 @@ function checkBefore(name, args, data, v) {
   const [kind, ids] = TARGET[name];
   const want = ids(args).filter(x => x != null && x !== '');
   if (!want.length) return;
-  const reach = new Set((kind === 'staff' ? AC.visibleData(data, who(v), v.scope).staff : AC.visibleData(data, who(v), v.scope)[kind] || []).map(x => x.id));
+  const reach = await inReach(q, kind, want, v);
   if (want.some(id => !reach.has(Number(id)))) throw refuse(NOT_YOURS);
 }
 
-// After: anything new the action made is in reach too.
-function checkAfter(before, after, v) {
+// After (on what the action saved, in its transaction): anything new it made is in reach too.
+// added: addedIds(before, after).
+async function checkAfter(q, added, v) {
   if (v.scope === 'all') return;
-  const was = Object.fromEntries(MADE_IN_REACH.map(k => [k, new Set((before[k] || []).map(x => x.id))]));
-  const shown = AC.visibleData(after, who(v), v.scope);
   for (const k of MADE_IN_REACH) {
-    const reach = new Set((shown[k] || []).map(x => x.id));
-    if ((after[k] || []).some(x => !was[k].has(x.id) && !reach.has(x.id))) throw refuse(NOT_YOURS);
+    const ids = added[k] || [];
+    if (!ids.length) continue;
+    const reach = await inReach(q, k, ids, v);
+    if (ids.some(id => !reach.has(id))) throw refuse(NOT_YOURS);
   }
 }
 

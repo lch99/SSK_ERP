@@ -29,7 +29,7 @@ const { listPage, listAll, extrasFor, rawRows } = require('../db/list');
 const { MODELS, toRecords, KINDS, parseJson } = require('../db/records');
 const { loadSetup } = require('../db/setupStore');
 const { loadState } = require('../db/erpState');
-const { changeState } = require('../db/erpRun');
+const { changeState, act } = require('../db/erpRun');
 const { pruneNotices } = require('../db/notices');
 const G = require('../db/erpGuard');
 const { audit } = require('../db/audit');
@@ -94,27 +94,34 @@ router.post('/actions/:name', wrap(async (req, res) => {
   if (why) return res.status(403).json({ error: why, errors: [why] });
   // Whoever the page says is acting, it is the signed-in person.
   const args = G.actorArgs(name, Array.isArray(req.body?.args) ? req.body.args : [], v);
-  let result, state, added = {};
+  let result, added = {};
   try {
-    state = await changeState(async (s, before, trx) => {
-      G.checkBefore(name, args, s.data, v);
+    // Only the kinds the action reads are loaded (db/erpRun.js act); the checks and the log come after its last run.
+    const done = await act(async (s, trx) => {
+      await G.checkBefore(trx, name, args, s.data, v);
       if (forProjects) result = PROJECT_ACTIONS[name](s, ...args);
       else {
         const why = A[name](...args)(s.data, s.setup, localToday());
         if (why) throw Object.assign(new Error(why), { status: 400, errors: [why] });
       }
-      G.checkAfter(before, s.data, v);
+    }, async (s, before, trx) => {
       added = G.addedIds(before, s.data);
+      await G.checkAfter(trx, added, v);
       await audit(req, { action: name, entity: 'erp', detail: { changed: G.changedIds(before, s.data) } }, trx);
     }, { by: req.user.username });
+    // ERP_TRACE_READS=1: which kinds each action read (to see which still read a big one).
+    if (process.env.ERP_TRACE_READS) console.log(`action ${name} read: ${done.read.join(', ')}`);
   } catch (err) {
     if (err.status === 400 || err.status === 403) return refused(res, err.status, err);
     if (isInUse(err)) return refused(res, 400, new Error('Other records still use this, so it cannot be removed. Set it Inactive instead.'));
     throw err;
   }
-  // small: the page keeps only the start-up read (it reads lists a page at a time); added: the ids made.
-  const data = G.forViewer(state.data, v);
-  res.json({ ...state, data: req.body?.small === true ? G.startUp(data) : data, added, ...(forProjects ? { result } : {}) });
+  // small: the page keeps only the start-up read (it reads lists a page at a time); otherwise every record
+  // this person may see, read again. added: the ids made.
+  const small = req.body?.small === true;
+  const state = await loadState(db, small ? { only: G.START_KINDS } : {});
+  const data = state.data && G.forViewer(state.data, v);
+  res.json({ ...state, data: small && data ? G.startUp(data) : data, added, ...(forProjects ? { result } : {}) });
 }));
 
 router.get('/meta', wrap(async (req, res) => {

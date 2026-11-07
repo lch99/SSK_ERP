@@ -18,8 +18,16 @@ const rm = n => `RM ${Number(n).toLocaleString('en-MY', { minimumFractionDigits:
 const str = v => String(v ?? '').trim()
 const now = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
 
-const newId = data => Math.max(0, ...['staff', 'listings', 'customers', 'deals', 'moneyIn', 'closes', 'payouts', 'requests', 'archives', 'moneyOut',
-  'vendorRequests', 'enquiries', 'titles', 'areas', 'videos', 'propertyTypes', 'viewings', 'notices', 'downtime'].flatMap(k => (data[k] || []).map(x => x.id))) + 1
+// The next id: one id space across the kinds, as the demo keeps it. The server loads only the kinds
+// an action reads, so it gives `idFloor` (the highest id in all of them) and its watcher hands the
+// records over as they are (RAW), so finding the next id never asks for every kind.
+export const ID_KINDS = ['staff', 'listings', 'customers', 'deals', 'moneyIn', 'closes', 'payouts', 'requests', 'archives', 'moneyOut',
+  'vendorRequests', 'enquiries', 'titles', 'areas', 'videos', 'propertyTypes', 'viewings', 'notices', 'downtime']
+export const RAW = Symbol.for('ssk.raw')
+const newId = data => {
+  const all = data[RAW] || data
+  return Math.max(all.idFloor || 0, ...ID_KINDS.flatMap(k => (all[k] || []).map(x => x.id))) + 1
+}
 const log = (data, today, dealId, field, before, after, by = 'admin') => data.audit.unshift({ at: `${today} ${now()}`, by, dealId, field, before, after })
 
 // ── Closed Case: line status New / Pending Queries / Ready ──

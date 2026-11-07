@@ -30,10 +30,14 @@ const parts = d => ({ ...Object.fromEntries(KINDS.map(k => [k, d[k] || []])), au
 const byId = (a, b) => a - b;
 // The same records, matched by id, each with every field `want` gives it (the
 // tables may add blank ones a new record did not have, e.g. stacked: false).
+// E-Form history by time, newest first: the tables keep it by when it happened, the demo by when it was
+// added, and the sample has entries dated later today (a run just after midnight put a new one below them).
+const byTime = list => [...(list || [])].sort((a, b) => String(b.at).localeCompare(String(a.at)) || a.dealId - b.dealId || String(a.field).localeCompare(String(b.field)));
 function sameData(have, want, what) {
   const h = parts(have);
   for (const [k, w] of Object.entries(parts(want))) {
-    if (!Array.isArray(w) || k === 'audit') { assert.deepEqual(tidy(h[k]), tidy(w), `${what}: ${k}`); continue; }
+    if (k === 'audit') { assert.deepEqual(tidy(byTime(h[k])), tidy(byTime(w)), `${what}: ${k}`); continue; }
+    if (!Array.isArray(w)) { assert.deepEqual(tidy(h[k]), tidy(w), `${what}: ${k}`); continue; }
     const found = new Map(h[k].map(r => [r.id, r]));
     assert.deepEqual([...found.keys()].sort(byId), w.map(r => r.id).sort(byId), `${what}: ${k} (which records)`);
     // depth only shapes the made-up chart; nothing reads it, so it is not stored.
