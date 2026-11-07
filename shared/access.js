@@ -74,7 +74,7 @@ export const roleForType = type => ROLES.find(r => r.type === type)?.key || 'sta
 
 // The role of a signed-in account: its staff account type when it has one,
 // else its sign-in role (shared/roles.js) mapped to the nearest account type.
-const SIGN_IN = { superadmin: 'superadmin', manager: 'admin-staff', accountant: 'account', admin: 'admin-staff2', staff: 'staff' }
+const SIGN_IN = { superadmin: 'superadmin', manager: 'admin-staff', accountant: 'account', admin: 'admin-staff2', staff: 'staff', tech: 'tech' }
 export const roleForUser = user => (user?.type ? roleForType(user.type) : SIGN_IN[user?.role] || 'staff')
 
 // The recommended policy: { [role]: { scope, levels: { [area]: level } } }.

@@ -5,10 +5,11 @@ const bcrypt = require('bcryptjs');
 const db = require('../db/connection');
 const { audit } = require('../db/audit');
 const { requireAuth, requirePerm } = require('../middleware/auth');
+const { downtimeGate } = require('../middleware/downtime');
 const R = require('../../../shared/roles.js');
 
 const router = express.Router();
-router.use(requireAuth, requirePerm('users.manage'));
+router.use(requireAuth, requirePerm('users.manage'), downtimeGate());
 
 const out = u => ({
   id: u.id, username: u.username, name: u.name, role: u.role, branchId: u.branch_id,

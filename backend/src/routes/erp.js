@@ -23,6 +23,7 @@ const A = require('../../../shared/erpActions.js');
 const J = require('../../../shared/projects.js');
 const R = require('../../../shared/erpRules.js');
 const { requireAuth } = require('../middleware/auth');
+const { downtimeGate, forget: forgetDowntime } = require('../middleware/downtime');
 const { viewerOf, needs } = require('../middleware/access');
 const { LISTS, scopeFor } = require('../db/lists');
 const { listPage, listAll, extrasFor, rawRows } = require('../db/list');
@@ -43,7 +44,8 @@ const { xlsxParts, zip, XLSX_TYPE } = require('../../../shared/xlsx.js');
 const deflateRaw = promisify(zlib.deflateRaw);
 
 const router = express.Router();
-router.use(requireAuth);
+// While planned downtime closes the ERP, only the technical team and the Superadmin get past the start-up read.
+router.use(requireAuth, downtimeGate({ open: ['/start'] }));
 
 const wrap = fn => (req, res, next) => fn(req, res).catch(next);
 const notFound = res => res.status(404).json({ error: 'Not found, or not yours to see.' });
@@ -111,6 +113,8 @@ router.post('/actions/:name', wrap(async (req, res) => {
     }, { by: req.user.username, name, args });
     // ERP_TRACE_READS=1: which kinds each action read (to see which still read a big one).
     if (process.env.ERP_TRACE_READS) console.log(`action ${name} read: ${done.read.join(', ')}`);
+    // A planned window changed: the gate reads them again on the next request.
+    if (name.endsWith('Downtime')) forgetDowntime();
   } catch (err) {
     if (err.status === 400 || err.status === 403) return refused(res, err.status, err);
     if (isInUse(err)) return refused(res, 400, new Error('Other records still use this, so it cannot be removed. Set it Inactive instead.'));

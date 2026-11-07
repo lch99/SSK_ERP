@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../api.js'
 import { visibleData } from '../../shared/access.js'
 import { buildModel, inBranch } from './model.js'
@@ -22,6 +22,15 @@ export function ErpProvider({ reloadKey, children }) {
   })
   const load = useCallback(() => api.getErp().then(s => { setState(s); setError(null) }).catch(e => setError(e.message)), [])
   useEffect(() => { load() }, [load, reloadKey])
+  // The server closed for planned maintenance: read the start-up records again (they carry the window),
+  // once per window (the menu's counts keep being refused while "back soon" shows).
+  const known = useRef(null)
+  known.current = state?.data?.downtime
+  useEffect(() => {
+    const on = e => { if (!(known.current || []).some(w => w.start === e.detail?.start && !w.cancelled && !w.endedAt)) load() }
+    window.addEventListener(api.DOWNTIME_EVENT, on)
+    return () => window.removeEventListener(api.DOWNTIME_EVENT, on)
+  }, [load])
 
   const m = useMemo(() => (state?.data ? buildModel(state.data, state.setup) : null), [state])
   // A role that sees one branch, or one team, stays in the viewer's own branch.

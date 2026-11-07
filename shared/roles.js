@@ -7,6 +7,7 @@ export const ROLES = [
   { value: 'accountant', label: 'Accountant',     branchScoped: false, desc: 'Accounts and finance reports for every branch.' },
   { value: 'admin',      label: 'Admin',          branchScoped: true,  desc: 'Day-to-day office work for one branch. Cannot approve.' },
   { value: 'staff',      label: 'Office Staff',   branchScoped: true,  desc: 'Enters and views their own branch\'s records.' },
+  { value: 'tech',       label: 'Technical team', branchScoped: false, desc: 'The people who look after the ERP itself: planned maintenance and releases. No client records unless Roles & access gives more.' },
 ];
 export const ROLE_VALUES = ROLES.map(r => r.value);
 export const roleMeta = value => ROLES.find(r => r.value === value) || { value, label: value, branchScoped: true, desc: '' };

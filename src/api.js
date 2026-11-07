@@ -26,6 +26,9 @@ export function setToken(token) {
 
 // Fired when the server says the session is no longer valid; App shows sign-in.
 export const SIGNED_OUT_EVENT = 'ssk:signed-out'
+// Fired when the server is closed for planned maintenance (503 with the window): the ERP reads
+// its start-up records again, which carry the window, and shows "back soon".
+export const DOWNTIME_EVENT = 'ssk:downtime'
 
 // The API's reply to `path`, signed in; a refusal or an unreachable server is
 // thrown as an Error with `status` and `errors` (a 401 also signs the page out).
@@ -45,6 +48,7 @@ async function send(path, { method = 'GET', body } = {}) {
     setToken('')
     window.dispatchEvent(new CustomEvent(SIGNED_OUT_EVENT, { detail: data.error }))
   }
+  if (res.status === 503 && data.downtime) window.dispatchEvent(new CustomEvent(DOWNTIME_EVENT, { detail: data.downtime }))
   const msg = data.error || `Request failed (${res.status})`
   throw Object.assign(new Error(msg), { status: res.status, errors: data.errors || [msg] })
 }

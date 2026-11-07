@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import * as M from '../../shared/maintenance.js'
 import { C, btn } from '../styles.js'
 import { useErp } from './ErpContext.jsx'
+import { DEMO } from '../api.js'
 import { useAccess } from './access.jsx'
 import { useFeedback } from './feedback.jsx'
 import Icon from './Icon.jsx'
@@ -54,6 +55,13 @@ export function DowntimeBanner() {
 
 export function BackSoon() {
   const { live } = useDowntime()
+  const { reload } = useErp()
+  // On the server, look again every minute: the technical team may end it early.
+  useEffect(() => {
+    if (DEMO) return undefined
+    const t = setInterval(reload, 60000)
+    return () => clearInterval(t)
+  }, [reload])
   if (!live) return null
   return (
     <div style={{ display: 'grid', placeItems: 'center', minHeight: '60vh', padding: 24, textAlign: 'center' }}>
