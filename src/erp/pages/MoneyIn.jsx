@@ -13,6 +13,8 @@ import { rm, date, maskAcc, lastMonths, monthName } from '../format.js'
 import { localToday } from '../../demo/erpSample.js'
 import { useCan } from '../access.jsx'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
+import { FileName } from '../files.jsx'
+import { fileLabel } from '../../../shared/files.js'
 
 const r2 = n => Math.round(n * 100) / 100
 
@@ -158,7 +160,7 @@ function TxDetails({ t, deal, m }) {
           ['Amount', <b>{rm(t.amount)}</b>], ['Date', date(t.date)], ['Bank-In Date', date(t.bankOn)],
           ['Method', METHODS[t.method]], t.method === 'cash' && ['Cash Method', CASH_METHODS[t.cashMethod]],
           t.method === 'cheque' ? ['Cheque', chequeNoOf(t)] : ['Recipient Reference', t.ref],
-          ['Purpose', PURPOSES[t.purpose]], ['Paid by', t.payer], ['Remark', t.remark], ['File', t.file || 'transfer-slip.pdf'],
+          ['Purpose', PURPOSES[t.purpose]], ['Paid by', t.payer], ['Remark', t.remark], ['File', <FileName value={t.file || 'transfer-slip.pdf'} />],
           ['Into', acc ? `${acc.bank} ${maskAcc(acc.accountNo)} (${acc.purpose === 'client' ? 'clients account' : 'operating'})` : '—'],
         ]} />
       </Block>
@@ -234,7 +236,7 @@ function TxEdit({ t, deal, erp }) {
           ? <FormField label="Cheque Number" required><input style={field} value={f.chequeNo} onChange={set('chequeNo')} /></FormField>
           : <FormField label="Recipient Reference" required><input style={field} value={f.reference} onChange={set('reference')} /></FormField>}
         <FormField label="Purpose"><Select block plain label="Purpose" value={f.purpose} onChange={v => setF({ ...f, purpose: v })} options={Object.entries(PURPOSES).map(([value, label]) => ({ value, label }))} /></FormField>
-        <FormField label="Replace attachment" help={`Now: ${before.file}`}><FileInput kind="document" onChange={files => setF(v => ({ ...v, file: files[0]?.name || before.file }))} /></FormField>
+        <FormField label="Replace attachment" help={`Now: ${fileLabel(before.file)}`}><FileInput kind="document" onSaved={refs => setF(v => ({ ...v, file: refs[0] || before.file }))} /></FormField>
         <FormField label="Remark" required wide><TextArea value={f.remark} onChange={set('remark')} /></FormField>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -303,7 +305,7 @@ function AddTransaction({ dealId }) {
   // Before recording: the payment, and where the E-Form will stand with it.
   async function preview() {
     const gaps = missing([['Select Submission', f.dealId], ['Amount', Number(f.amount) > 0 ? f.amount : ''], ['Bank In Date', f.bankOn],
-      f.method === 'cheque' ? ['Cheque Number', f.chequeNo] : ['Recipient Reference', f.reference], ['Attachment (transfer slip or cheque copy)', f.file], ['Remarks', f.remark]])
+      f.method === 'cheque' ? ['Cheque Number', f.chequeNo] : ['Recipient Reference', f.reference], ['Attachment (transfer slip or cheque copy)', fileLabel(f.file)], ['Remarks', f.remark]])
     const late = [f.bankOn > today && 'The Bank In Date cannot be in the future.', f.date > today && 'The Date cannot be in the future.'].filter(Boolean)
     if (gaps.length || late.length) { setError([gaps.length && needText(gaps), ...late].filter(Boolean).join(' ')); if (!(gaps.length && markGaps(gaps))) window.scrollTo({ top: 0, behavior: 'smooth' }); return false }
     if (!deal) { setError(dealLoading ? 'The E-Form is still loading. Try again in a moment.' : 'That E-Form was not found, or it is not one you can see.'); return false }
@@ -318,7 +320,7 @@ function AddTransaction({ dealId }) {
       sections: [
         { title: 'Payment', rows: [['Amount', <b key="a">{rm(Number(f.amount))}</b>], ['Purpose', PURPOSES[f.purpose]], ['Paid by', payer], ['Date', date(f.date)], ['Bank In Date', date(f.bankOn)],
           ['Method', f.method === 'cash' ? `Cash · ${CASH_METHODS[f.cashMethod]}` : METHODS[f.method]], f.method === 'cheque' ? ['Cheque Number', f.chequeNo] : ['Recipient Reference', f.reference],
-          ['Attachment', f.file], ['Remarks', f.remark]] },
+          ['Attachment', fileLabel(f.file)], ['Remarks', f.remark]] },
         { title: 'E-Form', rows: [['Code', `${deal.code} · ${deal.property.title}`], ['Sale Staff', m.staffName(deal.agentId)], ['Claim from owner', rm(claim)],
           ['Recorded before this', rm(before)], ['Recorded with this', `${rm(after)} (${Math.round(after / (claim || 1) * 100)}% of the claim)`],
           f.purpose !== 'commission' && over > 0.005 && ['Above the claim', `${rm(over)} is the ${owner}'s money: it stays in the clients account and goes back with Balance to Vendor.`],
@@ -367,7 +369,7 @@ function AddTransaction({ dealId }) {
                 <input style={field} value={f.reference} onChange={set('reference')} placeholder="Recipient Reference..." />
               </FormField>}
             <FormField label="Attachment" required help="The slip must show the recipient reference, the amount and the date of the transaction.">
-              <FileInput kind="document" onChange={files => setF(v => ({ ...v, file: files[0]?.name || '' }))} />
+              <FileInput kind="document" onSaved={refs => setF(v => ({ ...v, file: refs[0] || '' }))} />
             </FormField>
             <FormField label="Purpose" required>
               <select style={{ ...sel, width: '100%' }} value={f.purpose} onChange={set('purpose')}>

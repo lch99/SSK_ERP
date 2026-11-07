@@ -74,3 +74,15 @@ export function checkFile({ name, size }, kind, head) {
 
 // The first bytes of a File or Blob, for checkFile().
 export const fileHead = async file => new Uint8Array(await file.slice(0, 512).arrayBuffer())
+
+// A saved file in a record: on the server a reference 'files/<id>/<name>' (an upload),
+// in the demo just the name, and from the old ERP its path on the old storage.
+// fileLabel: the name to show; fileId: the upload's id, or null when it isn't one.
+const REF = /^files\/(\d+)\/(.+)$/
+export const fileId = v => { const m = REF.exec(String(v ?? '')); return m ? Number(m[1]) : null }
+export function fileLabel(v) {
+  const s = String(v ?? '')
+  const m = REF.exec(s)
+  if (!m) return s.includes('/') ? s.split('/').pop() : s
+  try { return decodeURIComponent(m[2]) } catch { return m[2] }
+}

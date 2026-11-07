@@ -13,3 +13,6 @@ logs
 *.sql
 *.sql.gz
 *.dump
+
+# Uploaded files (the local storage driver; personal documents): never commit them
+backend/uploads/

@@ -24,6 +24,7 @@ const J = require('../../../shared/projects.js');
 const R = require('../../../shared/erpRules.js');
 const { requireAuth } = require('../middleware/auth');
 const { downtimeGate, forget: forgetDowntime } = require('../middleware/downtime');
+const FILES = require('../files/files');
 const { viewerOf, needs } = require('../middleware/access');
 const { LISTS, scopeFor } = require('../db/lists');
 const { listPage, listAll, extrasFor, rawRows } = require('../db/list');
@@ -101,6 +102,7 @@ router.post('/actions/:name', wrap(async (req, res) => {
     // Only the kinds the action reads are loaded (db/erpRun.js act); the checks and the log come after its last run.
     const done = await act(async (s, trx) => {
       await G.checkBefore(trx, name, args, s.data, v);
+      await FILES.checkRefs(trx, args, req.user);
       if (forProjects) result = PROJECT_ACTIONS[name](s, ...args);
       else {
         const why = A[name](...args)(s.data, s.setup, localToday());
@@ -109,6 +111,8 @@ router.post('/actions/:name', wrap(async (req, res) => {
     }, async (s, before, trx) => {
       added = G.addedIds(before, s.data);
       await G.checkAfter(trx, added, v);
+      // Uploads the saved records now use belong to them (files/files.js).
+      await FILES.linkFiles(trx, before, s.data, req.user);
       await audit(req, { action: name, entity: 'erp', detail: { changed: G.changedIds(before, s.data) } }, trx);
     }, { by: req.user.username, name, args });
     // ERP_TRACE_READS=1: which kinds each action read (to see which still read a big one).

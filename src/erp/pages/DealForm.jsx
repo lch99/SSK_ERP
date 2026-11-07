@@ -14,6 +14,7 @@ import { rm, pct, date, maskIc } from '../format.js'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
 import { BANKS } from './options.js'
 import { useCan } from '../access.jsx'
+import { fileLabel } from '../../../shared/files.js'
 
 // New E-Form ("Submit New Case") and Edit E-Form, in the current form's order:
 // the case, purchaser/tenant, vendor/landlord, deposits (rent), others (fees,
@@ -300,8 +301,8 @@ function Form({ id, deal, startListing, query }) {
         <Card title="Supporting Document Attachments" help={CARD.docs} sub={`${docs.length} documents must be uploaded before the case can close. Upload them now or later.`}>
           <div style={grid}>
             {docs.map(name => (
-              <FormField key={name} label={name} help={deal?.docs?.[name] ? `Uploaded${deal.files?.[name] ? `: ${deal.files[name]}` : ''}` : null}>
-                <FileInput kind="document" onChange={files => setF(s => ({ ...s, files: files[0] ? { ...s.files, [name]: files[0].name } : Object.fromEntries(Object.entries(s.files).filter(([k]) => k !== name)) }))} />
+              <FormField key={name} label={name} help={deal?.docs?.[name] ? `Uploaded${deal.files?.[name] ? `: ${fileLabel(deal.files[name])}` : ''}` : null}>
+                <FileInput kind="document" onSaved={refs => setF(s => ({ ...s, files: refs[0] ? { ...s.files, [name]: refs[0] } : Object.fromEntries(Object.entries(s.files).filter(([k]) => k !== name)) }))} />
               </FormField>
             ))}
           </div>

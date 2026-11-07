@@ -13,6 +13,7 @@ const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
 const accessRouter = require('./routes/access');
 const erpRouter = require('./routes/erp');
+const filesRouter = require('./routes/files');
 
 const app = express();
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5175').split(',').map(s => s.trim()).filter(Boolean);
@@ -22,6 +23,8 @@ const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5175').spli
 app.set('trust proxy', process.env.TRUST_PROXY || 'loopback');
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: allowedOrigins }));
+// Uploads: the body is the file itself (routes/files.js), so before the JSON parser.
+app.use('/api/files', filesRouter);
 // Setup takes the whole agent list at once (up to 5,000 rows); everything else stays small.
 app.use('/api/setup', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '1mb' }));

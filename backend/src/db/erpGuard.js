@@ -201,4 +201,4 @@ function addedIds(before, after) {
   return out;
 }
 
-module.exports = { forViewer, actorArgs, checkBefore, checkAfter, changedIds, seesOwner, startUp, addedIds, START_KINDS };
+module.exports = { forViewer, actorArgs, checkBefore, checkAfter, changedIds, seesOwner, startUp, addedIds, inReach, START_KINDS };

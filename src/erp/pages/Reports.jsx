@@ -15,6 +15,8 @@ import { download } from '../../setup/sheet.js'
 import { rm, pct, date, monthName, lastMonths, amt } from '../format.js'
 import { RoleTag } from './Staff.jsx'
 import { useDealProject } from './DealPage.jsx'
+import { fileId } from '../../../shared/files.js'
+import { FileName } from '../files.jsx'
 
 // Save a report as an Excel file: its rows are the server's summary (one per person or
 // building), already all here; numbers stay numbers, so they add up in Excel.
@@ -231,8 +233,8 @@ function Tracker() {
           { key: 'by', label: 'Updated by', render: a => <span style={mono}>{a.by}</span> },
           { key: 'case', label: 'Case No.', render: a => <Link to={`deals/${a.dealId}`} style={mono}>{a.code}</Link> },
           { key: 'type', label: 'Type', render: a => a.field },
-          { key: 'before', label: 'Before', render: a => <span style={{ color: C.muted }}>{a.before}</span> },
-          { key: 'after', label: 'After', render: a => <b>{a.after}</b> },
+          { key: 'before', label: 'Before', render: a => <span style={{ color: C.muted }}>{fileId(a.before) != null ? <FileName value={a.before} /> : a.before}</span> },
+          { key: 'after', label: 'After', render: a => <b>{fileId(a.after) != null ? <FileName value={a.after} /> : a.after}</b> },
         ]} />
     </Card>
   )

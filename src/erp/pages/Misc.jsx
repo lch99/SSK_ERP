@@ -10,6 +10,7 @@ import { CARD, PAGE } from '../help.js'
 import { rm, date, maskAcc, amt } from '../format.js'
 import Icon from '../Icon.jsx'
 import { useCan } from '../access.jsx'
+import { FileName } from '../files.jsx'
 
 // ── Commission (2020): the old pay-detail confirmation, superseded by Closed Case ──
 export function Commission() {
@@ -211,7 +212,7 @@ export function Videos({ parts }) {
         {open && (
           <>
             <div style={{ aspectRatio: '16 / 9', background: C.side, borderRadius: 8, display: 'grid', placeItems: 'center', color: '#fff' }}><Icon name="video" size={36} /></div>
-            <p style={{ fontSize: 13.5, color: C.muted }}>{date(open.date)} · {open.minutes} min{open.file ? ` · ${open.file}` : ''}</p>
+            <p style={{ fontSize: 13.5, color: C.muted }}>{date(open.date)} · {open.minutes} min{open.file ? <> · <FileName value={open.file} /></> : ''}</p>
             {open.description && <p style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{open.description}</p>}
           </>
         )}
@@ -226,7 +227,7 @@ export function Videos({ parts }) {
               <FormField label="Date" required><input type="date" style={field} value={edit.date} onChange={e => setEdit({ ...edit, date: e.target.value })} /></FormField>
               <FormField label="Length (minutes)"><input type="number" min="1" style={field} value={edit.minutes} onChange={e => setEdit({ ...edit, minutes: e.target.value })} /></FormField>
             </div>
-            {!edit.id && <FormField label="Video file" required><FileInput kind="video" onChange={files => setEdit(v => ({ ...v, file: files[0]?.name || '' }))} /></FormField>}
+            {!edit.id && <FormField label="Video file" required><FileInput kind="video" onSaved={refs => setEdit(v => ({ ...v, file: refs[0] || '' }))} /></FormField>}
             <FormField label="Description"><TextArea rows={3} value={edit.description} onChange={e => setEdit({ ...edit, description: e.target.value })} /></FormField>
           </div>
         )}

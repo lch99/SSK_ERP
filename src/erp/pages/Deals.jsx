@@ -15,6 +15,7 @@ import DealForm from './DealForm.jsx'
 import { BANKS } from './options.js'
 import { Review, missing, needText, markGaps } from '../review.jsx'
 import { maskAcc, maskIc } from '../format.js'
+import { fileLabel } from '../../../shared/files.js'
 
 // E-Forms: Personal Sales (every form), Branch Sales (by branch manager) and
 // Team Sales (a leader and everyone under them), as in the current ERP.
@@ -273,7 +274,7 @@ export function DealActions({ deal, quiet }) {
         <div style={{ display: 'grid', gap: 10 }}>
           <FormField label="Reason" required><TextArea value={form.reason || ''} onChange={set('reason')} placeholder="e.g. Buyer's loan was rejected" /></FormField>
           {free > 0 && <>
-            <FormField label="Abort Letter"><FileInput kind="document" onChange={files => setForm(v => ({ ...v, letter: files[0]?.name || '' }))} /></FormField>
+            <FormField label="Abort Letter"><FileInput kind="document" onSaved={refs => setForm(v => ({ ...v, letter: refs[0] || '' }))} /></FormField>
             <FormField label="Return to bank"><Select block plain label="Bank" value={form.bank || ''} onChange={v => setForm(f => ({ ...f, bank: v }))} options={[{ value: '', label: 'Select bank' }, ...BANKS.map(b => ({ value: b, label: b }))]} /></FormField>
             <FormField label="Bank account"><input style={field} value={form.account || ''} onChange={set('account')} placeholder="Purchaser's account no." /></FormField>
           </>}
@@ -289,14 +290,14 @@ export function DealActions({ deal, quiet }) {
             warnings={[Number(form.amount) > free + 0.005 && `This is more than the ${rm(Math.max(0, free))} of cash in not yet paid out, so it will be refused.`]}
             sections={[{ title: req.title, rows: [['Amount', <b key="a">{rm(Number(form.amount) || 0)}</b>], ['Pay to', payee], form.ic && ['IC No.', maskIc(form.ic)],
               form.bank && ['Bank', `${form.bank} ${maskAcc(form.account || '')}`], dialog === 'referral' && deal.referral && ['Bank', `${deal.referral.bank} ${maskAcc(deal.referral.account || '')}`],
-              form.letter && ['Attachment', form.letter]] },
+              form.letter && ['Attachment', fileLabel(form.letter)]] },
             { title: 'E-Form', rows: [['Code', `${deal.code} · ${deal.property.title}`], ['Cash in not yet paid out', rm(Math.max(0, free))],
               ['Left after this request', rm(r2(free - (Number(form.amount) || 0)))]] }]} />
         ) : <>
         <p style={{ fontSize: 13, color: C.muted, marginTop: 0 }}>Cash in transactions not yet paid out: <b style={{ color: C.text }}>{rm(Math.max(0, free))}</b>. The amount cannot be more than this.</p>
         <div style={{ display: 'grid', gap: 10 }}>
-          {dialog === 'transfer' && <FormField label="Transfer Deposit Letter" required><FileInput kind="document" onChange={files => setForm(v => ({ ...v, letter: files[0]?.name || '' }))} /></FormField>}
-          {dialog === 'cobroke' && <FormField label="Invoice From Co-Bro Agency" required help={deal.coBroke?.agency}><FileInput kind="document" onChange={files => setForm(v => ({ ...v, letter: files[0]?.name || '' }))} /></FormField>}
+          {dialog === 'transfer' && <FormField label="Transfer Deposit Letter" required><FileInput kind="document" onSaved={refs => setForm(v => ({ ...v, letter: refs[0] || '' }))} /></FormField>}
+          {dialog === 'cobroke' && <FormField label="Invoice From Co-Bro Agency" required help={deal.coBroke?.agency}><FileInput kind="document" onSaved={refs => setForm(v => ({ ...v, letter: refs[0] || '' }))} /></FormField>}
           {dialog === 'referral' && <FormField label="Introducer" help={deal.referral ? `${deal.referral.bank} ${deal.referral.account}` : null}><input style={{ ...field, background: C.bg }} readOnly value={deal.referral?.name || ''} /></FormField>}
           {(dialog === 'transfer' || dialog === 'ta') && <>
             <FormField label={dialog === 'ta' ? 'Tenant Name' : 'Transfer to'} required><input style={field} value={form.payee || ''} onChange={set('payee')} placeholder={dialog === 'ta' ? '' : "e.g. vendor's solicitor (stakeholder)"} /></FormField>

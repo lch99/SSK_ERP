@@ -4,6 +4,7 @@ import * as erp from './demo/erpApi.js'
 import * as profile from './demo/profileApi.js'
 import * as access from './demo/accessApi.js'
 import * as projects from './demo/projectsApi.js'
+import { fileId } from '../shared/files.js'
 
 // Demo mode (the default for now): no server or database — Setup runs in the
 // browser and saves to localStorage. Set VITE_USE_SERVER=true to use the API.
@@ -32,13 +33,13 @@ export const DOWNTIME_EVENT = 'ssk:downtime'
 
 // The API's reply to `path`, signed in; a refusal or an unreachable server is
 // thrown as an Error with `status` and `errors` (a 401 also signs the page out).
-async function send(path, { method = 'GET', body } = {}) {
-  const headers = { 'Content-Type': 'application/json' }
+async function send(path, { method = 'GET', body, file } = {}) {
+  const headers = file ? { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) } : { 'Content-Type': 'application/json' }
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
   let res
   try {
-    res = await fetch(`${API_URL}/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+    res = await fetch(`${API_URL}/api${path}`, { method, headers, body: file || (body === undefined ? undefined : JSON.stringify(body)) })
   } catch {
     throw Object.assign(new Error('Cannot reach the server. Is the backend running?'), { status: 0, errors: ['Cannot reach the server. Is the backend running?'] })
   }
@@ -53,6 +54,33 @@ async function send(path, { method = 'GET', body } = {}) {
   throw Object.assign(new Error(msg), { status: res.status, errors: data.errors || [msg] })
 }
 const request = async (path, opts) => (await send(path, opts)).json().catch(() => ({}))
+
+// Uploads (shared/files.js UPLOADS kinds). On the server a picked file is sent at once and checked
+// there too; the record then keeps its reference ('files/<id>/<name>'). The demo keeps no files:
+// the record keeps the name, as before.
+export const uploadFile = async (file, kind) => (DEMO ? file.name : (await request(`/files?kind=${kind}`, { method: 'POST', file })).ref)
+// Opens a saved upload in a new tab (a link the server signs for a few minutes). The tab opens
+// first, while the click still counts, so the browser doesn't block it.
+export async function openFile(ref) {
+  const id = fileId(ref)
+  if (DEMO || id == null) return
+  const tab = window.open('', '_blank')
+  try {
+    const { url } = await request(`/files/${id}/link`)
+    if (tab) tab.location = `${API_URL}${url}`
+    else window.location.assign(`${API_URL}${url}`)
+  } catch (e) {
+    tab?.close()
+    throw e
+  }
+}
+// A signed link to a saved upload's preview (listing photos, profile pictures), or null.
+export const previewLink = async ref => {
+  const id = fileId(ref)
+  if (DEMO || id == null) return null
+  const { preview } = await request(`/files/${id}/link`)
+  return preview ? `${API_URL}${preview}` : null
+}
 
 // Auth
 export const authStatus = () => (DEMO ? Promise.resolve({ authDisabled: true, needsFirstUser: false }) : request('/auth/status'))

@@ -6,6 +6,7 @@ import * as notionists from '@dicebear/notionists'
 import Icon from './Icon.jsx'
 import { date, num } from './format.js'
 import { UPLOADS, acceptFor, checkFile, fileHead, fileSize, uploadHint } from '../../shared/files.js'
+import { uploadFile } from '../api.js'
 
 // Building blocks shared by the ERP pages.
 
@@ -1131,18 +1132,37 @@ function RemoveFile({ name, onClick }) {
   )
 }
 
-export function FileInput({ kind = 'document', onChange, disabled = false, placeholder }) {
+// onChange(files): the picked File objects. onSaved(refs): each file sent first (uploadFile: on the
+// server it is checked again and kept; the demo keeps its name), then what the record should keep.
+export function FileInput({ kind = 'document', onChange, onSaved, disabled = false, placeholder }) {
   const { maxFiles, noun } = UPLOADS[kind]
   const multiple = maxFiles > 1
   const input = useRef(null)
   const [files, setFiles] = useState([])
   const [over, setOver] = useState(false)
   const [problems, setProblems] = useState([])
+  const [busy, setBusy] = useState(false)
   // Narrow boxes drop the extra words so the file name keeps its room.
   const [box, w] = useBoxWidth()
   const roomy = w >= 420
   const hint = uploadHint(kind)
-  const update = next => { setFiles(next); onChange?.(next) }
+  const update = async next => {
+    setFiles(next)
+    onChange?.(next)
+    if (!onSaved) return
+    const fresh = next.filter(f => !f.ref)
+    const failed = []
+    if (fresh.length) {
+      setBusy(true)
+      for (const f of fresh) {
+        try { f.ref = await uploadFile(f, kind) } catch (e) { failed.push(`${f.name}: ${e.message}`) }
+      }
+      setBusy(false)
+    }
+    const kept = next.filter(f => f.ref)
+    if (failed.length) { setProblems(p => [...p, ...failed]); setFiles(kept) }
+    onSaved(kept.map(f => f.ref))
+  }
   const pick = async list => {
     const picked = [...list], ok = [], why = []
     for (const f of picked) {
@@ -1180,7 +1200,7 @@ export function FileInput({ kind = 'document', onChange, disabled = false, place
           {one ? <>
             <FileThumb file={one} />
             <span style={{ ...ellipsis, fontWeight: 600 }} title={one.name}>{one.name}</span>
-            <span style={{ ...muted, fontSize: 12.5, whiteSpace: 'nowrap' }}>{fileSize(one.size)}</span>
+            <span style={{ ...muted, fontSize: 12.5, whiteSpace: 'nowrap' }}>{busy ? 'Uploading…' : fileSize(one.size)}</span>
             <span style={{ flex: 1 }} />
             {roomy && <span style={{ fontSize: 12.5, fontWeight: 600, color: C.primary, whiteSpace: 'nowrap' }}>Change</span>}
           </> : <>
@@ -1211,7 +1231,7 @@ export function FileInput({ kind = 'document', onChange, disabled = false, place
             <div key={`${f.name}|${f.size}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 5, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', minWidth: 0 }}>
               <FileThumb file={f} />
               <span style={{ ...ellipsis, fontSize: 13.5, fontWeight: 600 }} title={f.name}>{f.name}</span>
-              <span style={{ ...muted, fontSize: 12.5, whiteSpace: 'nowrap' }}>{fileSize(f.size)}</span>
+              <span style={{ ...muted, fontSize: 12.5, whiteSpace: 'nowrap' }}>{busy && !f.ref ? 'Uploading…' : fileSize(f.size)}</span>
               <span style={{ flex: 1 }} />
               <RemoveFile name={f.name} onClick={() => remove(files.filter((_, j) => j !== i))} />
             </div>

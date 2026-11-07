@@ -16,6 +16,7 @@ import { DealProgress } from '../flow.jsx'
 import { rm, pct, date, maskIc, num } from '../format.js'
 import Icon from '../Icon.jsx'
 import { useCan } from '../access.jsx'
+import { FileName } from '../files.jsx'
 
 const OTHER_COLORS = { cobroke: '#c3c7cf', referral: '#d9b38c' }
 
@@ -383,14 +384,14 @@ function Docs({ deal }) {
         {docs.map(([name, ok]) => (
           <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, padding: '6px 8px', borderRadius: 6, background: ok ? C.bg : C.warnBg, minWidth: 0 }}>
             <span style={{ color: ok ? C.ok : C.warn, display: 'inline-flex' }}><Icon name={ok ? 'check' : 'file'} size={16} /></span>
-            <span style={{ flex: 1, minWidth: 0 }}>{name}{deal.files?.[name] && <span style={{ display: 'block', fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deal.files[name]}</span>}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>{name}{deal.files?.[name] && <span style={{ display: 'block', fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><FileName value={deal.files[name]} /></span>}</span>
             {deal.status !== 'cancelled' && can('deals', 'edit') && <button style={{ ...small, fontSize: 12, padding: '3px 8px' }} onClick={() => open(name)}>{ok ? 'Replace' : 'Upload'}</button>}
           </div>
         ))}
       </div>
       <Modal open={!!upload} onClose={() => setUpload(null)} title={`Upload ${upload || ''} · ${deal.code}`}
         footer={<><button style={btn} onClick={() => setUpload(null)}>Cancel</button><button style={{ ...btnPrimary, opacity: file ? 1 : 0.5 }} disabled={!file} onClick={save}>Upload</button></>}>
-        <FormField label={upload}><FileInput kind="document" onChange={files => setFile(files[0]?.name || '')} /></FormField>
+        <FormField label={upload}><FileInput kind="document" onSaved={refs => setFile(refs[0] || '')} /></FormField>
       </Modal>
     </Card>
   )

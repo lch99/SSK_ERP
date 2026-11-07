@@ -9,6 +9,8 @@ import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { rm, date, maskAcc } from '../format.js'
 import { useCan } from '../access.jsx'
+import { FileName } from '../files.jsx'
+import { fileLabel } from '../../../shared/files.js'
 
 // Request Form: money paid out of the client account or to other parties. A page at a time (useList).
 const TABS = ['new', 'queried', 'ready', 'paid', 'all']
@@ -124,7 +126,7 @@ function PaymentDetails({ x, erp }) {
   const doc = kind => `${kind.toUpperCase()} · ${x.voucherNo}\n${MONEY_OUT_TYPES[x.type]}\nPay to: ${x.payee.name}\nBank: ${x.payee.bank} ${x.payee.account}\nAmount: ${rm(x.amount)}\nDate: ${x.paidOn || x.date}\n`
   return (
     <Block title="Payment">
-      {!can('moneyOut', 'edit') ? <KV items={[['Bank', x.payee.bank || '—'], ['Bank Account Number', maskAcc(x.payee.account) || '—'], ['Receipt', x.receipt || 'Not uploaded']]} /> : <div style={grid}>
+      {!can('moneyOut', 'edit') ? <KV items={[['Bank', x.payee.bank || '—'], ['Bank Account Number', maskAcc(x.payee.account) || '—'], ['Receipt', <FileName value={x.receipt} empty="Not uploaded" />]]} /> : <div style={grid}>
         <FormField label="Payment Date" help={paidOk ? 'Saves when you pick a date' : 'After Payment Ready'}>
           <input type="date" style={field} value={x.paidOn || ''} disabled={!paidOk} onChange={e => e.target.value && upd({ paidOn: e.target.value }, `${x.voucherNo} payment date set`)} />
         </FormField>
@@ -135,12 +137,12 @@ function PaymentDetails({ x, erp }) {
         <FormField label="Bank"><Select block plain label="Bank" value={x.payee.bank} onChange={v => upd({ bank: v }, 'Bank saved')} options={[...new Set([x.payee.bank, ...BANKS])].filter(Boolean).map(b => ({ value: b, label: b }))} /></FormField>
         <FormField label="Bank Account Number"><input style={field} value={f.account} onChange={e => setF({ ...f, account: e.target.value })}
           onBlur={() => f.account !== (x.payee.account || '') && upd({ account: f.account }, 'Bank account saved')} /></FormField>
-        <FormField label="Receipt" help={x.receipt ? `Uploaded: ${x.receipt}` : 'Upload the bank slip once paid'}>
-          <FileInput kind="document" onChange={files => files[0] && upd({ receipt: files[0].name }, 'Receipt uploaded')} />
+        <FormField label="Receipt" help={x.receipt ? `Uploaded: ${fileLabel(x.receipt)}` : 'Upload the bank slip once paid'}>
+          <FileInput kind="document" onSaved={refs => refs[0] && upd({ receipt: refs[0] }, 'Receipt uploaded')} />
         </FormField>
       </div>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-        <button style={btn} onClick={() => save(`${x.voucherNo}-letter.txt`, doc('letter'))}>Download Letter{x.letter ? ` (${x.letter})` : ''}</button>
+        <button style={btn} onClick={() => save(`${x.voucherNo}-letter.txt`, doc('letter'))}>Download Letter{x.letter ? ` (${fileLabel(x.letter)})` : ''}</button>
         <button style={btn} disabled={!x.receipt && x.status !== 'paid'} onClick={() => save(`${x.voucherNo}-receipt.txt`, doc('receipt'))}>Download Receipt</button>
         <span style={{ flex: 1 }} />
         {(x.status === 'new' || x.status === 'queried') && can('moneyOut', 'full') && <button style={{ ...btn, color: C.err }} onClick={remove}>Delete</button>}

@@ -9,6 +9,7 @@ const { loadState, saveChanges, KINDS } = require('./erpState');
 const { MODELS } = require('./records');
 const { listingsFor, codeFloor } = require('./actionScope');
 const { pruneNotices } = require('./notices');
+const { pruneFiles } = require('../files/files');
 const { localToday } = require('./days');
 
 let queue = Promise.resolve();
@@ -82,6 +83,7 @@ const act = (run, finish, { by, name, args = [] } = {}) => oneAtATime(() => db.t
 // changed anything. Returns whether it ran (not before Setup is done).
 async function runTimeRules() {
   await pruneNotices(db, localToday());
+  await pruneFiles(db);
   const setup = await loadState(db, { only: [] });
   if (!setup.data) return false;
   await changeState(() => {});

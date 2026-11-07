@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { DEMO, uploadFile, previewLink } from '../api.js'
+import { fileId } from '../../shared/files.js'
 
 // Listing photo previews. Every uploaded photo is shrunk in the browser to a
 // small, soft preview (PREVIEW_PX on its long side, WebP or JPEG at 60%):
@@ -6,7 +8,7 @@ import { useEffect, useState } from 'react'
 // and website preview need. A photo in a listing's photoSet points at its
 // preview by `preview` key. The demo keeps the previews in IndexedDB, because
 // localStorage is already half full with the records; going live, the server
-// makes the same preview on upload and lists send only its URL.
+// makes the same preview on upload (savePreviews uploads the photo there).
 export const PREVIEW_PX = 480
 const QUALITY = 0.6
 
@@ -43,8 +45,15 @@ const run = async (mode, fn) => {
   return new Promise((ok, fail) => { t.oncomplete = () => ok(req?.result); t.onerror = t.onabort = () => fail(t.error) })
 }
 
-// Shrinks the files and stores their previews; returns one key per file.
+// Shrinks the files and stores their previews; returns one key per file. On the server each
+// photo is uploaded instead (checked and kept there, its preview made there): the key is the
+// upload's reference ('files/<id>/<name>'), and the preview comes from a signed link.
 export async function savePreviews(files) {
+  if (!DEMO) {
+    const refs = []
+    for (const file of files) refs.push(await uploadFile(file, 'photo'))
+    return refs
+  }
   const keys = []
   for (const file of files) {
     const blob = await shrinkPhoto(file)
@@ -56,7 +65,16 @@ export async function savePreviews(files) {
   return keys
 }
 
+// A server preview's signed link lasts ten minutes: ask again after eight.
+const signed = new Map()
 async function previewUrl(key) {
+  if (fileId(key) != null) {
+    const had = signed.get(key)
+    if (had && Date.now() - had.at < 8 * 60000) return had.url
+    const url = await previewLink(key).catch(() => null)
+    if (url) signed.set(key, { url, at: Date.now() })
+    return url
+  }
   if (!urls.has(key)) {
     const blob = await run('readonly', s => s.get(key)).catch(() => null)
     if (blob) urls.set(key, URL.createObjectURL(blob))
@@ -70,6 +88,7 @@ let pruned = false
 export function prunePreviews(listings) {
   if (pruned) return
   pruned = true
+  if (!DEMO) return  // the server removes uploads no listing uses
   const keep = new Set(listings.flatMap(l => (l.photoSet || []).map(p => p.preview).filter(Boolean)))
   run('readonly', s => s.getAllKeys())
     .then(keys => Promise.all(keys.filter(k => !keep.has(k)).map(k => run('readwrite', s => s.delete(k)))))

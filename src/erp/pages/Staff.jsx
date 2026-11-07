@@ -21,6 +21,7 @@ import { useReview, changedRows, missing, needText, markGaps } from '../review.j
 import { useList, useRecord, useListReader, useListDownload } from '../useList.js'
 import { madeId } from '../../api.js'
 import { StaffPicker } from '../pickers.jsx'
+import { FileName } from '../files.jsx'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
 // Agents (Agents module): position (tier), upline and status. Office staff
@@ -548,7 +549,7 @@ function StaffFormFor({ s, office }) {
           <FormField label="Profile Picture"><FileInput kind="avatar" /></FormField>
         </>)}
         {section('Documents', 'For staff verification and record-keeping.', STAFF_DOCS.map(d => (
-          <FormField key={d} label={d} help={f.docs[d] ? 'Uploaded' : 'Not uploaded yet'}><FileInput kind="document" onChange={files => setF(x => ({ ...x, docs: { ...x.docs, [d]: files.length > 0 || !!s?.docs?.[d] } }))} /></FormField>
+          <FormField key={d} label={d} help={f.docs[d] ? <>Uploaded{typeof f.docs[d] === 'string' && <>: <FileName value={f.docs[d]} /></>}</> : 'Not uploaded yet'}><FileInput kind="document" onSaved={refs => setF(x => ({ ...x, docs: { ...x.docs, [d]: refs[0] || s?.docs?.[d] || false } }))} /></FormField>
         )))}
         {agentForm && <Card title="Awards" help={CARD.awards} actions={<button style={small} onClick={() => setAward({ name: '', org: '', date: '' })}>Add Award</button>}>
           {!f.awards.length ? <p style={{ margin: 0, fontSize: 13.5, color: C.muted }}>No awards yet.</p> : f.awards.map((a, i) => (

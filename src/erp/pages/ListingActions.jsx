@@ -14,7 +14,7 @@ import { UPLOADS } from '../../../shared/files.js'
 import { Photo, coverOf, savePreviews } from '../photos.jsx'
 import { useInReach } from '../listingLife.jsx'
 import { useRecordReader } from '../useList.js'
-import { fromReply } from '../../api.js'
+import { fromReply, DEMO, uploadFile } from '../../api.js'
 
 // Everyone who hasn't left (status Inactive), for the listing's people pickers.
 const STILL_HERE = 'active,pending,suspended,locked'
@@ -81,19 +81,24 @@ export default function ListingActions({ l, quiet, onBook }) {
     const kept = x.media.filter(p => !(p.fresh && p.type === type))
     const ids = kept.filter(p => p.type === type).map(p => p.id)
     const next = ids.length ? Math.max(...ids) + 1 : 1
-    // Picked photos keep their File until saving, so the tiles can show them.
-    return { ...x, media: withCover([...kept, ...files.map((file, i) => ({ type, id: next + i, name: file.name, published: true, fresh: true, ...(type === 'photo' && { file }) }))]) }
+    // Picked photos and videos keep their File until saving (the tiles show the photos).
+    return { ...x, media: withCover([...kept, ...files.map((file, i) => ({ type, id: next + i, name: file.name, published: true, fresh: true, file }))]) }
   })
   const setPicked = change => setF(x => ({ ...x, media: x.media.map(p => (x.picked.includes(keyOf(p)) ? { ...p, ...change } : p)) }))
   const setOne = (key, change) => setF(x => ({ ...x, media: x.media.map(p => (keyOf(p) === key ? { ...p, ...change } : p)) }))
-  const stored = type => media.filter(p => p.type === type).map(p => ({ id: p.id, name: p.name, published: p.published, ...(type === 'photo' && { cover: !!p.cover, ...(p.preview && { preview: p.preview }) }) }))
+  const stored = type => media.filter(p => p.type === type).map(p => ({ id: p.id, name: p.name, published: p.published, ...(type === 'photo' && { cover: !!p.cover, ...(p.preview && { preview: p.preview }) }),
+    ...(type === 'video' && typeof p.file === 'string' && { file: p.file }) }))
   // Newly picked photos are shrunk to small previews (photos.jsx) as the album is saved.
   const saveAlbum = async () => {
     const fresh = media.filter(p => p.type === 'photo' && p.file)
     const keys = await savePreviews(fresh.map(p => p.file))
     const preview = new Map(fresh.map((p, i) => [p.id, keys[i]]))
     const photoSet = stored('photo').map(p => (preview.has(p.id) ? { ...p, preview: preview.get(p.id) } : p))
-    return erp.updateListing(l.id, { photoSet, videoSet: stored('video') })
+    // New videos go to the server as they are (the demo keeps their names only).
+    const sent = new Map()
+    if (!DEMO) for (const p of media.filter(x => x.type === 'video' && x.file instanceof File)) sent.set(p.id, await uploadFile(p.file, 'listingVideo'))
+    const videoSet = stored('video').map(p => (sent.has(p.id) ? { ...p, file: sent.get(p.id) } : p))
+    return erp.updateListing(l.id, { photoSet, videoSet })
   }
   const price = v => (v === '' || v == null ? '' : rm(Number(v)))
   const editChanges = dialog === 'edit' ? changedRows(start, f, [['askPrice', 'Ad Price', price], ['bestPrice', 'Best Price', price], ['marketValue', 'Market Value', price],

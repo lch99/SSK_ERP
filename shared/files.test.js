@@ -53,3 +53,14 @@ describe('upload rules', () => {
     expect(() => F.checkFile({ name: 'a.pdf', size: 1 }, 'audio')).toThrow(/Unknown upload kind/)
   })
 })
+
+describe('saved files in records', () => {
+  it('shows an upload, a demo name and an old path by their names', () => {
+    expect(F.fileLabel('files/42/Sale%20%26%20Purchase.pdf')).toBe('Sale & Purchase.pdf')
+    expect(F.fileId('files/42/Sale%20%26%20Purchase.pdf')).toBe(42)
+    expect(F.fileLabel('slip.pdf')).toBe('slip.pdf')
+    expect(F.fileId('slip.pdf')).toBe(null)
+    expect(F.fileLabel('uploads/eform/2024/abc.pdf')).toBe('abc.pdf')
+    expect(F.fileLabel(null)).toBe('')
+  })
+})
