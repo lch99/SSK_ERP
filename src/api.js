@@ -75,11 +75,15 @@ export async function openFile(ref) {
   }
 }
 // A signed link to a saved upload's preview (listing photos, profile pictures), or null.
-export const previewLink = async ref => {
-  const id = fileId(ref)
-  if (DEMO || id == null) return null
-  const { preview } = await request(`/files/${id}/link`)
-  return preview ? `${API_URL}${preview}` : null
+// Several previews in one read (a list page's photos): { [ref]: url | null }, at most 200 refs.
+export async function previewLinks(refs) {
+  const ids = [...new Set(refs.map(fileId).filter(id => id != null))]
+  if (DEMO || !ids.length) return {}
+  const { links } = await request(`/files/links?ids=${ids.join(',')}`)
+  return Object.fromEntries(refs.map(ref => {
+    const l = links[fileId(ref)]
+    return [ref, l?.preview ? `${API_URL}${l.preview}` : null]
+  }))
 }
 
 // Auth

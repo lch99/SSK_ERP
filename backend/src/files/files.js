@@ -175,6 +175,32 @@ async function mayRead(q, f, req) {
   return (await inReach(q, f.entity, [id], v)).has(id);
 }
 
+// The ids among `files` (rows) the viewer may open, with one reach check per kind of record
+// (a list page asks for its photos' links in one go).
+async function mayReadMany(q, files, req) {
+  const v = await viewerOf(req);
+  const ok = new Set();
+  if (AC.managesAccess(v.role)) return new Set(files.map(f => f.id));
+  const check = new Map();
+  for (const f of files) {
+    if (f.entity == null) { if (f.uploaded_by != null && f.uploaded_by === req.user.id) ok.add(f.id); continue; }
+    if (f.entity === 'profile') { ok.add(f.id); continue; }
+    const spec = LISTS[f.entity];
+    if (!spec || spec.area == null) continue;
+    const id = Number(f.entity_id);
+    if (f.entity === 'staff' && id === v.staffId) { ok.add(f.id); continue; }
+    if (!AC.allows(v.policy, v.role, spec.area, f.entity === 'staff' ? 'edit' : 'view')) continue;
+    if (OPEN_TO_AREA.has(f.entity) || v.scope === 'all') { ok.add(f.id); continue; }
+    if (!check.has(f.entity)) check.set(f.entity, []);
+    check.get(f.entity).push(f);
+  }
+  for (const [kind, list] of check) {
+    const seen = await inReach(q, kind, [...new Set(list.map(f => Number(f.entity_id)))], v);
+    for (const f of list) if (seen.has(Number(f.entity_id))) ok.add(f.id);
+  }
+  return ok;
+}
+
 // A link to open the file (or its preview) for LINK_MINUTES, for an <a> or <img> that can't send the sign-in.
 const sign = (id, part, exp) => crypto.createHmac('sha256', SECRET).update(`file:${id}:${part}:${exp}`).digest('base64url');
 function signedUrl(id, part = 'file') {
@@ -199,4 +225,4 @@ async function pruneFiles(q) {
   return old.length;
 }
 
-module.exports = { upload, checkRefs, linkFiles, mayRead, signedUrl, signedOk, pruneFiles, refsIn, refOf, cleanName };
+module.exports = { upload, checkRefs, linkFiles, mayRead, mayReadMany, LINKS_AT_ONCE: 200, signedUrl, signedOk, pruneFiles, refsIn, refOf, cleanName };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DEMO, uploadFile, previewLink } from '../api.js'
+import { DEMO, uploadFile, previewLinks } from '../api.js'
 import { fileId } from '../../shared/files.js'
 
 // Listing photo previews. Every uploaded photo is shrunk in the browser to a
@@ -65,15 +65,38 @@ export async function savePreviews(files) {
   return keys
 }
 
-// A server preview's signed link lasts ten minutes: ask again after eight.
+// A server preview's signed link lasts ten minutes: ask again after eight. The photos a page
+// draws together (a list's cards) wait a moment and ask for their links in one read.
 const signed = new Map()
+let waiting = null
+function signedPreview(key) {
+  if (!waiting) {
+    waiting = new Map()
+    setTimeout(async () => {
+      const batch = waiting
+      waiting = null
+      const keys = [...batch.keys()]
+      for (let i = 0; i < keys.length; i += 200) {
+        const part = keys.slice(i, i + 200)
+        const got = await previewLinks(part).catch(() => ({}))
+        for (const k of part) {
+          const url = got[k] || null
+          if (url) signed.set(k, { url, at: Date.now() })
+          for (const done of batch.get(k)) done(url)
+        }
+      }
+    }, 15)
+  }
+  return new Promise(done => {
+    if (!waiting.has(key)) waiting.set(key, [])
+    waiting.get(key).push(done)
+  })
+}
 async function previewUrl(key) {
   if (fileId(key) != null) {
     const had = signed.get(key)
     if (had && Date.now() - had.at < 8 * 60000) return had.url
-    const url = await previewLink(key).catch(() => null)
-    if (url) signed.set(key, { url, at: Date.now() })
-    return url
+    return signedPreview(key)
   }
   if (!urls.has(key)) {
     const blob = await run('readonly', s => s.get(key)).catch(() => null)

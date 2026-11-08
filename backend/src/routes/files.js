@@ -2,6 +2,8 @@
 // the body of an upload is the file itself.
 //   POST /api/files?kind=document   X-File-Name: <name>   → { id, ref, name, size, kind, preview }
 //   GET  /api/files/<id>/link        → { url, preview, name } (signed links, a few minutes)
+//   GET  /api/files/links?ids=1,2,3   → { links: { <id>: { url, preview, name } } } for those the viewer may open
+//                                       (a list page's photos in one read, at most 200)
 //   GET  /api/files/<id>?exp=&sig=   the file;  /api/files/<id>/preview?exp=&sig=  its preview
 const express = require('express');
 const db = require('../db/connection');
@@ -22,6 +24,20 @@ router.post('/', requireAuth, downtimeGate(), async (req, res, next) => {
     if (err.status) return fail(res, err);
     next(err);
   }
+});
+
+router.get('/links', requireAuth, downtimeGate(), async (req, res, next) => {
+  try {
+    const ids = [...new Set(String(req.query.ids || '').split(',').map(idOf).filter(Boolean))];
+    if (ids.length > FILES.LINKS_AT_ONCE) return res.status(400).json({ error: `At most ${FILES.LINKS_AT_ONCE} files at once.` });
+    const files = ids.length ? await db('files').whereIn('id', ids).select('id', 'name', 'size', 'entity', 'entity_id', 'uploaded_by', 'preview_key') : [];
+    const ok = await FILES.mayReadMany(db, files, req);
+    const links = {};
+    for (const f of files) {
+      if (ok.has(f.id)) links[f.id] = { name: f.name, url: FILES.signedUrl(f.id), preview: f.preview_key ? FILES.signedUrl(f.id, 'preview') : null };
+    }
+    res.json({ links });
+  } catch (err) { next(err); }
 });
 
 router.get('/:id/link', requireAuth, downtimeGate(), async (req, res, next) => {

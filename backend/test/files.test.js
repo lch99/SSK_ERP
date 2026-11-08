@@ -117,6 +117,18 @@ test('an upload belongs to who sent it, then to the record that uses it, and ope
   assert.equal((await boss.call('GET', `/files/${up.body.id}/link`)).status, 200);
   assert.equal((await other.call('GET', `/files/${up.body.id}/link`)).status, 404, 'an E-Form outside their team');
   assert.equal((await mine.call('POST', '/erp/actions/setDealDoc', { args: [deal.id, 'SPA', 'files/999999/x.pdf'] })).status, 400, 'a file that is not there');
+
+  // A list page's links in one read: the same answer as one by one.
+  const loose = await mine.upload('document', 'loose.pdf', pdf, 'application/pdf');
+  const ids = `${up.body.id},${loose.body.id},999999`;
+  const keys = async who => Object.keys((await who.call('GET', `/files/links?ids=${ids}`)).body.links).map(Number).sort((a, b) => a - b);
+  assert.deepEqual(await keys(mine), [up.body.id, loose.body.id]);
+  assert.deepEqual(await keys(other), []);
+  assert.deepEqual(await keys(boss), [up.body.id, loose.body.id]);
+  const one = (await mine.call('GET', `/files/links?ids=${up.body.id}`)).body.links[up.body.id];
+  assert.ok(one.url.startsWith(`/api/files/${up.body.id}?exp=`) && one.preview === null);
+  const many = Array.from({ length: 201 }, (_, i) => i + 1).join(',');
+  assert.equal((await mine.call('GET', `/files/links?ids=${many}`)).status, 400);
 });
 
 test('uploads no record took are removed after a day, from storage too', async () => {
