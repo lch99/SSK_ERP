@@ -4,6 +4,8 @@ import { sampleState, view, applyStep } from '../../shared/setupState.js'
 import { makeErpSample, nextPayDate, payoutForClose } from './erpSample.js'
 import * as A from '../../shared/agents.js'
 import { projectOfDeal } from '../../shared/projects.js'
+import * as E from '../../shared/erpActions.js'
+import { ACTIONS } from '../../shared/access.js'
 
 const AS_OF = '2026-10-21'
 const setup = view(sampleState())
@@ -179,5 +181,28 @@ describe('a project E-Form pays by its project', () => {
     const projects = [{ name: 'Other', payout: { mode: 'boost', boostPct: 9 } }, { name: 'Sky Park', payout: { mode: 'boost', boostPct: 3 } }]
     expect(projectOfDeal(projects, deal).payout.boostPct).toBe(3)
     expect(projectOfDeal(projects, { ...deal, type: 'sale' })).toBe(null)
+  })
+})
+
+describe('a developer incentive paid out', () => {
+  it('makes a Developer incentive line per agent that goes with the incentives, and records the company part', () => {
+    const data = structuredClone(makeErpSample(setup, AS_OF))
+    const sold = data.deals.filter(d => d.type === 'project' && !['draft', 'cancelled'].includes(d.status))
+    const name = sold[0].property.title
+    const units = sold.filter(d => d.property.title === name)
+    data.projects = [{ id: 1, name, incentives: [{ id: 2, name: 'Test bonus', from: '2000-01-01', to: '2026-10-01', kind: 'perUnit', counts: 'company', perUnit: 1000, paidTo: 'split', agentPct: 50 }] }]
+    const inScope = units.filter(d => d.date <= '2026-10-01')
+    const before = data.payouts.length
+    expect(E.payIncentive(1, 2)(data, setup, AS_OF)).toBeFalsy()
+    const lines = data.payouts.slice(before)
+    expect(lines.every(l => l.role === 'DEV' && l.status === 'new' && l.closeId === null)).toBe(true)
+    expect(sum(lines, l => l.amount)).toBe(inScope.length * 500)
+    expect(data.projects[0].incentives[0].paid).toMatchObject({ on: AS_OF, toAgents: inScope.length * 500, toCompany: inScope.length * 500 })
+    expect(E.payIncentive(1, 2)(data, setup, AS_OF)).toMatch(/Already paid out/)
+    // Approved, they go with the incentives, not the salary.
+    expect(ACTIONS.payIncentive).toBeTruthy()
+    expect(E.approvePayouts(lines.map(l => l.id))(data, setup, AS_OF)).toBeFalsy()
+    expect(E.createRequests([lines[0].staffId], 'incentives')(data, setup, AS_OF)).toBeFalsy()
+    expect(data.requests.at(-1).kind).toBe('incentives')
   })
 })

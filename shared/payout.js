@@ -117,6 +117,8 @@ export function validateRoles(roles) {
     if (!code) errors.push(`Upline ${i + 1} needs a short code (e.g. TSM).`);
     else if (!/^[A-Za-z0-9]{1,10}$/.test(code)) errors.push(`"${code}": codes are letters/numbers only, up to 10.`);
     else if (codes.has(code.toUpperCase())) errors.push(`Two uplines use the code "${code}".`);
+    // DEV marks developer incentive payout lines (shared/projects.js DEV_ROLE).
+    else if (code.toUpperCase() === "DEV") errors.push(`"${code}" is kept for developer incentives: pick another code.`);
     codes.add(code.toUpperCase());
     if (!String(r.name || "").trim()) errors.push(`Upline ${code || i + 1} needs a name.`);
   });

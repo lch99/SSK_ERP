@@ -165,7 +165,7 @@ export function buildModel(data, setup) {
     return { request: r, staff: s, lines, ...P.payslipTotals(lines.map(l => l.amount), setup.dealTypes.whtPct, s.whtExempt) }
   }
   // Commission type, as the current ERP labels each case line.
-  const commType = l => (l.role ? `${roleName(l.role)} Incentive (${l.side === 'listing' ? 'Product' : 'Marketing'})`
+  const commType = l => (l.role === 'DEV' ? 'Developer incentive' : l.role ? `${roleName(l.role)} Incentive (${l.side === 'listing' ? 'Product' : 'Marketing'})`
     : l.side === 'listing' ? 'Product Handler Salary' : 'Sales Executive Salary')
   const salaryStatus = l => (!l.requestId ? 'none' : requests[l.requestId]?.status === 'clear' ? 'paid' : 'requested')
   // Branch Manager and Area Manager on a deal: the top of the agent's chain, and

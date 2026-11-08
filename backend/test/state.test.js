@@ -180,6 +180,16 @@ test('projects and their incentives save as the demo saves them', async () => {
   const inc = { name: 'Launch bonus', from: today, to: today, kind: 'perUnit', counts: 'company', perUnit: 300, paidTo: 'agents', agentPct: '' };
   const i = await bothProjects('saveIncentive', s => J.saveIncentiveIn(s, p.id, inc), p.id, inc);
   await bothProjects('deleteIncentive', s => J.deleteIncentiveIn(s, p.id, i.id), p.id, i.id);
+  // A campaign that has ended is paid out: a Developer incentive line per agent, the company part recorded.
+  const sold = state.data.deals.find(d => d.type === 'project' && !['draft', 'cancelled'].includes(d.status) && d.date < today);
+  const home = state.data.projects.find(x => x.name === sold.property.title);
+  const past = { name: 'Past push', from: '2000-01-01', to: sold.date, kind: 'perUnit', counts: 'company', perUnit: 400, paidTo: 'split', agentPct: 75 };
+  const done = await bothProjects('saveIncentive', s => J.saveIncentiveIn(s, home.id, past), home.id, past);
+  const before = state.data.payouts.length;
+  const d = await both('payIncentive', home.id, done.id);
+  const made = d.payouts.slice(before);
+  assert.ok(made.length > 0 && made.every(l => l.role === J.DEV_ROLE && l.status === 'new'), 'lines for the agents');
+  assert.ok(d.projects.find(x => x.id === home.id).incentives.find(x => x.id === done.id).paid.toCompany > 0, 'the company part is recorded');
   // The same name twice is refused, and nothing is saved.
   const r = await api.call('POST', '/erp/actions/saveProject', { args: [{ ...draft }] });
   assert.equal(r.status, 400);

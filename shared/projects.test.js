@@ -66,3 +66,23 @@ describe('checks', () => {
     expect(J.validateProject({ payout: { mode: 'boost', boostPct: 0 } }).length).toBe(4)
   })
 })
+
+describe('paying an incentive out', () => {
+  const inc = { ...oct, name: 'October push', kind: 'perUnit', counts: 'company', perUnit: 500, paidTo: 'split', agentPct: 80 }
+  it('waits for the campaign to end, and pays once', () => {
+    expect(J.incentivePayout(inc, project, deals, '2026-10-21').error).toMatch(/once its campaign has ended/)
+    expect(J.incentivePayout({ ...inc, paid: { on: '2026-11-02' } }, project, deals, '2026-11-05').error).toMatch(/Already paid out on 2026-11-02/)
+    expect(J.incentivePayout({ ...inc, perUnit: 0 }, project, deals, '2026-11-05').error).toMatch(/Nothing was earned/)
+  })
+  it('one line per agent on their latest unit in the campaign; the company keeps its part', () => {
+    const out = J.incentivePayout(inc, project, deals, '2026-11-05')
+    expect(out.lines).toEqual([
+      { staffId: 10, dealId: 2, units: 2, amount: 800 },
+      { staffId: 11, dealId: 3, units: 1, amount: 400 },
+      { staffId: 12, dealId: 4, units: 1, amount: 400 },
+    ])
+    expect([out.toAgents, out.toCompany, out.total]).toEqual([1600, 400, 2000])
+    const kept = J.incentivePayout({ ...inc, paidTo: 'company' }, project, deals, '2026-11-05')
+    expect([kept.lines.length, kept.toCompany]).toEqual([0, 2000])
+  })
+})

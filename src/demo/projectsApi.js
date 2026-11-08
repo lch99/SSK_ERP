@@ -94,3 +94,5 @@ const inStore = fn => { const s = load(); const out = fn(s); store(s); return ou
 export const saveProject = (project, tiers) => inStore(s => saveProjectIn(s, project, tiers))
 export const saveIncentive = (projectId, incentive) => inStore(s => saveIncentiveIn(s, projectId, incentive))
 export const deleteIncentive = (projectId, incentiveId) => inStore(s => deleteIncentiveIn(s, projectId, incentiveId))
+// After an ERP action changed a project (an incentive paid out): keep the new list.
+export const putProjects = projects => inStore(s => { s.projects = structuredClone(projects) })

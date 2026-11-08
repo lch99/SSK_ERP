@@ -7,7 +7,7 @@ import { setupView } from './localApi.js'
 import * as A from '../../shared/erpActions.js'
 import { noticeExpired } from '../../shared/listings.js'
 import { makeErpSample, setupSignature, erpBlockers, localToday, ERP_VERSION } from './erpSample.js'
-import { getProjects } from './projectsApi.js'
+import { getProjects, putProjects } from './projectsApi.js'
 
 const KEY = 'ssk-demo-erp-v1'
 let memory = null
@@ -49,9 +49,11 @@ function change(fn) {
   const state = current()
   if (!state.data) return fail(state.blockers[0])
   // Projects live in a store of their own (projectsApi.js): the action sees them (a project E-Form pays by
-  // its project's rule), and they are not saved into this one.
+  // its project's rule; an incentive is paid out), and a change to them goes back there, not into this one.
   state.data.projects = getProjects(state.data, state.setup).projects
+  const had = JSON.stringify(state.data.projects)
   const err = fn(state.data, state.setup, localToday())
+  if (!err && JSON.stringify(state.data.projects) !== had) putProjects(state.data.projects)
   delete state.data.projects
   if (err) return fail(err)
   // Expired notifications go (noticeExpired, as the server does once a day), and this
@@ -78,6 +80,7 @@ export const setMoneyInStatus = (...args) => change(A.setMoneyInStatus(...args))
 export const addTransaction = (...args) => change(A.addTransaction(...args))
 export const setMoneyOutStatus = (...args) => change(A.setMoneyOutStatus(...args))
 export const closeDeal = (...args) => change(A.closeDeal(...args))
+export const payIncentive = (...args) => change(A.payIncentive(...args))
 export const addCustomer = (...args) => change(A.addCustomer(...args))
 export const updateCustomer = (...args) => change(A.updateCustomer(...args))
 export const addListing = (...args) => change(A.addListing(...args))

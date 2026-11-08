@@ -198,7 +198,10 @@ function PayoutCard({ project: p, setup, edit }) {
 }
 
 export function IncentiveCard({ inc, project, onEdit, onDelete, showProject }) {
-  const { m } = useErp()
+  const erp = useErp()
+  const { m } = erp
+  const can = useCan()
+  const fb = useFeedback()
   const [open, setOpen] = useState(false)
   // Worked out with the project's sales ($.sales), or for an incentive not saved yet, from nothing.
   const r = project.$?.sales.progress[inc.id] || J.incentiveProgress(inc, project, [], m.today)
@@ -264,7 +267,19 @@ export function IncentiveCard({ inc, project, onEdit, onDelete, showProject }) {
         </details>
       )}
 
-      {(onEdit || onDelete) && (
+      {inc.paid ? (
+        <div style={{ marginTop: 12 }}><Notice tone="green">
+          Paid out on {date(inc.paid.on)}: {rm(inc.paid.toAgents)} to {inc.paid.lines} agent{inc.paid.lines === 1 ? '' : 's'} as payout lines{inc.paid.toCompany > 0 ? `, ${rm(inc.paid.toCompany)} kept by the company` : ''}.
+          {inc.paid.lines > 0 && <> <Link to="payouts">Payouts to approve</Link></>}
+        </Notice></div>
+      ) : r.status === 'ended' && r.total > 0 && can('payouts', 'full') && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 12, padding: '10px 12px', borderRadius: 8, background: C.okBg }}>
+          <span style={{ flex: '1 1 220px', fontSize: 13, lineHeight: 1.45 }}>The campaign has ended: <b>{rm(r.total)}</b> earned. Pay it out to make each agent's share a payout line for approval.</span>
+          <button style={btnPrimary} onClick={() => payOut(r)}>Pay out</button>
+        </div>
+      )}
+
+      {(onEdit || onDelete) && !inc.paid && (
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
           {onEdit && <button style={small} onClick={onEdit}>Edit</button>}
           {onDelete && <button style={{ ...small, color: C.err }} onClick={onDelete}>Delete</button>}
@@ -272,6 +287,17 @@ export function IncentiveCard({ inc, project, onEdit, onDelete, showProject }) {
       )}
     </div>
   )
+
+  async function payOut(r) {
+    const agents = r.groups.reduce((t, g) => t + g.toAgents, 0)
+    const company = r.groups.reduce((t, g) => t + g.toCompany, 0)
+    const people = new Set(r.groups.flatMap(g => g.shares.filter(x => x.amount > 0).map(x => x.agentId))).size
+    const ok = await fb.confirm({
+      title: `Pay out ${inc.name}?`, confirmLabel: 'Pay out',
+      body: `${agents > 0 ? `${rm(agents)} goes to ${people} agent${people === 1 ? '' : 's'}: each share becomes a payout line for approval, then goes into their incentives. ` : ''}${company > 0 ? `The company keeps ${rm(company)}. ` : ''}This can be done once.`,
+    })
+    if (ok) await fb.run(() => erp.payIncentive(project.id, inc.id), `${inc.name}: paid out`)
+  }
 }
 
 // Progress toward the targets, with a mark and reward at each one.
@@ -300,6 +326,8 @@ function AllIncentives() {
     .sort((a, b) => byStatus(m.today)(a.i, b.i))
   const rows = filter === 'all' ? all : all.filter(x => x.status === filter)
   const total = all.reduce((t, x) => t + (x.p.$.sales.progress[x.i.id]?.total || 0), 0)
+  // Ended campaigns that earned something and are not paid out yet.
+  const toPay = all.filter(x => x.status === 'ended' && !x.i.paid && (x.p.$.sales.progress[x.i.id]?.total || 0) > 0).length
   return (
     <Page title="Developer incentives" help={PAGE.incentives} sub="Every developer campaign across your projects, and how close each one is."
       back={{ to: 'projects', label: 'All projects' }}>
@@ -308,6 +336,7 @@ function AllIncentives() {
           <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k}
             style={{ ...small, ...(filter === k ? { background: C.primaryBg, borderColor: C.primary, color: C.primary, fontWeight: 600 } : {}) }}>
             {label} ({k === 'all' ? all.length : all.filter(x => x.status === k).length})
+            {k === 'ended' && toPay > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, padding: '0 7px', lineHeight: '18px', borderRadius: 9, background: C.primary, color: '#fff' }}>{toPay} to pay out</span>}
           </button>
         ))}
         <span style={{ flex: 1 }} />
@@ -318,6 +347,9 @@ function AllIncentives() {
         {rows.map(({ p, i }) => <Card key={i.id} pad={0} style={{ border: 'none', boxShadow: 'none', background: 'transparent' }}><IncentiveCard inc={i} project={p} showProject /></Card>)}
       </div>
       {filter === 'active' && !rows.length && all.length > 0 && <Notice tone="blue">No campaign is running today. See "Starts soon" or "Ended".</Notice>}
+      {filter !== 'ended' && toPay > 0 && (
+        <div style={{ marginTop: 12 }}><Notice tone="green">{toPay === 1 ? 'One campaign has' : `${toPay} campaigns have`} ended with money earned. <button onClick={() => setFilter('ended')} style={{ all: 'unset', cursor: 'pointer', color: C.primaryDark, fontWeight: 600 }}>See Ended to pay out</button></Notice></div>
+      )}
     </Page>
   )
 }

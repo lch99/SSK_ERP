@@ -120,6 +120,32 @@ export function incentiveProgress(inc, project, deals, today) {
   };
 }
 
+// ── Paying an incentive out (the user's call, 2026-11-08: when the campaign ends) ──
+// Each agent's share becomes one payout line on their latest unit sold in the
+// campaign, marked with this code where an upline level would be, so it goes
+// through approve → request (with the incentives) → pay like any other line.
+export const DEV_ROLE = "DEV";
+
+// What paying `inc` out today makes: { lines: [{ staffId, dealId, units, amount }], toAgents, toCompany, total },
+// or { error } when it can't be paid yet.
+export function incentivePayout(inc, project, deals, today) {
+  if (inc.paid) return { error: `Already paid out on ${inc.paid.on}.` };
+  if (incentiveStatus(inc, today) !== "ended") return { error: "An incentive is paid out once its campaign has ended." };
+  const r = incentiveProgress(inc, project, deals, today);
+  if (!(r.total > 0)) return { error: "Nothing was earned: no target was reached in the campaign." };
+  const sold = projectDeals(deals, project).filter(d => d.date >= inc.from && d.date <= inc.to);
+  const latest = id => sold.filter(d => d.agentId === id).sort((a, b) => (a.date === b.date ? a.id - b.id : a.date < b.date ? -1 : 1)).at(-1);
+  const byAgent = new Map();
+  for (const g of r.groups) for (const sh of g.shares) {
+    if (!(sh.amount > 0)) continue;
+    const had = byAgent.get(sh.agentId) || { staffId: sh.agentId, dealId: latest(sh.agentId)?.id ?? null, units: 0, amount: 0 };
+    byAgent.set(sh.agentId, { ...had, units: had.units + sh.units, amount: r2(had.amount + sh.amount) });
+  }
+  const lines = [...byAgent.values()].filter(l => l.dealId != null);
+  const toAgents = r2(lines.reduce((t, l) => t + l.amount, 0));
+  return { lines, toAgents, toCompany: r2(r.total - toAgents), total: r.total };
+}
+
 export function describeIncentive(inc) {
   const who = { company: "whole company", branch: "each branch", agent: "each agent" }[inc.counts] || "";
   if (inc.kind === "perUnit") return `RM ${Number(inc.perUnit || 0).toLocaleString("en-MY")} per unit`;

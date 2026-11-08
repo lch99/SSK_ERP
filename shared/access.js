@@ -121,7 +121,7 @@ export const ACTIONS = {
   addTransaction: need('moneyIn', 'edit'), updateTransaction: need('moneyIn', 'edit'),
   setMoneyInStatus: need('moneyIn', 'full'), deleteTransaction: need('moneyIn', 'full'),
   queryPayouts: need('payouts', 'edit'),
-  closeDeal: need('payouts', 'full'), rerunClose: need('payouts', 'full'), deleteClose: need('payouts', 'full'),
+  closeDeal: need('payouts', 'full'), rerunClose: need('payouts', 'full'), deleteClose: need('payouts', 'full'), payIncentive: need('payouts', 'full'),
   approvePayouts: need('payouts', 'full'), archiveCases: need('payouts', 'full'), unarchive: need('payouts', 'full'),
   raiseRequest: need('moneyOut', 'edit'), updateMoneyOut: need('moneyOut', 'edit'),
   setMoneyOutStatus: need('moneyOut', 'full'), deleteMoneyOut: need('moneyOut', 'full'),

@@ -10,7 +10,7 @@ import { UPLOADS } from './files.js'
 import * as L from './listings.js'
 import * as M from './maintenance.js'
 import { nextPayDate, payoutApprovers, payoutForClose, tierCredit, localToday, docNames } from './erpRules.js'
-import { projectOfDeal } from './projects.js'
+import { projectOfDeal, incentivePayout, DEV_ROLE } from './projects.js'
 
 const change = fn => fn
 // A project E-Form's project (its own payout rule); the projects are read only for one (the server loads the kinds an action reads).
@@ -33,6 +33,29 @@ const newId = data => {
 }
 const log = (data, today, dealId, field, before, after, by = 'admin') => data.audit.unshift({ at: `${today} ${now()}`, by, dealId, field, before, after })
 
+// ── Developer incentives: paid out once the campaign has ended ──
+// Each agent's share becomes a New payout line (Developer incentive) on their
+// latest unit sold in the campaign; the incentive records what went to the
+// agents and what the company keeps. Each agent is told.
+export const payIncentive = (projectId, incentiveId) => change((data, setup, today) => {
+  const project = (data.projects || []).find(p => p.id === projectId)
+  const inc = project?.incentives?.find(i => i.id === incentiveId)
+  if (!inc) return 'That incentive no longer exists.'
+  const out = incentivePayout(inc, project, data.deals, today)
+  if (out.error) return out.error
+  let nextId = newId(data)
+  let last = data.payouts.reduce((m, p) => Math.max(m, Number(p.code.slice(5)) || 0), 110400)
+  for (const l of out.lines) {
+    data.payouts.push({ id: nextId++, code: `CASE-${++last}`, closeId: null, dealId: l.dealId, date: today, time: now(),
+      staffId: l.staffId, side: null, role: DEV_ROLE, pct: null, base: l.amount, amount: l.amount, tierId: null,
+      status: 'new', query: null, approvedOn: null, approvedBy: null, requestOn: null, requestId: null, archiveId: null, paidOn: null })
+  }
+  inc.paid = { on: today, lines: out.lines.length, toAgents: out.toAgents, toCompany: out.toCompany }
+  for (const l of out.lines) {
+    notify(data, l.staffId, 'commission', `Developer incentive from ${project.name} (${inc.name || 'campaign'}): ${rm(l.amount)} for ${l.units} unit${l.units === 1 ? '' : 's'}. It goes for approval, then into your incentives.`, 'my-pay', today)
+  }
+})
+
 // ── Closed Case: line status New / Pending Queries / Ready ──
 // Ready means approved by whoever Setup names; it then waits for a salary request.
 export const approvePayouts = ids => change((data, setup, today) => {
@@ -43,7 +66,7 @@ export const approvePayouts = ids => change((data, setup, today) => {
   for (const l of data.payouts) if (l.closeId) byClose[l.closeId] = (byClose[l.closeId] || 0) + l.amount
   for (const l of lines) {
     const deal = data.deals.find(d => d.id === l.dealId)
-    Object.assign(l, { status: 'approved', query: null, approvedOn: today, approvedBy: payoutApprovers(setup, deal.branchId, byClose[l.closeId] || 0) })
+    Object.assign(l, { status: 'approved', query: null, approvedOn: today, approvedBy: payoutApprovers(setup, deal.branchId, l.closeId ? byClose[l.closeId] || 0 : l.amount) })
   }
 })
 
