@@ -169,6 +169,30 @@ input.ssk-search::-webkit-search-cancel-button { -webkit-appearance: none; appea
 .ssk-rail-btn { transition: background-color .12s ease, color .12s ease; }
 .ssk-rail-btn:not([aria-current=page]):hover { background: rgba(255, 255, 255, 0.07) !important; color: #fff !important; }
 
+/* ── On phones, like an app ──
+   Taps don't flash grey; buttons react at once (no double-tap zoom wait). */
+* { -webkit-tap-highlight-color: transparent; }
+button, a, [role=button], input, select, label { touch-action: manipulation; }
+/* iPhone and iPad zoom into any field under 16px when it is tapped: not here. */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 760px) { input, select, textarea { font-size: 16px !important; } }
+}
+/* Opened from the home screen: no rubber-band pull on the whole page. */
+@media (display-mode: standalone) { html, body { overscroll-behavior-y: none; } }
+/* The tab bar at the bottom (Shell.jsx PhoneTabs). */
+.ssk-tab { transition: color .12s ease; }
+.ssk-tab:active { transform: scale(.94); }
+/* Dialogs rise from the bottom as sheets on phones, clear of the iPhone's home bar. */
+@keyframes ssk-sheet { from { transform: translateY(40px); opacity: .4 } to { transform: none; opacity: 1 } }
+@media (max-width: 640px) {
+  .ssk-modal-wrap { grid-template-columns: minmax(0, 1fr); align-items: end !important; justify-items: stretch !important; padding: 0 !important; }
+  .ssk-modal { width: 100% !important; min-width: 0; max-height: 92vh !important; border-radius: 16px 16px 0 0 !important; animation: ssk-sheet .22s cubic-bezier(.2, .8, .2, 1); }
+  .ssk-modal-foot { border-radius: 0 !important; padding-bottom: calc(12px + env(safe-area-inset-bottom)) !important; }
+  .ssk-modal-foot > button { flex: 1 1 auto; min-height: 44px; }
+  .ssk-modal:not(:has(.ssk-modal-foot)) { padding-bottom: env(safe-area-inset-bottom); }
+}
+.ssk-drawer-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom)) !important; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
