@@ -1,30 +1,20 @@
 // /api/auth — sign in, first-run account, own profile and password.
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const db = require('../db/connection');
 const { audit } = require('../db/audit');
-const { requireAuth, toReqUser, staffOf, SECRET, AUTH_DISABLED } = require('../middleware/auth');
+const { requireAuth, toReqUser, AUTH_DISABLED } = require('../middleware/auth');
+const { checkSignIn, issue } = require('../auth/signIn');
 const { validateUser, validatePassword } = require('../../../shared/roles.js');
 const { tidyProfile, checkProfile } = require('../../../shared/profile.js');
 const { parseJson } = require('../db/records');
 const ACC = require('../auth/accounts');
 
 const router = express.Router();
-const EXPIRES = process.env.JWT_EXPIRES_IN || '8h';
-const MAX_ATTEMPTS = 5;
-// Compared against when the username doesn't exist, so a wrong username takes
-// as long as a wrong password and doesn't reveal which accounts exist.
-const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Too many sign-in attempts. Try again in a few minutes.' } });
-
-const issue = async u => ({
-  token: jwt.sign({ id: u.id, v: u.token_version }, SECRET, { expiresIn: EXPIRES }),
-  user: toReqUser(u, await staffOf(u)),
-});
 
 // Whether the very first account still has to be created.
 router.get('/status', async (req, res, next) => {
@@ -57,38 +47,13 @@ router.post('/first-user', loginLimiter, async (req, res, next) => {
 });
 
 router.post('/login', loginLimiter, async (req, res, next) => {
-  const username = String(req.body?.username || '').trim().toLowerCase();
-  const password = String(req.body?.password || '');
-  if (!username || !password) return res.status(400).json({ error: 'Enter your username and password.' });
   try {
-    const u = await db('users').where('username', username).first();
-    if (!u) {
-      await bcrypt.compare(password, DUMMY_HASH);
-      return res.status(401).json({ error: 'Wrong username or password.' });
-    }
-    if (u.locked) return res.status(403).json({ error: 'This account is locked after too many wrong passwords. Ask a superadmin or your branch manager to unlock it.' });
-    if (!u.is_active) return res.status(403).json({ error: 'This account is deactivated.' });
-    if (!u.password_hash) {
-      await bcrypt.compare(password, DUMMY_HASH);
-      return res.status(403).json({ error: 'You have not set a password yet. Open the link your branch office sent you, or tap "Forgot password" to ask for a new one.' });
-    }
-    const staff = u.staff_id ? await db('staff').where('id', u.staff_id).first('status') : null;
-    const why = ACC.staffRefusal(staff?.status);
-    if (why) return res.status(403).json({ error: why });
-    if (!(await bcrypt.compare(password, u.password_hash))) {
-      const attempts = Number(u.login_attempts) + 1;
-      const locked = attempts >= MAX_ATTEMPTS;
-      await db('users').where('id', u.id).update({ login_attempts: attempts, locked });
-      if (locked) {
-        await audit({ user: null }, { action: 'lock', entity: 'user', entityId: u.id, detail: { username: u.username } });
-        return res.status(403).json({ error: 'Too many wrong passwords — this account is now locked. Ask a superadmin or your branch manager to unlock it.' });
-      }
-      const left = MAX_ATTEMPTS - attempts;
-      return res.status(401).json({ error: `Wrong username or password. ${left} attempt${left === 1 ? '' : 's'} left before the account locks.` });
-    }
-    await db('users').where('id', u.id).update({ login_attempts: 0, last_login_at: db.fn.now() });
+    const u = await checkSignIn(db, req.body?.username, req.body?.password);
     res.json(await issue(u));
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 router.get('/me', requireAuth, (req, res) => res.json({ user: req.user }));

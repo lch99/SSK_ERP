@@ -50,4 +50,4 @@ const downtimeGate = ({ open = [] } = {}) => async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { downtimeGate, closedNow, forget, stampNow };
+module.exports = { downtimeGate, closedNow, keepsWorking, forget, stampNow };

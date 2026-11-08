@@ -89,7 +89,24 @@ async function upload(req, user, q) {
     if (err.status === 413) throw refused(413, F.checkFile({ name, size: max + 1 }, kind));
     throw err;
   }
-  const { tmp, size, head } = got;
+  return keep(q, user, { kind, name, ...got });
+}
+
+// A file already in hand (the old phone app sends photos inside its request, as text): checked and kept the same way.
+async function saveBuffer(q, user, { kind, name: raw, buffer }) {
+  if (!Object.hasOwn(F.UPLOADS, kind)) throw refused(400, `Unknown upload kind: ${kind || '(none)'}.`);
+  const name = cleanName(raw);
+  if (!name) throw refused(400, 'The file has no name.');
+  const dir = storage.temp();
+  await fsp.mkdir(dir, { recursive: true });
+  const tmp = path.join(dir, crypto.randomBytes(16).toString('hex'));
+  await fsp.writeFile(tmp, buffer);
+  return keep(q, user, { kind, name, tmp, size: buffer.length, head: new Uint8Array(buffer.subarray(0, 512)) });
+}
+
+// Checks a received file (tmp) by its first bytes and size, keeps it (and a photo's preview) in storage, and
+// records it in `files`. The temporary file is removed either way.
+async function keep(q, user, { kind, name, tmp, size, head }) {
   const made = [];
   try {
     const why = F.checkFile({ name, size }, kind, head);
@@ -225,4 +242,4 @@ async function pruneFiles(q) {
   return old.length;
 }
 
-module.exports = { upload, checkRefs, linkFiles, mayRead, mayReadMany, LINKS_AT_ONCE: 200, signedUrl, signedOk, pruneFiles, refsIn, refOf, cleanName };
+module.exports = { upload, saveBuffer, checkRefs, linkFiles, mayRead, mayReadMany, LINKS_AT_ONCE: 200, signedUrl, signedOk, pruneFiles, refsIn, refOf, cleanName };

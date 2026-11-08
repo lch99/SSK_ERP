@@ -18,28 +18,25 @@
 //                                 project action with `result` (what was saved)
 const express = require('express');
 const db = require('../db/connection');
-const AC = require('../../../shared/access.js');
 const A = require('../../../shared/erpActions.js');
-const J = require('../../../shared/projects.js');
 const R = require('../../../shared/erpRules.js');
 const { requireAuth } = require('../middleware/auth');
-const { downtimeGate, forget: forgetDowntime } = require('../middleware/downtime');
-const FILES = require('../files/files');
+const { downtimeGate } = require('../middleware/downtime');
 const { viewerOf, needs } = require('../middleware/access');
 const { LISTS, scopeFor } = require('../db/lists');
-const { listPage, listAll, extrasFor, rawRows } = require('../db/list');
+const { listPage, listAll, rawRows } = require('../db/list');
+const { oneRecord, shown, paramsOf } = require('../db/reads');
 const { MODELS, toRecords, KINDS, parseJson } = require('../db/records');
 const { loadSetup } = require('../db/setupStore');
 const { loadState } = require('../db/erpState');
-const { changeState, act } = require('../db/erpRun');
+const { changeState } = require('../db/erpRun');
+const { runAction } = require('../db/runAction');
 const { pruneNotices } = require('../db/notices');
 const G = require('../db/erpGuard');
-const { audit } = require('../db/audit');
-const { isInUse } = require('../db/errors');
 const { localToday } = require('../db/days');
 const zlib = require('node:zlib');
 const { promisify } = require('node:util');
-const { downloadRows, trimmed } = require('../../../shared/lists.js');
+const { downloadRows } = require('../../../shared/lists.js');
 const { xlsxParts, zip, XLSX_TYPE } = require('../../../shared/xlsx.js');
 
 const deflateRaw = promisify(zlib.deflateRaw);
@@ -72,56 +69,15 @@ router.get('/start', wrap(async (req, res) => {
   res.json({ ...state, data: state.data && G.startUp(G.forViewer(state.data, v)) });
 }));
 
-// Projects: the demo keeps them in a store of their own (src/demo/projectsApi.js);
-// here they are records like the rest, and the same changes run on them.
-function onProjects(state, change) {
-  const all = state.data.projects;
-  const s = { projects: all, nextId: Math.max(0, ...all.flatMap(p => [p.id, ...(p.incentives || []).map(i => i.id)])) + 1 };
-  const result = change(s);
-  state.data.projects = s.projects;
-  return result;
-}
-const PROJECT_ACTIONS = {
-  saveProject: (state, project) => onProjects(state, s => J.saveProjectIn(s, project, state.setup.tiers)),
-  saveIncentive: (state, projectId, incentive) => onProjects(state, s => J.saveIncentiveIn(s, projectId, incentive)),
-  deleteIncentive: (state, projectId, incentiveId) => onProjects(state, s => J.deleteIncentiveIn(s, projectId, incentiveId)),
-};
 const refused = (res, status, err) => res.status(status).json({ error: err.message, errors: err.errors || [err.message] });
 
 router.post('/actions/:name', wrap(async (req, res) => {
-  const { name } = req.params;
-  const forProjects = Object.hasOwn(PROJECT_ACTIONS, name);
-  if (!Object.hasOwn(AC.ACTIONS, name) || (!forProjects && typeof A[name] !== 'function')) return notFound(res);
   const v = await viewerOf(req);
-  const why = AC.refusal(v.policy, v.role, name);
-  if (why) return res.status(403).json({ error: why, errors: [why] });
-  // Whoever the page says is acting, it is the signed-in person.
-  const args = G.actorArgs(name, Array.isArray(req.body?.args) ? req.body.args : [], v);
-  let result, added = {};
+  let out;
   try {
-    // Only the kinds the action reads are loaded (db/erpRun.js act); the checks and the log come after its last run.
-    const done = await act(async (s, trx) => {
-      await G.checkBefore(trx, name, args, s.data, v);
-      await FILES.checkRefs(trx, args, req.user);
-      if (forProjects) result = PROJECT_ACTIONS[name](s, ...args);
-      else {
-        const why = A[name](...args)(s.data, s.setup, localToday());
-        if (why) throw Object.assign(new Error(why), { status: 400, errors: [why] });
-      }
-    }, async (s, before, trx) => {
-      added = G.addedIds(before, s.data);
-      await G.checkAfter(trx, added, v);
-      // Uploads the saved records now use belong to them (files/files.js).
-      await FILES.linkFiles(trx, before, s.data, req.user);
-      await audit(req, { action: name, entity: 'erp', detail: { changed: G.changedIds(before, s.data) } }, trx);
-    }, { by: req.user.username, name, args });
-    // ERP_TRACE_READS=1: which kinds each action read (to see which still read a big one).
-    if (process.env.ERP_TRACE_READS) console.log(`action ${name} read: ${done.read.join(', ')}`);
-    // A planned window changed: the gate reads them again on the next request.
-    if (name.endsWith('Downtime')) forgetDowntime();
+    out = await runAction(req, req.params.name, req.body?.args);
   } catch (err) {
-    if (err.status === 400 || err.status === 403) return refused(res, err.status, err);
-    if (isInUse(err)) return refused(res, 400, new Error('Other records still use this, so it cannot be removed. Set it Inactive instead.'));
+    if (err.status) return refused(res, err.status, err);
     throw err;
   }
   // small: the page keeps only the start-up read (it reads lists a page at a time); otherwise every record
@@ -129,7 +85,7 @@ router.post('/actions/:name', wrap(async (req, res) => {
   const small = req.body?.small === true;
   const state = await loadState(db, small ? { only: G.START_KINDS } : {});
   const data = state.data && G.forViewer(state.data, v);
-  res.json({ ...state, data: small && data ? G.startUp(data) : data, added, ...(forProjects ? { result } : {}) });
+  res.json({ ...state, data: small && data ? G.startUp(data) : data, added: out.added, ...(out.forProjects ? { result: out.result } : {}) });
 }));
 
 router.get('/meta', wrap(async (req, res) => {
@@ -195,16 +151,6 @@ router.get('/org/trail/:id', needs('staff'), wrap(async (req, res) => {
 }));
 
 // ── One record, a list, an E-Form's history ─────────────────────────────────
-async function oneRecord(spec, viewer, id) {
-  const b = db(spec.table).where(`${spec.table}.id`, id);
-  scopeFor(spec, viewer)(b);
-  const row = await b.select(`${spec.table}.*`).first();
-  if (!row) return null;
-  const [rec] = await toRecords(db, spec.model, [row]);
-  if (spec.extras) rec.$ = (await extrasFor(db, spec.extras, [rec])).get(rec.id);
-  return rec;
-}
-
 // Every E-Form's history in the person's reach, newest first, a page at a time (Reports → E-Form change log).
 // q: part of the E-Form's code or of who made the change. audit_log keeps the E-Form's id as text (compared as a number:
 // its collation is not the deals table's).
@@ -256,26 +202,10 @@ const listOf = (req, res) => {
   if (!spec) notFound(res);
   return spec;
 };
-// A list's own area may read it, and so may its `readers` (shared/lists.js),
-// each record with what that reader may not see taken out.
+// A list's own area may read it, and so may its `readers` (shared/lists.js).
 const areasOf = spec => [spec.area, ...Object.keys(spec.readers)];
 // Who may read a list: its areas, or everyone (area: null, each person's own).
 const gateOf = spec => (spec.area == null ? (req, res, next) => next() : needs(areasOf(spec)));
-// A list that names its `fields` sends only those.
-const asReader = (spec, v) => {
-  const strip = spec.area == null || AC.allows(v.policy, v.role, spec.area, 'view') ? r => r
-    : Object.entries(spec.readers).find(([area]) => AC.allows(v.policy, v.role, area, 'view'))?.[1] || (r => r);
-  return r => trimmed(spec, strip(r));
-};
-
-// A list's own rows as the viewer may see them: its `rows` step (the Whole agency hides owners), then its reader.
-const shown = async (spec, v, rows) => (spec.rows ? await spec.rows(db, rows, v) : rows).map(asReader(spec, v));
-// The query, with the viewer's own key in the filters that take it (their favourites, their unread).
-const paramsOf = (spec, v, query) => {
-  const p = { ...query };
-  for (const k of spec.viewerFilters) if (p[k] !== undefined && p[k] !== '') p[k] = String(v.staffId ?? 0);
-  return p;
-};
 
 router.get('/:list', wrap(async (req, res, next) => {
   const spec = listOf(req, res);

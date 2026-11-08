@@ -743,8 +743,10 @@ export const deleteSalaryRequest = id => change(data => {
 const PHONE = /^(01)[02-46-9]-*[0-9]{7}$|^(01)[1]-*[0-9]{8}$/
 export const validPhone = p => PHONE.test(String(p || '').replace(/\s/g, ''))
 const EMOJI = /\p{Extended_Pictographic}/u
+// unit and renovation: kept apart from the address by the old ERP's records (the phone app edits them).
 const LISTING_EDIT = ['askPrice', 'bestPrice', 'marketValue', 'flags', 'status', 'trackingPrice', 'holderId', 'portals', 'marketingRemarks', 'remarksPrivate',
-  'description', 'remarks', 'photoSet', 'videoSet', 'share', 'title', 'area', 'category', 'beds', 'baths', 'builtUp', 'tenure', 'furnishing', 'commission']
+  'description', 'remarks', 'photoSet', 'videoSet', 'share', 'title', 'area', 'category', 'beds', 'baths', 'builtUp', 'tenure', 'furnishing', 'commission',
+  'unit', 'renovation']
 export const updateListing = (id, fields) => change((data, setup, today) => {
   const l = data.listings.find(x => x.id === id)
   if (!l) return 'That listing no longer exists.'
