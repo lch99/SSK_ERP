@@ -102,6 +102,26 @@ export async function changePassword(current, password) {
 }
 export const signOut = () => setToken('')
 
+// Own accounts for everyone on the staff list (server only): a one-time link sets the password.
+export const linkInfo = token => request(`/auth/link/${encodeURIComponent(token)}`)
+export async function setPasswordByLink(token, password) {
+  const data = await request(`/auth/link/${encodeURIComponent(token)}`, { method: 'POST', body: { password } })
+  setToken(data.token)
+  return data.user
+}
+export const forgotPassword = username => request('/auth/forgot', { method: 'POST', body: { username } })
+export const accountOf = staffId => request(`/accounts/${staffId}`)
+export const makeAccountLink = staffId => request(`/accounts/${staffId}/link`, { method: 'POST', body: {} })
+// The address a set-password link opens: this ERP, at #/password.
+export const passwordLink = token => `${window.location.origin}${window.location.pathname}#/password?t=${token}`
+// Everyone's accounts and links as an Excel file (Superadmin).
+export async function downloadAllLinks(branchId) {
+  const res = await send('/accounts/links', { method: 'POST', body: { base: `${window.location.origin}${window.location.pathname}`, branchId: branchId || null } })
+  const bytes = new Uint8Array(await res.arrayBuffer())
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || 'sign-in-links.xlsx'
+  return { bytes, name, made: Number(res.headers.get('x-accounts-made') || 0), links: Number(res.headers.get('x-links') || 0) }
+}
+
 // My profile (avatar menu). The demo keeps it in this browser; the server keeps
 // it with the sign-in account. PROFILE_EVENT fires after a save, so the top bar
 // picks up a new name or photo.

@@ -22,7 +22,7 @@ const DEMO_USER = { id: null, username: 'demo', name: 'Demo', role: 'superadmin'
 // roleForUser, as middleware/access.js does), and its branch is the account's.
 const toReqUser = (u, staff = null) => ({ id: u.id, username: u.username, name: u.name, role: u.role, branchId: staff?.branch_id ?? u.branch_id,
   staffId: u.staff_id ?? null, type: staff?.type ?? null });
-const staffOf = u => (u.staff_id ? db('staff').where('id', u.staff_id).first('type', 'branch_id') : null);
+const staffOf = u => (u.staff_id ? db('staff').where('id', u.staff_id).first('type', 'branch_id', 'status') : null);
 
 async function requireAuth(req, res, next) {
   if (AUTH_DISABLED) { req.user = DEMO_USER; return next(); }
@@ -40,7 +40,10 @@ async function requireAuth(req, res, next) {
     if (!u || !u.is_active || Number(u.token_version) !== Number(payload.v)) {
       return res.status(401).json({ error: 'Please sign in again.' });
     }
-    req.user = toReqUser(u, await staffOf(u));
+    const staff = await staffOf(u);
+    // Someone on the staff list signs in only while their record is Active (locked, suspended… sign them out).
+    if (staff && staff.status && staff.status !== 'active') return res.status(401).json({ error: 'Your account is not active any more. Ask your branch office.' });
+    req.user = toReqUser(u, staff);
     // Using the ERP counts as activity for the staff clock (not waited for: it never slows a request).
     markActive(db, u.staff_id).catch(err => console.error('Last activity:', err.message));
     next();

@@ -101,10 +101,12 @@ test('projects: an agent may not change them; the office may', async () => {
   assert.ok(ok.body.data.projects.some(p => p.id === ok.body.result.id));
 });
 
-// Someone with no sign-in account yet (each staff record has at most one).
+// Someone with no sign-in account yet (each staff record has at most one), still Active in the
+// database (the time rules may have locked people since the sample was made), as only they sign in.
 async function free(test) {
   const linked = new Set((await db('users').whereNotNull('staff_id').pluck('staff_id')).map(Number));
-  return data.staff.find(s => !linked.has(s.id) && test(s));
+  const active = new Set((await db('staff').where('status', 'active').pluck('id')).map(Number));
+  return data.staff.find(s => !linked.has(s.id) && active.has(s.id) && test(s));
 }
 
 test('an agent receives only their reach: no one else\'s E-Forms, colleagues without private details, other owners hidden', async () => {
@@ -211,7 +213,7 @@ test('a role with payments but no E-Form access reads E-Forms to record payments
 });
 
 test('an agent pages through only their team\'s pay: people with Ready pay (with only what the page needs), requests and payout lines', async () => {
-  const leader = await free(s => s.type === 'staff' && s.role && data.staff.some(x => x.uplineId === s.id) && data.payouts.some(p => p.staffId === s.id));
+  const leader = await free(s => s.type === 'staff' && s.status === 'active' && s.role && data.staff.some(x => x.uplineId === s.id) && data.payouts.some(p => p.staffId === s.id));
   const call = await signInAs('pay1', leader.id);
   const team = AC.teamOf(leader.id, data.staff);
   for (const kind of ['salary', 'incentives']) {
@@ -274,8 +276,7 @@ test('an agent sees every active listing in the agency, with the owner and unit 
 });
 
 test('using the ERP counts as activity: an agent\'s last activity moves to today, once a day', async () => {
-  const taken = new Set((await db('users').whereNotNull('staff_id').pluck('staff_id')).map(Number));
-  const agent = data.staff.find(s => s.type === 'staff' && s.status === 'active' && !taken.has(s.id));
+  const agent = await free(s => s.type === 'staff');
   await db('staff').where({ id: agent.id }).update({ last_active_on: '2026-01-05' });
   const call = await signInAs('active1', agent.id);
   assert.equal((await call('GET', '/erp/meta')).status, 200);

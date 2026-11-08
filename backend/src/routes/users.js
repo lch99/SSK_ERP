@@ -43,10 +43,14 @@ async function wouldLeaveNoSuperadmin(trx, target, next) {
   return Number(n) === 0;
 }
 
+// Office accounts. Agents' accounts (2,000+) are kept on each agent's page (routes/accounts.js); only their number comes here.
+const AGENT_TYPES = ['staff', 'sale-staff'];
 router.get('/', wrap(async (req, res) => {
-  const q = db('users').orderBy('name');
-  if (req.user.role !== 'superadmin') q.where('branch_id', req.user.branchId);
-  res.json({ users: (await q).map(out), assignableRoles: R.assignableRoles(req.user) });
+  const mine = q => (req.user.role !== 'superadmin' ? q.where('users.branch_id', req.user.branchId) : q);
+  const q = mine(db('users').leftJoin('staff', 'staff.id', 'users.staff_id')
+    .where(w => w.whereNull('users.staff_id').orWhereNotIn('staff.type', AGENT_TYPES)).orderBy('users.name').select('users.*'));
+  const agents = await mine(db('users').join('staff', 'staff.id', 'users.staff_id').whereIn('staff.type', AGENT_TYPES)).count({ n: '*' }).first();
+  res.json({ users: (await q).map(out), agentAccounts: Number(agents.n), assignableRoles: R.assignableRoles(req.user) });
 }));
 
 router.post('/', wrap(async (req, res) => {

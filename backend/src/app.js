@@ -14,6 +14,7 @@ const usersRouter = require('./routes/users');
 const accessRouter = require('./routes/access');
 const erpRouter = require('./routes/erp');
 const filesRouter = require('./routes/files');
+const accountsRouter = require('./routes/accounts');
 
 const app = express();
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5175').split(',').map(s => s.trim()).filter(Boolean);
@@ -44,6 +45,7 @@ app.use('/api/branches', branchesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/access', accessRouter);
 app.use('/api/erp', erpRouter);
+app.use('/api/accounts', accountsRouter);
 
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'That is too much to send at once.' });

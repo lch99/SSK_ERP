@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { listUsers, createUser, updateUser, resetUserPassword, unlockUser, getBranches } from '../api.js'
+import { listUsers, createUser, updateUser, resetUserPassword, unlockUser, getBranches, downloadAllLinks } from '../api.js'
+import { download } from '../setup/sheet.js'
 import { ROLES, roleMeta, validateUser, validatePassword, PASSWORD_MIN } from '../../shared/roles.js'
 import { C, inp, sel, btn, btnPrimary, th, td, label } from '../styles.js'
 import { ErrorList } from '../setup/Section.jsx'
@@ -32,6 +33,17 @@ export default function UsersPage({ me }) {
   async function unlock(u) {
     if (await fb.run(() => unlockUser(u.id), `${u.name || u.username} unlocked`)) load()
   }
+  // Everyone's own account and a link to set the password, as one Excel file to send out.
+  async function allLinks() {
+    const ok = await fb.confirm({ title: 'Accounts and links for everyone?', confirmLabel: 'Make the file',
+      body: 'Every Active person on the staff list without an account gets one, with their username, and everyone who has not set a password yet gets a fresh link (their older link stops working). Each link works once, for 7 days. The file holds working links: keep it safe, and delete it once they are sent.' })
+    if (!ok) return
+    let r
+    try { r = await downloadAllLinks() } catch (e) { return fb.error(e) }
+    download(r.bytes, r.name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    fb.toast(`${r.links} link${r.links === 1 ? '' : 's'} in the file${r.made ? `; ${r.made} new account${r.made === 1 ? '' : 's'}` : ''}`)
+    load()
+  }
 
   return (
     <div style={{ maxWidth: 1080, margin: '0 auto', padding: '24px 16px' }}>
@@ -48,6 +60,14 @@ export default function UsersPage({ me }) {
           </label>
         )}
         <button style={btnPrimary} onClick={() => setEditing({})}>+ Add user</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '12px 14px', marginBottom: 14, background: C.card, border: `1px solid ${C.border}`, borderRadius: C.radius, fontSize: 13.5, lineHeight: 1.5 }}>
+        <span style={{ flex: '1 1 320px' }}>
+          <b>Agents sign in with their own accounts.</b> {data.agentAccounts ? `${data.agentAccounts} agent${data.agentAccounts === 1 ? ' has' : 's have'} one. ` : ''}
+          Each agent's page (Agents) shows their username and sends them a link to set their password; below are the office's accounts.
+        </span>
+        {me.role === 'superadmin' && <button style={btn} onClick={allLinks}>Accounts and links for everyone (Excel)</button>}
       </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: C.radius, overflowX: 'auto' }}>

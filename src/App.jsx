@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
 import { authStatus, getMe, getToken, signOut, SIGNED_OUT_EVENT } from './api.js'
 import { C, btn } from './styles.js'
-import { LoginScreen, FirstUserScreen } from './auth/AuthScreens.jsx'
+import { LoginScreen, FirstUserScreen, SetPasswordScreen } from './auth/AuthScreens.jsx'
 import { ErrorList } from './setup/Section.jsx'
 import Shell from './erp/Shell.jsx'
 
+// #/password?t=… : the one-time link the office sent to set a password.
+const linkToken = () => (/^#\/password\?/.test(window.location.hash) ? new URLSearchParams(window.location.hash.split('?')[1]).get('t') : null)
+
 export default function App() {
   const [phase, setPhase] = useState('loading')   // loading | first | login | in | error
+  const [token, setLinkToken] = useState(linkToken)
   const [me, setMe] = useState(null)
   const [notice, setNotice] = useState(null)
   const [error, setError] = useState(null)
@@ -38,6 +42,7 @@ export default function App() {
   }, [])
 
   const signedIn = user => { setMe(user); setNotice(null); setPhase('in') }
+  const leaveLink = () => { setLinkToken(null); window.history.replaceState(null, '', '#/dashboard') }
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text, fontFamily: C.font }}>
@@ -48,9 +53,12 @@ export default function App() {
           <button style={{ ...btn, marginTop: 12 }} onClick={boot}>Try again</button>
         </div>
       )}
-      {phase === 'first' && <FirstUserScreen onSignedIn={signedIn} />}
-      {phase === 'login' && <LoginScreen onSignedIn={signedIn} notice={notice} />}
-      {phase === 'in' && me && (
+      {token && phase !== 'loading' && phase !== 'error' && !authDisabled && (
+        <SetPasswordScreen token={token} onSignedIn={user => { leaveLink(); signedIn(user) }} onDone={() => { leaveLink(); if (phase === 'in') return; setPhase('login') }} />
+      )}
+      {!(token && !authDisabled) && phase === 'first' && <FirstUserScreen onSignedIn={signedIn} />}
+      {!(token && !authDisabled) && phase === 'login' && <LoginScreen onSignedIn={signedIn} notice={notice} />}
+      {!(token && !authDisabled) && phase === 'in' && me && (
         <Shell me={me} authDisabled={authDisabled}
           onSignOut={() => { signOut(); setMe(null); setNotice(null); setPhase('login') }} />
       )}

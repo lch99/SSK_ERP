@@ -22,6 +22,7 @@ import { useList, useRecord, useListReader, useListDownload } from '../useList.j
 import { madeId } from '../../api.js'
 import { StaffPicker } from '../pickers.jsx'
 import { FileName } from '../files.jsx'
+import { SignInCard } from '../signIn.jsx'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
 // Agents (Agents module): position (tier), upline and status. Office staff
@@ -228,6 +229,7 @@ function Profile({ id }) {
           <button style={{ ...small, padding: '2px 10px' }} onClick={() => fb.run(() => erp.returnListings(s.id), `${away} listing${away > 1 ? 's' : ''} given back to ${s.short}`)}>Give them back</button>
         </Notice>
       )}
+      {can('staff', 'edit') && <div style={{ marginBottom: 16 }}><SignInCard s={s} canEdit={can('staff', 'edit')} /></div>}
       {agent && <div style={{ ...cols(210, 14), marginBottom: 16 }}>
         <Stat label="Tier now" value={P.tierLabel(t.tier)} sub={`Agent rate ${t.tier.agentRate}%${t.kept ? ' · kept from last year' : ''}`} tone="brand" icon="reports" />
         <Stat label={`Commission in ${m.year}`} value={rm(t.yearly)} sub={`Lifetime ${rm(t.lifetime)}`} />

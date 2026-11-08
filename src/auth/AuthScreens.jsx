@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { login, createFirstUser } from '../api.js'
+import { useEffect, useState } from 'react'
+import { login, createFirstUser, forgotPassword, linkInfo, setPasswordByLink } from '../api.js'
 import { PASSWORD_MIN } from '../../shared/roles.js'
 import { C, inp, btnPrimary, label } from '../styles.js'
 import { ErrorList } from '../setup/Section.jsx'
@@ -29,7 +29,9 @@ function useSubmit(fn) {
 export function LoginScreen({ onSignedIn, notice }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [forgot, setForgot] = useState(false)
   const { busy, errors, submit } = useSubmit(async () => onSignedIn(await login(username, password)))
+  if (forgot) return <ForgotScreen username={username} onBack={() => setForgot(false)} />
   return (
     <>
     <form style={card} onSubmit={submit}>
@@ -40,6 +42,66 @@ export function LoginScreen({ onSignedIn, notice }) {
       <Field title="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
       <button style={{ ...btnPrimary, width: '100%' }} disabled={busy} type="submit">{busy ? 'Signing in…' : 'Sign in'}</button>
       <ErrorList errors={errors} />
+      <button type="button" onClick={() => setForgot(true)} style={linkBtn}>Forgot password, or never set one?</button>
+    </form>
+    <Footer style={footer} />
+    </>
+  )
+}
+
+const linkBtn = { display: 'block', margin: '14px auto 0', background: 'none', border: 'none', color: C.primaryDark, fontWeight: 600, fontSize: 13.5, cursor: 'pointer', fontFamily: C.font, padding: 6 }
+
+// Forgot password: the person's branch office is asked to send them a new link.
+function ForgotScreen({ username: typed, onBack }) {
+  const [username, setUsername] = useState(typed)
+  const [sent, setSent] = useState(null)
+  const { busy, errors, submit } = useSubmit(async () => setSent((await forgotPassword(username.trim().toLowerCase())).message))
+  return (
+    <>
+    <form style={card} onSubmit={submit}>
+      <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>A new password link</h1>
+      {sent ? <p style={{ fontSize: 14, lineHeight: 1.5, margin: '8px 0 16px' }}>{sent} When it comes, open it on this phone or computer and choose your password.</p> : (
+        <>
+          <p style={{ fontSize: 13, color: C.muted, margin: '0 0 18px', lineHeight: 1.45 }}>Type your username. Your branch office is told, and sends you a link to choose a new password.</p>
+          <Field title="Username" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" autoCapitalize="none" autoFocus />
+          <button style={{ ...btnPrimary, width: '100%' }} disabled={busy || !username.trim()} type="submit">{busy ? 'Asking…' : 'Ask for a new link'}</button>
+          <ErrorList errors={errors} />
+        </>
+      )}
+      <button type="button" onClick={onBack} style={linkBtn}>Back to sign in</button>
+    </form>
+    <Footer style={footer} />
+    </>
+  )
+}
+
+// #/password?t=…: choose a password from the link the office sent, then straight in.
+export function SetPasswordScreen({ token, onSignedIn, onDone }) {
+  const [info, setInfo] = useState(null)
+  const [problem, setProblem] = useState(null)
+  const [f, setF] = useState({ password: '', confirm: '' })
+  useEffect(() => { linkInfo(token).then(setInfo, e => setProblem(e.message)) }, [token])
+  const { busy, errors, setErrors, submit } = useSubmit(async () => {
+    if (f.password !== f.confirm) return setErrors(["The two passwords don't match."])
+    onSignedIn(await setPasswordByLink(token, f.password))
+  })
+  return (
+    <>
+    <form style={card} onSubmit={submit}>
+      <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>{info?.purpose === 'reset' ? 'Choose a new password' : 'Welcome to SubSaleKing ERP'}</h1>
+      {problem ? <><ErrorList errors={[problem]} /><button type="button" onClick={onDone} style={linkBtn}>Go to sign in</button></>
+        : !info ? <p style={{ fontSize: 13, color: C.muted }}>Checking your link…</p> : (
+          <>
+            <p style={{ fontSize: 13, color: C.muted, margin: '0 0 18px', lineHeight: 1.45 }}>
+              {info.name}, your username is <b style={{ color: C.text }}>{info.username}</b>. Choose a password you will remember: you sign in with these two from now on.
+            </p>
+            <input type="hidden" name="username" value={info.username} autoComplete="username" readOnly />
+            <Field title={`Password (at least ${PASSWORD_MIN} characters)`} type="password" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} autoComplete="new-password" autoFocus />
+            <Field title="Password again" type="password" value={f.confirm} onChange={e => setF({ ...f, confirm: e.target.value })} autoComplete="new-password" />
+            <button style={{ ...btnPrimary, width: '100%' }} disabled={busy} type="submit">{busy ? 'Saving…' : 'Save and sign in'}</button>
+            <ErrorList errors={errors} />
+          </>
+        )}
     </form>
     <Footer style={footer} />
     </>

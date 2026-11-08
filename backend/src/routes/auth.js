@@ -9,6 +9,7 @@ const { requireAuth, toReqUser, staffOf, SECRET, AUTH_DISABLED } = require('../m
 const { validateUser, validatePassword } = require('../../../shared/roles.js');
 const { tidyProfile, checkProfile } = require('../../../shared/profile.js');
 const { parseJson } = require('../db/records');
+const ACC = require('../auth/accounts');
 
 const router = express.Router();
 const EXPIRES = process.env.JWT_EXPIRES_IN || '8h';
@@ -67,6 +68,13 @@ router.post('/login', loginLimiter, async (req, res, next) => {
     }
     if (u.locked) return res.status(403).json({ error: 'This account is locked after too many wrong passwords. Ask a superadmin or your branch manager to unlock it.' });
     if (!u.is_active) return res.status(403).json({ error: 'This account is deactivated.' });
+    if (!u.password_hash) {
+      await bcrypt.compare(password, DUMMY_HASH);
+      return res.status(403).json({ error: 'You have not set a password yet. Open the link your branch office sent you, or tap "Forgot password" to ask for a new one.' });
+    }
+    const staff = u.staff_id ? await db('staff').where('id', u.staff_id).first('status') : null;
+    const why = ACC.staffRefusal(staff?.status);
+    if (why) return res.status(403).json({ error: why });
     if (!(await bcrypt.compare(password, u.password_hash))) {
       const attempts = Number(u.login_attempts) + 1;
       const locked = attempts >= MAX_ATTEMPTS;
@@ -84,6 +92,44 @@ router.post('/login', loginLimiter, async (req, res, next) => {
 });
 
 router.get('/me', requireAuth, (req, res) => res.json({ user: req.user }));
+
+// ── Set a password from a one-time link (auth/accounts.js) ──
+const linkError = (res, err, next) => (err.status ? res.status(err.status).json({ error: err.message, errors: err.errors }) : next(err));
+
+// Whose account a link is for, before they choose a password.
+router.get('/link/:token', loginLimiter, async (req, res, next) => {
+  try {
+    const { row, user } = await ACC.readLink(db, req.params.token);
+    res.json({ username: user.username, name: user.name, purpose: row.purpose });
+  } catch (err) { linkError(res, err, next); }
+});
+
+// Sets the password and signs in.
+router.post('/link/:token', loginLimiter, async (req, res, next) => {
+  try {
+    const u = await ACC.useLink(db, req.params.token, req.body?.password);
+    await audit({ user: toReqUser(u) }, { action: 'set_password', entity: 'user', entityId: u.id, detail: { username: u.username, byLink: true } });
+    const staff = u.staff_id ? await db('staff').where('id', u.staff_id).first('status') : null;
+    const why = ACC.staffRefusal(staff?.status);
+    if (why) return res.status(403).json({ error: `Your password is set. ${why}` });
+    res.json(await issue(u));
+  } catch (err) { linkError(res, err, next); }
+});
+
+// Forgot password: the person's branch office is asked to send a new link. The reply is the
+// same whether or not the username exists.
+router.post('/forgot', loginLimiter, async (req, res, next) => {
+  try {
+    const username = String(req.body?.username || '').trim().toLowerCase();
+    if (!username) return res.status(400).json({ error: 'Enter your username.' });
+    const u = await db('users').where({ username, is_active: true }).first();
+    if (u) {
+      await ACC.askForLink(db, u);
+      await audit({ user: null }, { action: 'forgot_password', entity: 'user', entityId: u.id, detail: { username: u.username } });
+    }
+    res.json({ ok: true, message: 'Your branch office has been asked to send you a new link. It works once, for 24 hours.' });
+  } catch (err) { next(err); }
+});
 
 // My profile (shared/profile.js): kept with the account (users.profile, and the
 // name in users.name); with sign-in off there is no account, so one settings entry.
