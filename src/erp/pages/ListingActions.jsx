@@ -86,7 +86,8 @@ export default function ListingActions({ l, quiet, onBook }) {
   })
   const setPicked = change => setF(x => ({ ...x, media: x.media.map(p => (x.picked.includes(keyOf(p)) ? { ...p, ...change } : p)) }))
   const setOne = (key, change) => setF(x => ({ ...x, media: x.media.map(p => (keyOf(p) === key ? { ...p, ...change } : p)) }))
-  const stored = type => media.filter(p => p.type === type).map(p => ({ id: p.id, name: p.name, published: p.published, ...(type === 'photo' && { cover: !!p.cover, ...(p.preview && { preview: p.preview }) }),
+  // A photo brought over from the old ERP keeps its address on the old file server (url) until it is copied.
+  const stored = type => media.filter(p => p.type === type).map(p => ({ id: p.id, name: p.name, published: p.published, ...(type === 'photo' && { cover: !!p.cover, ...(p.preview && { preview: p.preview }), ...(p.url && { url: p.url, on: p.on || null }) }),
     ...(type === 'video' && typeof p.file === 'string' && { file: p.file }) }))
   // Newly picked photos are shrunk to small previews (photos.jsx) as the album is saved.
   const saveAlbum = async () => {

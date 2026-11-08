@@ -14,6 +14,7 @@
 // again with a newer copy replaces the earlier import, so the last copy taken
 // before the old ERP goes read-only is the one the new ERP starts from.
 const M = require('./mapping');
+const { UPLOADS } = require('../../../shared/files.js');
 const { tableNames, columnsOf } = require('./inspect');
 const { loadState } = require('../db/setupStore');
 const { parseJson } = require('../db/records');
@@ -394,6 +395,51 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
     return { target: 'listings', id: lid };
   });
   await w.updateEach('listings', [...share].map(([id, s]) => ({ id, share: JSON.stringify(s) })));
+
+  // Listing photos → the listing's album (photo_set): each photo's address on the old file server, which the
+  // old phone app shows as it always did, until the files are copied over with small previews. A listing keeps
+  // up to UPLOADS.photo.maxFiles of them (its cover, then the newest), as the new album holds; the rest stay in
+  // history (and on the old server).
+  const MAX_PHOTOS = UPLOADS.photo.maxFiles;
+  const fileName = u => { const last = u.split('/').pop() || ''; try { return decodeURIComponent(last); } catch { return last; } };
+  const shownPhoto = r => !M.deleted(r.image_stat) && M.int(r.image_display) !== 0 && ids.listings?.has(M.id(r.property_id)) && M.oldFileUrl(r.image_url);
+  const keptPhotos = new Set();
+  if (present.includes('db_property_images')) {
+    const byListing = new Map();
+    for await (const rows of pages(legacy, 'db_property_images', cols.db_property_images)) {
+      for (const r of rows) if (shownPhoto(r)) {
+        const lid = M.id(r.property_id);
+        if (!byListing.has(lid)) byListing.set(lid, []);
+        byListing.get(lid).push({ id: M.int(r.image_id), cover: M.flag(r.image_cover), on: M.day(r.image_date) || '' });
+      }
+    }
+    for (const list of byListing.values()) {
+      list.sort((a, b) => (b.cover - a.cover) || b.on.localeCompare(a.on) || b.id - a.id);
+      for (const p of list.slice(0, MAX_PHOTOS)) keptPhotos.add(p.id);
+    }
+  }
+  const albums = new Map();
+  await fillIn('db_property_images', r => {
+    if (M.deleted(r.image_stat)) return { note: 'deleted in the old ERP' };
+    if (M.int(r.image_display) === 0) return { note: 'hidden in the old ERP' };
+    const lid = M.id(r.property_id);
+    if (!ids.listings?.has(lid)) return { note: 'its listing is not imported' };
+    const url = M.oldFileUrl(r.image_url);
+    if (!url) return { note: 'no file address' };
+    if (!keptPhotos.has(M.int(r.image_id))) return { note: `more than ${MAX_PHOTOS} photos on one listing (it keeps its cover and the newest)` };
+    if (!albums.has(lid)) albums.set(lid, []);
+    albums.get(lid).push({ id: M.int(r.image_id), name: fileName(url) || `Photo ${r.image_id}`, published: true,
+      cover: M.flag(r.image_cover), url, on: M.day(r.image_date) || null });
+    return { target: 'listings', id: lid };
+  });
+  await w.updateEach('listings', [...albums].map(([id, list]) => {
+    list.sort((a, b) => a.id - b.id);
+    // One cover: the first marked, else the first.
+    const cover = list.find(p => p.cover) || list[0];
+    const set = list.map(p => ({ ...p, cover: p === cover }));
+    const newest = list.map(p => p.on).filter(Boolean).sort().at(-1) || null;
+    return { id, photo_set: JSON.stringify(set), photo_count: set.length, photos_on: newest };
+  }));
 
   // Other buyers / owners (tenants / landlords) saved as E-Form extras.
   const others = new Map();

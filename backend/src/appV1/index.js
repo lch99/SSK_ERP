@@ -263,9 +263,11 @@ async function contextFor(req, v, rows) {
     // to it and the office's listing editors on asking (logged); everyone else, nothing.
     sightOf: (l, roles) => (roles.includes('holder') || roles.includes('creator') ? 'full' : roles.length || office ? 'ask' : 'none'),
     inReach: scopeIn,
+    // An upload: a signed link (its small preview in lists); a photo brought over from the old ERP: its address on the
+    // old file server, as the app always showed it (until the files are copied).
     photoUrl: (p, part = 'preview') => {
       const id = /^files\/(\d+)\//.exec(String(p.preview || ''))?.[1];
-      return id ? `${origin(req)}${FILES.signedUrl(Number(id), part === 'file' ? 'file' : 'preview')}` : null;
+      return id ? `${origin(req)}${FILES.signedUrl(Number(id), part === 'file' ? 'file' : 'preview')}` : p.url || null;
     },
   };
 }

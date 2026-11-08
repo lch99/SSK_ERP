@@ -196,6 +196,15 @@ test('photos: sent inside the request, checked and kept as uploads, shown from s
   assert.ok(/\/api\/files\/\d+\/preview\?exp=/.test(d.property_cover), 'lists show the small preview');
 });
 
+test('photos brought over from the old ERP show from the old file server, as the app always showed them', async () => {
+  const l = data.listings.find(x => x.holderId === agent.id && x.status === 'active');
+  const url = 'https://storage.subsaleking.com/property-images/abc/1.jpeg';
+  await db('listings').where('id', l.id).update({ photo_set: JSON.stringify([{ id: 501, name: '1.jpeg', published: true, cover: true, url, on: '2026-01-01' }]), photo_count: 1 });
+  const d = (await mine('GET', `/property/${l.id}/details`)).body.data;
+  assert.equal(d.property_cover, url);
+  assert.deepEqual(d.property_images, [{ image_id: 501, image_url: url, image_cover: 1 }]);
+});
+
 test('favourites, notifications and the lists the app picks from', async () => {
   const l = data.listings.find(x => x.status === 'active' && !x.draft);
   assert.equal((await mine('POST', `/user/favourite/property/listings/${l.id}`)).status, 200);

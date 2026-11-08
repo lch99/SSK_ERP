@@ -170,7 +170,6 @@ const HISTORY_ONLY = {
   db_appointment: 'viewings: no table yet (Phase 2)', db_appointment_property: 'viewings: no table yet (Phase 2)',
   db_appointment_remarks: 'viewings: no table yet (Phase 2)', db_appointment_review: 'viewings: no table yet (Phase 2)',
   db_appointment_timesheet: 'viewings: no table yet (Phase 2)',
-  db_property_images: 'listing photos: the files are on the old file server, copied separately',
   db_property_product_handler: 'product handler history: no table yet (listing_roles, Phase 1)',
   db_property_share_users: 'branch managers shared onto listings: no table yet (listing_roles, Phase 1)',
   db_property_title_manager: 'building project manager history: no table yet (title_managers, Phase 1)',
@@ -776,6 +775,15 @@ function notification(r, ctx) {
   };
 }
 
+// A file's address on the old file server, over HTTPS (the server answers both; a bare path is under it).
+const OLD_FILES = 'https://storage.subsaleking.com';
+function oldFileUrl(v) {
+  const t = text(v);
+  if (!t) return null;
+  if (/^https?:\/\//i.test(t)) return t.replace(/^http:\/\/storage\.subsaleking\.com\//i, `${OLD_FILES}/`);
+  return `${OLD_FILES}/${t.replace(/^\/+/, '')}`;
+}
+
 // ── Filled in after the records they belong to ───────────────────────────────
 // Read whole, grouped onto the records above (each row is still kept in history).
 const AFTER = {
@@ -786,6 +794,7 @@ const AFTER = {
   db_overiding_record: ['over_id', 'staff_id', 'year', 'over_date', 'form_id', 'over_amount', 'over_stat'],
   db_user_favourite_property: ['user_id', 'property_id'],
   db_user_favourite_property_title: ['user_id', 'property_title_id'],
+  db_property_images: ['image_id', 'property_id', 'image_url', 'image_stat', 'image_display', 'image_cover', 'image_date'],
 };
 
 // The columns each table is read for, for legacy:inspect and the tests.
@@ -800,5 +809,5 @@ const EXPECTED = {
 
 module.exports = {
   TABLES, AFTER, LOOKUPS, EXPECTED, CODES, PAYOUT_ROLES, NOT_COPIED, RECENT, LOGS, HELD_BACK, HISTORY_ONLY, SECRET_COLUMNS, KEYS,
-  notification, phpArray, recentFrom, activity, scrub, day, num, money, int, text, flag, deleted, id, skip, pad, r2,
+  notification, phpArray, recentFrom, activity, oldFileUrl, scrub, day, num, money, int, text, flag, deleted, id, skip, pad, r2,
 };

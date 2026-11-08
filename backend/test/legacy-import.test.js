@@ -44,7 +44,6 @@ before(async () => {
   await table('user_credential', ['id', 'user_id', 'hashed_password']);
   await table('db_user_notification');
   await legacy.schema.alterTable('db_user_notification', t => { t.text('params').alter(); });
-  await table('db_property_images', ['image_id', 'property_id', 'image_url']);
   await table('some_new_table', ['id', 'label']);
   await legacy.schema.alterTable('new_staff', t => { t.string('user_password'); t.string('uuid'); t.string('salt'); });
 
@@ -155,7 +154,16 @@ before(async () => {
     { id: 5, user_id: 999, type: 'property.share_ph', category: 'listing', reference_id: 100, unread: '1', created_at: '2026-10-02 09:00:00', params: php(kepong) },
     { id: 6, user_id: 12, type: 'property.price_updated', category: 'bad_news', reference_id: 102, unread: '1', created_at: '2026-10-03 09:00:00', params: php(kepong) },
   ]);
-  await rows('db_property_images', [{ image_id: 1, property_id: 100, image_url: 'property-images/100/a.jpg' }]);
+  // Photos: two shown on listing 100 (the second its cover, one on the old http address), one deleted, one on a
+  // listing that isn't imported, and 21 on listing 101, one over what an album holds.
+  await rows('db_property_images', [
+    { image_id: 1, property_id: 100, image_url: 'property-images/100/a.jpg', image_stat: '', image_display: 1, image_cover: 0, image_date: '2026-01-02' },
+    { image_id: 2, property_id: 100, image_url: 'http://storage.subsaleking.com/property-images/100/b%20front.jpg', image_stat: '', image_display: 1, image_cover: 1, image_date: '2026-01-03' },
+    { image_id: 3, property_id: 100, image_url: 'property-images/100/c.jpg', image_stat: '3', image_display: 1, image_cover: 0, image_date: '2026-01-04' },
+    { image_id: 4, property_id: 999, image_url: 'property-images/999/x.jpg', image_stat: '', image_display: 1, image_cover: 0, image_date: '2026-01-04' },
+    ...Array.from({ length: 21 }, (_, i) => ({ image_id: 10 + i, property_id: 101, image_url: `https://storage.subsaleking.com/property-images/101/${i}.jpg`,
+      image_stat: '', image_display: 1, image_cover: 0, image_date: `2026-02-${String(i + 1).padStart(2, '0')}` })),
+  ]);
   await rows('some_new_table', [{ id: 1, label: 'x' }]);
 
   report = await importLegacy({ legacy, db });
@@ -290,6 +298,23 @@ test('listings: codes, prices, flags, the people on them and their open E-Form',
   assert.equal((await db('vendor_requests').first()).listing_id, 101);
   const fu = await db('listing_follow_ups').first();
   assert.deepEqual([fu.appt_date, fu.appt_time], ['2025-02-05', '03:30']);
+});
+
+test('listing photos join the album at their old address, up to what an album holds; the rest stay in history', async () => {
+  const l = await one('listings', 100);
+  assert.deepEqual(json(l.photo_set), [
+    { id: 1, name: 'a.jpg', published: true, cover: false, url: 'https://storage.subsaleking.com/property-images/100/a.jpg', on: '2026-01-02' },
+    { id: 2, name: 'b front.jpg', published: true, cover: true, url: 'https://storage.subsaleking.com/property-images/100/b%20front.jpg', on: '2026-01-03' },
+  ]);
+  assert.deepEqual([l.photo_count, l.photos_on], [2, '2026-01-03']);
+  const many = json((await one('listings', 101)).photo_set);
+  assert.equal(many.length, 20);
+  assert.ok(!many.some(p => p.id === 10), 'the oldest of the 21 stays in history');
+  assert.equal(many.filter(p => p.cover).length, 1);
+  const fate = async id => (await db('legacy_rows').where({ source_table: 'db_property_images', source_id: String(id) }).first());
+  assert.equal((await fate(2)).target_table, 'listings');
+  assert.match((await fate(10)).note, /more than 20 photos/);
+  assert.match((await fate(3)).note, /deleted/);
 });
 
 test('E-Forms keep the old money exactly, their parties, documents and checks', async () => {
