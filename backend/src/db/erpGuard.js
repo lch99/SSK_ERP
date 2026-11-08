@@ -53,7 +53,7 @@ function forViewer(data, v) {
     // Every listing still on the market (the whole agency sells them), without the owner or the unit for those not tied to it.
     const inReach = new Set(out.listings.map(l => l.id));
     const market = data.listings.filter(l => !inReach.has(l.id) && l.status === 'active').map(l => (seesOwner(l, v, data) ? l
-      : { ...l, owner: { name: '', ic: '', phone: '' }, address: L.hideAddress(l), remarks: null, ownerViews: [] }));
+      : { ...l, ...L.HIDDEN_OWNER, address: L.hideAddress(l) }));
     out.listings = [...out.listings, ...market];
     out.titles = data.titles;
     out.areas = data.areas;

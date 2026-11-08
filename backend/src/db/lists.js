@@ -153,7 +153,7 @@ async function hideOwners(q, rows, v) {
   const titles = titleIds.length ? await toRecords(q, MODELS.titles, await q('titles').whereIn('id', titleIds)) : [];
   const { seesOwner } = require('./erpGuard');
   return rows.map(l => (inReach(l) || seesOwner(l, v, { staff, titles }) ? l
-    : { ...l, owner: { name: '', ic: '', phone: '' }, address: LR.hideAddress(l), remarks: null, ownerViews: [] }));
+    : { ...l, ...LR.HIDDEN_OWNER, address: LR.hideAddress(l) }));
 }
 
 // ── Tier credit for many people at once (shared/lists.js sidesByStaff and tiersOf) ──

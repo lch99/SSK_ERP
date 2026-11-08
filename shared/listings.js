@@ -107,6 +107,9 @@ export function listingRoles(l, staffId, { title = null, leaders = [] } = {}) {
 // What others see instead: the building and area without the unit or street,
 // and the phone number's first and last three digits.
 export const hideAddress = l => `${l.title}, ${l.area} (unit hidden)`
+// What a listing outside the viewer's reach goes without, unless they are tied to it: the owner, the
+// unit (imported listings keep it apart from the address) and the private remarks.
+export const HIDDEN_OWNER = { owner: { name: '', ic: '', phone: '' }, unit: null, remarks: null, ownerViews: [] }
 export const hidePhone = phone => {
   const d = String(phone || '').replace(/\D/g, '')
   return d.length < 7 ? '•••' : `${d.slice(0, 3)}-•••• ${d.slice(-3)}`
