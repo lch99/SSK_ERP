@@ -4,6 +4,7 @@
 const jwt = require('jsonwebtoken');
 const db = require('../db/connection');
 const { can } = require('../../../shared/roles.js');
+const { markActive } = require('../db/activity');
 
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET) throw new Error('JWT_SECRET must be set in backend/.env');
@@ -40,6 +41,8 @@ async function requireAuth(req, res, next) {
       return res.status(401).json({ error: 'Please sign in again.' });
     }
     req.user = toReqUser(u, await staffOf(u));
+    // Using the ERP counts as activity for the staff clock (not waited for: it never slows a request).
+    markActive(db, u.staff_id).catch(err => console.error('Last activity:', err.message));
     next();
   } catch (err) {
     next(err);

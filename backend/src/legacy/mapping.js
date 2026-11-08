@@ -233,7 +233,9 @@ const TABLES = {
         name, short_name: text(r.name_card_name) || name, sex: CODES.sex[text(r.sex).toLowerCase()] || null, ic_no: text(r.ic_no).replace(/\s/g, ''),
         phone: text(r.phone_number1), phone2: text(r.phone_number2), email: text(r.email),
         branch_id: ctx.branchOfStaff(int(r.user_id)) ?? ctx.hq(), type: text(r.type).toLowerCase() || 'staff', position: ctx.positionFor(rank), upline_id: null,
-        status, joined_on: day(r.date), left_on: null, expires_on: null, birthday: day(r.birthday), last_active_on: day(r.logtimestamp),
+        // The staff clock starts on the import day (the user's call, 2026-11-08): an active account counts as active
+        // that day, so only idling after the switch locks it (its old last activity stays in legacy_rows).
+        status, joined_on: day(r.date), left_on: null, expires_on: null, birthday: day(r.birthday), last_active_on: status === 'active' ? ctx.today : day(r.logtimestamp),
         bank: ctx.bankName(r.bank_id), account_no: text(r.bank_account).replace(/\s/g, ''), account_name: text(r.ic_name),
         language: text(r.language), education: text(r.education_level), address: text(r.house_address),
         access: JSON.stringify({
@@ -244,7 +246,8 @@ const TABLES = {
         socials: blank(r.facebook) ? null : JSON.stringify({ facebook: text(r.facebook) }),
         docs: JSON.stringify(Object.fromEntries(STAFF_DOCS.map(([c, k]) => [k, !blank(r[c])]))),
         extra: Object.keys(extra).length ? JSON.stringify(extra) : null,
-        more: JSON.stringify({ rank: rank || null, ...(id(r.hq_id) ? { agencyHqId: id(r.hq_id) } : {}) }),
+        // A pending account's seven days to be verified start on the import day too.
+        more: JSON.stringify({ rank: rank || null, ...(id(r.hq_id) ? { agencyHqId: id(r.hq_id) } : {}), ...(status === 'pending' ? { statusOn: ctx.today } : {}) }),
       };
     },
   },

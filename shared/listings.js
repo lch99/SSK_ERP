@@ -250,10 +250,12 @@ export function noticeExpired(n, today) {
 }
 
 // ── Staff clock: what the current system does to accounts by itself ──
-// 'suspend' a pending account not verified within 7 days of joining; 'lock' an
+// 'suspend' a pending account not verified within 7 days of joining (or of being
+// set back to Pending, or of the import from the old ERP: statusOn); 'lock' an
 // active one with no activity for 60 days; else null.
 export function staffDue(s, today) {
-  if (s.status === 'pending' && s.joined && daysBetween(s.joined, today) > LISTING_RULES.pendingDays) return 'suspend'
+  const pendingSince = s.statusOn && (!s.joined || s.statusOn > s.joined) ? s.statusOn : s.joined
+  if (s.status === 'pending' && pendingSince && daysBetween(pendingSince, today) > LISTING_RULES.pendingDays) return 'suspend'
   if (s.status === 'active' && s.lastActive && daysBetween(String(s.lastActive).slice(0, 10), today) > LISTING_RULES.idleDays) return 'lock'
   return null
 }

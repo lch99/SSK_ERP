@@ -272,3 +272,14 @@ test('an agent sees every active listing in the agency, with the owner and unit 
   const fav = await call('GET', '/erp/agency?fav=999999&size=200');
   assert.ok(!fav.body.rows.some(l => l.id === unit.id), 'someone else\'s favourites are not read');
 });
+
+test('using the ERP counts as activity: an agent\'s last activity moves to today, once a day', async () => {
+  const taken = new Set((await db('users').whereNotNull('staff_id').pluck('staff_id')).map(Number));
+  const agent = data.staff.find(s => s.type === 'staff' && s.status === 'active' && !taken.has(s.id));
+  await db('staff').where({ id: agent.id }).update({ last_active_on: '2026-01-05' });
+  const call = await signInAs('active1', agent.id);
+  assert.equal((await call('GET', '/erp/meta')).status, 200);
+  await new Promise(r => setTimeout(r, 200));
+  const { localToday } = require('../src/db/days');
+  assert.equal((await db('staff').where({ id: agent.id }).first()).last_active_on, localToday());
+});

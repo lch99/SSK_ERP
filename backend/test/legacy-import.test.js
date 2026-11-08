@@ -3,6 +3,7 @@
 // add up, and that no password or personal detail leaks into the report.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const L = require('../../shared/listings.js');
 const { db, migrate, legacyTestDb } = require('./helpers');
 const M = require('../src/legacy/mapping');
 const { importLegacy } = require('../src/legacy/import');
@@ -257,6 +258,11 @@ test('people keep their ids, codes, uplines and branch (the B.M account up their
   assert.equal(dan.branch_id, branches['Head office']);
   assert.equal(dan.status, 'pending');
   assert.equal((await one('staff', 21)).status, 'locked');
+  // The staff clock starts on the import day: active accounts were active that day, a pending one's week starts then.
+  const today = require('../src/db/days').localToday();
+  assert.equal(bob.last_active_on, today);
+  assert.equal(json(dan.more).statusOn, today);
+  assert.equal(L.staffDue({ status: 'pending', joined: '2020-01-01', statusOn: today }, today), null);
 });
 
 test('listings: codes, prices, flags, the people on them and their open E-Form', async () => {
