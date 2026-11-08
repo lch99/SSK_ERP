@@ -43,6 +43,7 @@ import Profile, { ChangePasswordModal, useProfile } from './pages/Profile.jsx'
 import CommandPalette, { useCommandKey, isMac, kbd, rememberVisit } from './CommandPalette.jsx'
 import Access from './pages/Access.jsx'
 import { AccessProvider, NoAccess, ViewAsBar, roleLabel, useAccess } from './access.jsx'
+import { AppleHowTo, InstallCard, useInstall, useOnline } from './install.jsx'
 
 // Pages by the first part of the address (#/<page>/…). `own` pages bring their own layout.
 // System → Settings, and System → Automatic rules at #/system/rules.
@@ -67,6 +68,8 @@ const JUMPS = [
 // current module's pages (PANEL_W), together no wider than one plain sidebar.
 // Anything smaller shows the bar only, so the page gets the room.
 const RAIL_W = 60, PANEL_W = 188, SHOW_MENU_FROM = 1700
+// Phones get an app's tab bar at the bottom (PhoneTabs) instead of the menu button.
+const PHONE = '(max-width: 760px)', TABS_H = 60
 
 export default function Shell(props) {
   const parts = useRoute()
@@ -86,6 +89,8 @@ export default function Shell(props) {
 function Layout({ me, authDisabled, onSignOut, parts }) {
   const erp = useErp()
   const wide = useMedia('(min-width: 1080px)')
+  const phone = useMedia(PHONE)
+  const online = useOnline()
   const profile = useProfile()
   const [menuOpen, setMenuOpen] = useState(false)
   const [finder, setFinder] = useState(false)
@@ -190,10 +195,15 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
           </div>
         </div>
       )}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <TopBar wide={wide} me={me} profile={profile} authDisabled={authDisabled} erp={erp} onMenu={() => setMenuOpen(true)} onSignOut={onSignOut} onChangePassword={() => setPw(true)}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', paddingBottom: phone && key ? `calc(${TABS_H}px + env(safe-area-inset-bottom))` : 0 }}>
+        <TopBar wide={wide} phone={phone} me={me} profile={profile} authDisabled={authDisabled} erp={erp} onMenu={() => setMenuOpen(true)} onSignOut={onSignOut} onChangePassword={() => setPw(true)}
           onFind={() => setFinder(true)} onHelp={() => setHelp(true)} rail={railOn} onRail={() => setRail(!rail)} />
         <DowntimeBanner />
+        {!DEMO && !online && (
+          <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: 13, background: C.warnBg, color: C.warn, fontWeight: 600 }}>
+            <Icon name="alert" size={15} />You're offline. What you see may be out of date, and changes can't be saved until you're back online.
+          </div>
+        )}
         {palette}{shortcuts}
         <ChangePasswordModal open={pw} onClose={() => setPw(false)} profile={profile} />
         {/* After an update: what's new since this person's last visit, once. */}
@@ -205,6 +215,7 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
             : (
               <main id="ssk-main" tabIndex={-1} style={{ padding: wide ? '22px 28px 40px' : '16px 16px 32px', width: '100%', maxWidth: railOn ? 1480 : 1320, margin: '0 auto', boxSizing: 'border-box', flex: '1 0 auto' }}>
                 <ViewAsBar m={erp.m} />
+                {phone && key === 'dashboard' && <InstallCard />}
                 {blocked ? <NoAccess /> : <ErpGate erp={erp} wide={wide}><Page key={access.who.role + access.who.staffId} parts={route} me={me} /></ErpGate>}
               </main>
             )}
@@ -212,7 +223,44 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
           <div style={{ width: '100%', maxWidth: railOn ? 1480 : 1320, margin: '0 auto', padding: wide ? '0 28px 8px' : '0 16px 8px', boxSizing: 'border-box' }}><Footer /></div>
         )}
       </div>
+      {phone && key && <PhoneTabs mods={mods} active={active} erp={erp} onMenu={() => setMenuOpen(true)} />}
     </div>
+  )
+}
+
+// Phones: an app's tab bar along the bottom. The first four modules (tap: its first
+// page; tap the one you are in: all its pages) and More (every module and page).
+// Sticky bars and messages sit above it (--ssk-tabs).
+function PhoneTabs({ mods, active, erp, onMenu }) {
+  const current = mods.find(mod => mod.items.some(i => i.path === active))
+  const tabs = mods.slice(0, 4)
+  useEffect(() => {
+    const root = document.documentElement.style
+    root.setProperty('--ssk-tabs', `calc(${TABS_H}px + env(safe-area-inset-bottom))`)
+    return () => root.removeProperty('--ssk-tabs')
+  }, [])
+  const w = useWaiting()
+  const extra = mods.slice(4).reduce((n, mod) => n + waiting(mod, w), 0)
+  const tab = ({ key, label, icon, on, n, onClick }) => (
+    <button key={key} type="button" className="ssk-tab" onClick={onClick} aria-current={on ? 'page' : undefined} aria-label={n ? `${label}, ${n} waiting` : label}
+      style={{ position: 'relative', flex: 1, minWidth: 0, height: TABS_H, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: C.font,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, color: on ? C.primaryDark : C.muted }}>
+      <span style={{ position: 'relative', display: 'inline-flex', color: on ? C.primary : 'inherit' }}>
+        <Icon name={icon} size={22} />
+        {n > 0 && <span aria-hidden style={{ position: 'absolute', top: -5, left: 13, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 9, background: C.primary, color: '#fff',
+          fontSize: 11, fontWeight: 700, lineHeight: '17px', textAlign: 'center', boxSizing: 'border-box', boxShadow: '0 0 0 2px #fff' }}>{n > 99 ? '99+' : n}</span>}
+      </span>
+      <span style={{ fontSize: 11, fontWeight: on ? 700 : 600, letterSpacing: -0.1, lineHeight: 1.1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+    </button>
+  )
+  return (
+    <nav aria-label="Modules" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 30, display: 'flex', background: 'rgba(255,255,255,0.94)',
+      backdropFilter: 'saturate(180%) blur(14px)', WebkitBackdropFilter: 'saturate(180%) blur(14px)', borderTop: `1px solid ${C.border}`,
+      padding: '0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left))' }}>
+      {tabs.map(mod => tab({ key: mod.key, label: mod.label, icon: mod.icon, on: mod.key === current?.key, n: waiting(mod, w),
+        onClick: () => (mod.key === current?.key ? onMenu() : go(moduleHome(mod))) }))}
+      {tab({ key: 'more', label: 'More', icon: 'menu', on: !!current && !tabs.includes(current), n: extra, onClick: onMenu })}
+    </nav>
   )
 }
 
@@ -434,7 +482,7 @@ function NavRow({ icon, label, to, on, within, count, onClick, onPick, chevron, 
     : <button type="button" onClick={onClick} aria-expanded={chevron === 'down'} style={style} {...ev}>{inner}</button>
 }
 
-function TopBar({ wide, me, profile, authDisabled, erp, onMenu, onSignOut, onChangePassword, onFind, onHelp, rail, onRail }) {
+function TopBar({ wide, phone, me, profile, authDisabled, erp, onMenu, onSignOut, onChangePassword, onFind, onHelp, rail, onRail }) {
   const branches = erp.setup?.branches || []
   // Roles that see one branch or one team stay in their own branch: no picker.
   const access = useAccess()
@@ -445,7 +493,8 @@ function TopBar({ wide, me, profile, authDisabled, erp, onMenu, onSignOut, onCha
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 60, padding: wide ? '0 28px 0 20px' : '0 12px', flexWrap: 'wrap' }}>
         {!wide && (
           <>
-            <button onClick={onMenu} aria-label="Open menu" style={iconBtn}><Icon name="menu" size={18} /></button>
+            {/* Phones open the menu from the tab bar's More. */}
+            {!phone && <button onClick={onMenu} aria-label="Open menu" style={iconBtn}><Icon name="menu" size={18} /></button>}
             <a href="#/dashboard" aria-label="Dashboard" style={{ color: C.primary, display: 'inline-flex' }}><LogoMark size={24} /></a>
           </>
         )}
@@ -506,6 +555,8 @@ function UserMenu({ wide, me, profile, authDisabled, onSignOut, onChangePassword
   const role = roleLabel(me)
   const item = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', fontSize: 13.5, color: C.text, textDecoration: 'none', borderRadius: 8,
     background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: C.font, fontWeight: 500 }
+  const app = useInstall()
+  const [how, setHow] = useState(false)
   const ic = n => <span style={{ color: C.muted, display: 'inline-flex' }}><Icon name={n} size={16} /></span>
   const link = (to, icon, label) => <a href={`#/${to}`} role="menuitem" className="ssk-menu-item" style={item} onClick={() => setOpen(false)}>{ic(icon)}{label}</a>
   const act = (icon, label, fn) => <button role="menuitem" className="ssk-menu-item" style={item} onClick={() => { setOpen(false); fn() }}>{ic(icon)}{label}</button>
@@ -541,7 +592,8 @@ function UserMenu({ wide, me, profile, authDisabled, onSignOut, onChangePassword
           <div role="separator" style={{ height: 1, background: C.border, margin: '5px 4px' }} />
           {link('org-chart', 'staff', 'View Org. Chart')}
           {link('system', 'setup', 'System Settings')}
-          {act('keyboard', 'Keyboard shortcuts', onHelp)}
+          {wide && act('keyboard', 'Keyboard shortcuts', onHelp)}
+          {app.can && act('download', 'Install the app', async () => { if (!(await app.install())) setHow(true) })}
           {!authDisabled && (
             <>
               <div role="separator" style={{ height: 1, background: C.border, margin: '5px 4px' }} />
@@ -550,6 +602,7 @@ function UserMenu({ wide, me, profile, authDisabled, onSignOut, onChangePassword
           )}
         </div>
       )}
+      <AppleHowTo open={how} onClose={() => setHow(false)} />
     </div>
   )
 }

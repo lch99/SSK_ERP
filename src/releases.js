@@ -10,6 +10,15 @@
 // page it is about ("Show me").
 export const RELEASES = [
   {
+    version: '0.10.0', date: '2026-11-08', title: 'The ERP as an app on your phone',
+    items: [
+      { text: 'Put SubSaleKing on your phone\'s home screen and it opens like an app: full screen, its own icon, no address bar. On Android tap Install (also in your picture\'s menu); on iPhone tap Share, then Add to Home Screen. Home shows how.', to: 'dashboard' },
+      { text: 'On a phone the modules sit in a bar along the bottom, with what is waiting in each. Tap a module for its first page, tap it again for all its pages; More has everything else.' },
+      { text: 'Forms and messages on a phone slide up from the bottom, with big buttons in easy reach, and typing into a box no longer zooms the page on iPhone.' },
+      { text: 'Every page fits even the smallest phones without scrolling sideways, and the app opens quickly, even on a weak line.' },
+    ],
+  },
+  {
     version: '0.9.9', date: '2026-10-31', title: 'What\'s new, and planned maintenance',
     items: [
       { text: 'This window: after every update the ERP tells you, once, what changed. You can read it again any time under Home → What\'s new.', to: 'whats-new' },

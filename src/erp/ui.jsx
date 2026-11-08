@@ -470,7 +470,8 @@ export function RangeFilter({ label, from, to, onChange, unit = '', block = fals
 // A from–to date filter for a Toolbar ('YYYY-MM-DD', '' = open); onChange(from, to).
 // `plain`: always set (a report's period), so never coloured or shown as a chip.
 export function DateFilter({ label, from, to, onChange, block = false, plain = false }) {
-  const box = v => ({ ...inp, width: block ? '100%' : 150, minWidth: 0, boxSizing: 'border-box', ...(v && !plain ? activeBox : null) })
+  // Two boxes and "to" side by side fit a small phone (each takes up to 40% of the screen).
+  const box = v => ({ ...inp, width: block ? '100%' : 'clamp(118px, 40vw, 150px)', minWidth: 0, boxSizing: 'border-box', ...(v && !plain ? activeBox : null) })
   return (
     <span role="group" aria-label={label} style={{ display: block ? 'grid' : 'inline-flex', gridTemplateColumns: block ? 'minmax(0, 1fr) auto minmax(0, 1fr)' : undefined, gap: 6, alignItems: 'center' }}>
       <input type="date" style={box(from)} value={from} max={to || undefined} aria-label={`${label}, from`} onChange={e => onChange(e.target.value, to)} />
@@ -931,7 +932,7 @@ export function Drawer({ open, onClose, title, sub, children, footer, width = 56
           <button onClick={onClose} aria-label="Close (Esc)" title="Close (Esc)" style={iconBtn}><Icon name="close" size={16} /></button>
         </div>
         <div ref={body} style={{ flex: 1, overflowY: 'auto', padding: 18 }}><StickyTop.Provider value={0}>{children}</StickyTop.Provider></div>
-        {footer && <div style={{ padding: '12px 18px', background: C.card, borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>{footer}</div>}
+        {footer && <div className="ssk-drawer-foot" style={{ padding: '12px 18px', background: C.card, borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>{footer}</div>}
       </aside>
     </div>
   )
@@ -991,16 +992,16 @@ export function Modal({ open, onClose, title, children, footer, width = 460 }) {
   }, [open, onClose, isTop])
   if (!open) return null
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 70, display: 'grid', placeItems: 'center', padding: 16 }}>
+    <div className="ssk-modal-wrap" style={{ position: 'fixed', inset: 0, zIndex: 70, display: 'grid', placeItems: 'center', padding: 16 }}>
       <div className="ssk-fade" onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(15, 17, 23, 0.42)', backdropFilter: 'blur(1.5px)' }} aria-hidden />
-      <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} style={{ position: 'relative', width: `min(${width}px, 100%)`, maxHeight: '90vh', overflowY: 'auto',
+      <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className="ssk-modal" style={{ position: 'relative', width: `min(${width}px, 100%)`, maxHeight: '90vh', overflowY: 'auto',
         background: C.card, borderRadius: 14, boxShadow: '0 20px 50px rgba(15,17,23,.25)', outline: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: `1px solid ${C.border}` }}>
           <h2 style={{ flex: 1, fontSize: 16, margin: 0, lineHeight: 1.3 }}>{title}</h2>
           <button onClick={onClose} aria-label="Close" style={{ ...btn, padding: 5, display: 'grid', placeItems: 'center' }}><Icon name="close" size={15} /></button>
         </div>
         <div style={{ padding: 18 }}>{children}</div>
-        {footer && <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', padding: '12px 18px', borderTop: `1px solid ${C.border}`, background: '#fafbfc', borderRadius: '0 0 14px 14px' }}>{footer}</div>}
+        {footer && <div className="ssk-modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', padding: '12px 18px', borderTop: `1px solid ${C.border}`, background: '#fafbfc', borderRadius: '0 0 14px 14px' }}>{footer}</div>}
       </div>
     </div>
   )
@@ -1077,7 +1078,7 @@ export function SelectionBar({ count, summary, onClear, children }) {
   if (!count) return null
   return (
     <div className="ssk-toast" role="region" aria-label="Selected rows"
-      style={{ position: 'sticky', bottom: 16, zIndex: 15, marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      style={{ position: 'sticky', bottom: 'calc(16px + var(--ssk-tabs, 0px))', zIndex: 15, marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
         padding: '10px 12px 10px 16px', background: '#17191f', color: '#fff', borderRadius: 12, boxShadow: '0 12px 32px -8px rgba(16,24,40,.45)', fontSize: 13.5 }}>
       <b style={tabular}>{count} selected</b>
       {summary && <span style={{ color: 'rgba(255,255,255,.72)', ...tabular }}>{summary}</span>}

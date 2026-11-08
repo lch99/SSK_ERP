@@ -344,7 +344,7 @@ export function Leaderboard({ rows, m, showBranch }) {
           )
         })}
       </div>
-      <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
         {rows.slice(3).map(({ s, v }, k) => {
           const t = standing(s)
           return (
@@ -353,8 +353,8 @@ export function Leaderboard({ rows, m, showBranch }) {
               <Avatar name={s.short} size={30} tone="gray" />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13.5 }}>
-                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><b>{s.short}</b>{showBranch && <span style={{ color: C.muted }}> · {m.branchName(s.branchId)}</span>}</span>
-                  <b style={tabular}>{rm(v)}</b>
+                  <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><b>{s.short}</b>{showBranch && <span style={{ color: C.muted }}> · {m.branchName(s.branchId)}</span>}</span>
+                  <b style={{ ...tabular, flexShrink: 0 }}>{rm(v)}</b>
                 </span>
                 <span style={{ display: 'block', marginTop: 5 }}><Progress value={v / max} tone="brand" height={5} label={`${s.short} against the leader`} /></span>
                 {t.next && <span style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 3 }}>{rm(t.toNext)} to {t.next.name}</span>}
