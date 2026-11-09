@@ -18,7 +18,8 @@
     "legacy:inspect": "node src/legacy/inspect.js",
     "legacy:import": "node src/legacy/import.js",
     "legacy:verify": "node src/legacy/verify.js",
-    "legacy:copy-files": "node src/legacy/copyFiles.js"
+    "legacy:copy-files": "node src/legacy/copyFiles.js",
+    "legacy:panel": "node src/legacy/panel.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -31,6 +32,7 @@
     "knex": "^3.2.10",
     "mysql2": "^3.22.5",
     "nodemailer": "7.0.13",
+    "pg": "8.23.1",
     "sharp": "0.35.5"
   }
 }
