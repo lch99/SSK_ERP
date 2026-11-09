@@ -1,4 +1,8 @@
 const app = require('./app');
+const { alert } = require('./ops/alerts');
+
+// Anything that escapes a request (a scheduled job, a stray promise) is logged and told too.
+process.on('unhandledRejection', err => { console.error('Unhandled:', err); alert(err, 'background'); });
 
 const { runTimeRules } = require('./db/erpRun');
 
@@ -14,7 +18,7 @@ if (every > 0) {
   const run = () => {
     if (running) return;
     running = true;
-    runTimeRules().catch(e => console.error('Time rules:', e.message)).finally(() => { running = false; });
+    runTimeRules().catch(e => { console.error('Time rules:', e.message); alert(e, 'time rules'); }).finally(() => { running = false; });
   };
   setTimeout(run, 5000).unref();
   setInterval(run, every * 60000).unref();
@@ -31,7 +35,7 @@ if (pushEvery > 0 && FCM.enabled()) {
   setInterval(() => {
     if (pushing) return;
     pushing = true;
-    pushNewNotices(db).catch(e => console.error('Push:', e.message)).finally(() => { pushing = false; });
+    pushNewNotices(db).catch(e => { console.error('Push:', e.message); alert(e, 'push'); }).finally(() => { pushing = false; });
   }, pushEvery * 1000).unref();
   console.log('Push notifications on');
 }
