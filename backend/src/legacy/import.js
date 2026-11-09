@@ -411,7 +411,57 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
     share.set(lid, s);
     return { target: 'listings', id: lid };
   });
-  await w.updateEach('listings', [...share].map(([id, s]) => ({ id, share: JSON.stringify(s) })));
+  // People shared onto a listing (mostly branch managers; "View & Edit" or "View Only" in the old ERP, one
+  // list in the new one) → listing.share.users.
+  await fillIn('db_property_share_users', r => {
+    const lid = M.id(r.property_id), sid = M.id(r.staff_id);
+    if (M.deleted(r.share_stat)) return { note: 'removed in the old ERP' };
+    if (!ids.listings?.has(lid)) return { note: 'its listing is not imported' };
+    if (!ids.staff.has(sid)) return { note: 'its person is not in the staff list' };
+    const s = share.get(lid) || { pmId: null, coPh: [] };
+    s.users = [...new Set([...(s.users || []), sid])];
+    share.set(lid, s);
+    return { target: 'listings', id: lid, note: M.int(r.share_action) === 1 ? 'shared View Only in the old ERP (the new ERP has one kind of sharing)' : undefined };
+  });
+  await w.updateEach('listings', [...share].map(([id, s]) => ({ id, share: JSON.stringify({ users: s.users || [], pmId: s.pmId, coPh: s.coPh }) })));
+
+  // Who handled each listing and why (db_property_product_handler) → its handler log (more.phLog, oldest first:
+  // { on, staffId, from }), the newest 20 a listing (the rest stay in history).
+  const FROM = { suspended_ph_to_bm: 'branchManager', listing_creator: 'creator', main_ph: 'mainPh', co_ph: 'coPh', title_manager: 'projectManager', title_handler: 'projectHandler' };
+  const LOG_MAX = 20;
+  const phLogs = new Map();
+  const keptLog = new Set();
+  if (present.includes('db_property_product_handler')) {
+    const byListing = new Map();
+    for await (const rows of pages(legacy, 'db_property_product_handler', cols.db_property_product_handler)) {
+      for (const r of rows) {
+        const lid = M.id(r.property_id);
+        if (!ids.listings?.has(lid) || !ids.staff.has(M.id(r.staff_id)) || !M.day(r.created_at)) continue;
+        if (!byListing.has(lid)) byListing.set(lid, []);
+        byListing.get(lid).push({ id: M.int(r.id), at: String(r.created_at) });
+      }
+    }
+    for (const list of byListing.values()) {
+      list.sort((a, b) => b.at.localeCompare(a.at) || b.id - a.id);
+      for (const e of list.slice(0, LOG_MAX)) keptLog.add(e.id);
+    }
+  }
+  await fillIn('db_property_product_handler', r => {
+    const lid = M.id(r.property_id), sid = M.id(r.staff_id);
+    if (!ids.listings?.has(lid)) return { note: 'its listing is not imported' };
+    if (!ids.staff.has(sid)) return { note: 'its person is not in the staff list' };
+    if (!M.day(r.created_at)) return { note: 'no date' };
+    if (!keptLog.has(M.int(r.id))) return { note: `more than ${LOG_MAX} handler changes on one listing (it keeps the newest)` };
+    if (!phLogs.has(lid)) phLogs.set(lid, []);
+    phLogs.get(lid).push({ id: M.int(r.id), at: String(r.created_at), entry: { on: M.day(r.created_at), staffId: sid, from: FROM[M.text(r.eval_from)] || 'manual' } });
+    return { target: 'listings', id: lid };
+  });
+  await db.transaction(async trx => {
+    for (const [lid, list] of phLogs) {
+      list.sort((a, b) => a.at.localeCompare(b.at) || a.id - b.id);
+      await trx.raw("update listings set more = json_set(coalesce(more, json_object()), '$.phLog', cast(? as json)) where id = ?", [JSON.stringify(list.map(e => e.entry)), lid]);
+    }
+  });
 
   // Listing photos → the listing's album (photo_set): each photo's address on the old file server, which the
   // old phone app shows as it always did, until the files are copied over with small previews. A listing keeps

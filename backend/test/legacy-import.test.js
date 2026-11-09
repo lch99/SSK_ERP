@@ -140,6 +140,10 @@ before(async () => {
     data_date: '2026-01-02', data_time: '20:07:09 PM', staff_id: 12, data_id: 12 }]);
   await rows('db_property_search_log', [{ id: 1, search_query: 'kepong condo', created_at: '2024-01-01 10:00:00' }]);
   await rows('db_user_favourite_property', [{ user_id: 12, property_id: 100 }, { user_id: 12, property_id: 102 }, { user_id: 999, property_id: 100 }]);
+  await rows('db_property_share_users', [{ share_id: 1, property_id: 100, staff_id: 10, share_stat: '', share_action: 0 }, { share_id: 2, property_id: 100, staff_id: 20, share_stat: '', share_action: 1 },
+    { share_id: 3, property_id: 100, staff_id: 11, share_stat: '3', share_action: 0 }]);
+  await rows('db_property_product_handler', [{ id: 1, property_id: 100, staff_id: 12, eval_from: 'listing_creator', created_at: '2025-01-01 09:00:00' },
+    { id: 2, property_id: 100, staff_id: 11, eval_from: 'main_ph', created_at: '2025-03-01 09:00:00' }, { id: 3, property_id: 100, staff_id: 10, eval_from: 'suspended_ph_to_bm', created_at: '2025-02-01 09:00:00' }]);
   await rows('db_user_saved_property', [{ user_id: 12, property_id: 100, created_at: '2026-03-01 10:00:00' }, { user_id: 12, property_id: 102, created_at: '2026-03-02 10:00:00' }]);
   await rows('db_user_favourite_property_title', [{ user_id: 12, property_title_id: 7 }, { user_id: 11, property_title_id: 7 }]);
   await rows('user_credential', [{ id: 1, user_id: 1, hashed_password: 'argon-hash-1' }]);
@@ -294,7 +298,8 @@ test('listings: codes, prices, flags, the people on them and their open E-Form',
   assert.equal(l.tenure, 'Freehold');
   assert.deepEqual(json(l.flags), ['Key On Agent Hand']);
   assert.deepEqual(json(l.portals), ['iProperty']);
-  assert.deepEqual(json(l.share), { pmId: 11, coPh: [{ staffId: 12, until: '2025-12-31', locked: true, from: '2025-02-01' }] });
+  assert.deepEqual(json(l.share), { users: [10, 20], pmId: 11, coPh: [{ staffId: 12, until: '2025-12-31', locked: true, from: '2025-02-01' }] });
+  assert.deepEqual(json(l.more).phLog, [{ on: '2025-01-01', staffId: 12, from: 'creator' }, { on: '2025-02-01', staffId: 10, from: 'branchManager' }, { on: '2025-03-01', staffId: 11, from: 'mainPh' }]);
   assert.equal(l.deal_id, 502);
   assert.equal(l.enquiry_count, 2);
   assert.equal((await one('listings', 101)).status, 'rented');

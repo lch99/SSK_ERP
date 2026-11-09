@@ -170,8 +170,6 @@ const HISTORY_ONLY = {
   db_appointment: 'viewings: no table yet (Phase 2)', db_appointment_property: 'viewings: no table yet (Phase 2)',
   db_appointment_remarks: 'viewings: no table yet (Phase 2)', db_appointment_review: 'viewings: no table yet (Phase 2)',
   db_appointment_timesheet: 'viewings: no table yet (Phase 2)',
-  db_property_product_handler: 'product handler history: no table yet (listing_roles, Phase 1)',
-  db_property_share_users: 'branch managers shared onto listings: no table yet (listing_roles, Phase 1)',
   db_property_title_manager: 'building project manager history: no table yet (title_managers, Phase 1)',
   db_property_title_handler: 'building project handler history: no table yet (title_managers, Phase 1)',
   db_property_draft: 'half-filled new listings (one per agent), never saved',
@@ -795,6 +793,8 @@ const AFTER = {
   db_user_favourite_property_title: ['user_id', 'property_title_id'],
   db_property_images: ['image_id', 'property_id', 'image_url', 'image_stat', 'image_display', 'image_cover', 'image_date'],
   db_user_saved_property: ['user_id', 'property_id', 'created_at'],
+  db_property_share_users: ['share_id', 'property_id', 'staff_id', 'share_stat', 'share_action'],
+  db_property_product_handler: ['id', 'property_id', 'staff_id', 'eval_from', 'created_at'],
 };
 
 // The columns each table is read for, for legacy:inspect and the tests.
