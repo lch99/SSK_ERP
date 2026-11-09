@@ -26,7 +26,7 @@ const BATCH = 200;
 const NUMERIC = /int|decimal|numeric|float|double|real/i;
 
 // Records the import writes, children before parents (the order they are emptied in).
-const RECORD_TABLES = ['legacy_activity', 'notices', 'favourites', 'staff_marketing', 'listing_follow_ups', 'customer_follow_ups', 'payout_lines', 'closes', 'pay_requests', 'archives', 'money_out',
+const RECORD_TABLES = ['legacy_activity', 'notices', 'favourites', 'saved_listings', 'staff_marketing', 'listing_follow_ups', 'customer_follow_ups', 'payout_lines', 'closes', 'pay_requests', 'archives', 'money_out',
   'money_in', 'customers', 'enquiries', 'vendor_requests', 'deals', 'listings', 'titles', 'areas', 'property_types', 'videos', 'v1_eforms', 'v1_overrides', 'staff'];
 // Business records checked for "made in the new system" before an import replaces them.
 const GUARDED = ['staff', 'listings', 'deals', 'money_in', 'payout_lines', 'customers', 'money_out', 'pay_requests'];
@@ -173,6 +173,9 @@ async function prepareTarget(db, { replace, force }) {
       throw new Error(`The new database has records that did not come from the old ERP (${made.join(', ')}): made in the new system, by Setup's agent list, or by demo data. Replacing the import would delete them, so nothing was changed. Start from an empty database (npm run reset-db), or pass --force for a trial run.`);
     }
   }
+  // Sign-in accounts point at staff records, which are made again with the same ids: the links are
+  // put back once the people are in (relinkAccounts), so nobody loses their account at switch-over.
+  const links = await db('users').whereNotNull('staff_id').select('id', 'staff_id');
   await db.transaction(async trx => {
     await trx('users').update({ staff_id: null });
     await trx('legacy_rows').del();
@@ -180,6 +183,20 @@ async function prepareTarget(db, { replace, force }) {
     for (const t of RECORD_TABLES) await trx(t).del();
     await trx('counters').del();
   });
+  return links;
+}
+
+// Each account goes back to its person, if they came across again (else it stays without one, as an office account
+// would, and the report counts it).
+async function relinkAccounts(db, links) {
+  if (!links?.length) return 0;
+  const there = new Set((await db('staff').whereIn('id', links.map(l => l.staff_id)).pluck('id')).map(Number));
+  let lost = 0;
+  for (const l of links) {
+    if (there.has(Number(l.staff_id))) await db('users').where('id', l.id).update({ staff_id: l.staff_id });
+    else lost++;
+  }
+  return lost;
 }
 
 // ── Branches: the old ERP's "B.M (…)" accounts (account type sale-staff) ─────
@@ -229,7 +246,7 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
   const { present, cols } = await checkCopy(legacy);
   if (!(await db.schema.hasTable('legacy_rows'))) throw new Error('The new database is not ready: run npm run migrate first.');
   await readPrimaryKeys(legacy, present);
-  await prepareTarget(db, { replace, force });
+  const links = await prepareTarget(db, { replace, force });
 
   const report = { tables: {}, unknownCodes: {}, truncated: {}, outOfRange: {}, branchesMade: [], placeholders: 0, missingTables: [], unknownTables: [], recent: {}, include };
   const stat = t => (report.tables[t] ||= { rows: 0, imported: {}, kept: {}, notes: {} });
@@ -529,6 +546,17 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
   await fillIn('db_user_favourite_property_title', starred('titles', r => r.property_title_id));
   await w.insert('favourites', [...favs].map(([viewer_id, f]) => ({ viewer_id, listings: JSON.stringify(f.listings), titles: JSON.stringify(f.titles) })));
 
+  // The website's "My Saved Listings" → saved_listings (the listings an agent keeps for their profile document).
+  const saved = new Map();
+  await fillIn('db_user_saved_property', r => {
+    const sid = M.id(r.user_id), lid = M.id(r.property_id);
+    if (!ids.staff.has(sid)) return { note: 'its person is not in the staff list' };
+    if (!ids.listings?.has(lid)) return { note: 'its listing is not imported' };
+    saved.set(`${sid}:${lid}`, { staff_id: sid, listing_id: lid, saved_at: String(r.created_at || '').replace('T', ' ').slice(0, 19) || null });
+    return { target: 'saved_listings', id: `${sid}:${lid}` };
+  });
+  await w.insert('saved_listings', [...saved.values()].map(r => (r.saved_at && /^\d{4}-\d{2}-\d{2}/.test(r.saved_at) ? r : { staff_id: r.staff_id, listing_id: r.listing_id })));
+
   // 3. The latest notifications become notices (new ids: the old ones ran to 763,000);
   // older ones are left out (RECENT).
   if (present.includes('db_user_notification')) {
@@ -645,6 +673,7 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
     report.branchesMade = report.branchesMade.filter(b => b !== hq);
   }
 
+  report.accountsUnlinked = await relinkAccounts(db, links);
   report.seconds = Math.round((Date.now() - started) / 1000);
   report.notCopied = M.NOT_COPIED;
   report.heldBack = Object.fromEntries(Object.entries(M.HELD_BACK).filter(([t]) => present.includes(t) && !include.includes(t)));

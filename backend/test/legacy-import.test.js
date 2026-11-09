@@ -140,6 +140,7 @@ before(async () => {
     data_date: '2026-01-02', data_time: '20:07:09 PM', staff_id: 12, data_id: 12 }]);
   await rows('db_property_search_log', [{ id: 1, search_query: 'kepong condo', created_at: '2024-01-01 10:00:00' }]);
   await rows('db_user_favourite_property', [{ user_id: 12, property_id: 100 }, { user_id: 12, property_id: 102 }, { user_id: 999, property_id: 100 }]);
+  await rows('db_user_saved_property', [{ user_id: 12, property_id: 100, created_at: '2026-03-01 10:00:00' }, { user_id: 12, property_id: 102, created_at: '2026-03-02 10:00:00' }]);
   await rows('db_user_favourite_property_title', [{ user_id: 12, property_title_id: 7 }, { user_id: 11, property_title_id: 7 }]);
   await rows('user_credential', [{ id: 1, user_id: 1, hashed_password: 'argon-hash-1' }]);
   const kepong = { property_run_id: 'LIST-000100', property_title: 'Kepong Sentral', property_type: 'sales' };
@@ -231,6 +232,12 @@ test('starred listings and buildings become favourites', async () => {
   assert.deepEqual(favs, { 11: { listings: [], titles: [7] }, 12: { listings: [100], titles: [7] } });
   assert.deepEqual(report.tables.db_user_favourite_property.kept, { 'its listing is not imported': 1, 'its person is not in the staff list': 1 });
   assert.ok(result.checks.filter(c => c.group === 'Favourites').every(c => c.ok));
+});
+
+test('the website\'s saved listings come across; one on a deleted listing stays in history', async () => {
+  assert.deepEqual((await db('saved_listings').select('staff_id', 'listing_id', 'saved_at')).map(r => ({ ...r, saved_at: String(r.saved_at).slice(0, 10) })),
+    [{ staff_id: 12, listing_id: 100, saved_at: '2026-03-01' }]);
+  assert.match((await db('legacy_rows').where({ source_table: 'db_user_saved_property', source_id: '12:102' }).first()).note, /not imported/);
 });
 
 test('the old data\'s loose ends: an undated first-system E-Form, a queried line already paid, a close whose first line is deleted', async () => {
@@ -372,9 +379,12 @@ test('new codes continue after the highest old number, deleted and first-system 
   assert.deepEqual([c.staff, c.listing, c.transaction, c.case, c.salary, c.archive, c.request], [777, 104, 6, 905, 60, 40, 72]);
 });
 
-test('importing again needs --replace, and replaces instead of adding', async () => {
+test('importing again needs --replace, and replaces instead of adding; sign-in accounts keep their person', async () => {
   await assert.rejects(importLegacy({ legacy, db }), /already has .* records/);
-  await importLegacy({ legacy, db, replace: true });
+  await db('users').insert({ username: 'bob', name: 'Bob', role: 'staff', staff_id: 12, password_hash: 'x' });
+  const again = await importLegacy({ legacy, db, replace: true });
+  assert.equal((await db('users').where('username', 'bob').first()).staff_id, 12, 'the account is linked to Bob again');
+  assert.equal(again.accountsUnlinked, 0);
   assert.equal(Number((await db('deals').count({ n: '*' }).first()).n), 3);
   assert.equal(Number((await db('legacy_rows').where('source_table', 'db_property').count({ n: '*' }).first()).n), 5);
   assert.equal(Number((await db('notices').count({ n: '*' }).first()).n), 3);

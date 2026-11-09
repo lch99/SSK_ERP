@@ -176,7 +176,6 @@ const HISTORY_ONLY = {
   db_property_title_handler: 'building project handler history: no table yet (title_managers, Phase 1)',
   db_property_draft: 'half-filled new listings (one per agent), never saved',
   db_user_device: 'app push tokens: no table yet (Phase 2)',
-  db_user_saved_property: 'the website\'s "My Saved Listings" (not favourites: they sent no notices): no table yet',
   db_case_archieve: 'first system (V1) archives', db_overiding_withdraw: 'first system (V1) override withdrawals',
   db_gst_transaction: 'SST ledger lines: worked out from the E-Forms and closes', db_sap: 'old payment records (feature retired)',
   db_new_sales: 'old sales register (feature retired)', db_new_sales_close: 'old sales register (feature retired)',
@@ -795,6 +794,7 @@ const AFTER = {
   db_user_favourite_property: ['user_id', 'property_id'],
   db_user_favourite_property_title: ['user_id', 'property_title_id'],
   db_property_images: ['image_id', 'property_id', 'image_url', 'image_stat', 'image_display', 'image_cover', 'image_date'],
+  db_user_saved_property: ['user_id', 'property_id', 'created_at'],
 };
 
 // The columns each table is read for, for legacy:inspect and the tests.
