@@ -19,7 +19,8 @@
     "legacy:import": "node src/legacy/import.js",
     "legacy:verify": "node src/legacy/verify.js",
     "legacy:copy-files": "node src/legacy/copyFiles.js",
-    "legacy:panel": "node src/legacy/panel.js"
+    "legacy:panel": "node src/legacy/panel.js",
+    "backup": "node src/ops/backup.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

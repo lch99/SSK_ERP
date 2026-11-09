@@ -42,8 +42,9 @@ function settings() {
   const region = process.env.S3_REGION || 'us-east-1';
   const endpoint = (process.env.S3_ENDPOINT || '').replace(/\/+$/, '');
   const prefix = (process.env.S3_PREFIX || '').replace(/^\/+/, '');
-  const urlOf = key => (endpoint ? `${endpoint}/${bucket}/${prefix}${key}` : `https://${bucket}.s3.${region}.amazonaws.com/${prefix}${key}`);
-  return { region, accessKey, secretKey, urlOf };
+  const bucketUrl = endpoint ? `${endpoint}/${bucket}` : `https://${bucket}.s3.${region}.amazonaws.com`;
+  const urlOf = key => `${bucketUrl}/${prefix}${key}`;
+  return { region, accessKey, secretKey, urlOf, bucketUrl, prefix };
 }
 
 async function call(method, key, { body, headers = {}, payloadHash = sha256('') } = {}) {
@@ -78,4 +79,32 @@ function s3Storage({ temp }) {
   };
 }
 
-module.exports = { s3Storage, sign };
+// Plain object calls for other jobs (backups): put a file, list keys under a prefix, delete one.
+async function putObject(key, fromPath) {
+  const { size } = await fsp.stat(fromPath);
+  const r = await call('PUT', key, { body: Readable.toWeb(fs.createReadStream(fromPath)), headers: { 'content-length': String(size) }, payloadHash: 'UNSIGNED-PAYLOAD' });
+  if (!r.ok) throw new Error(`Storage refused ${key}: ${r.status}`);
+}
+async function listKeys(prefix) {
+  const s = settings();
+  const keys = [];
+  let token = null;
+  do {
+    const url = new URL(`${s.bucketUrl}/`);
+    url.searchParams.set('list-type', '2');
+    url.searchParams.set('prefix', `${s.prefix}${prefix}`);
+    if (token) url.searchParams.set('continuation-token', token);
+    const r = await fetch(url, { headers: sign({ method: 'GET', url: url.toString(), region: s.region, accessKey: s.accessKey, secretKey: s.secretKey, payloadHash: sha256('') }) });
+    if (!r.ok) throw new Error(`Storage could not list ${prefix}: ${r.status}`);
+    const xml = await r.text();
+    for (const m of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) keys.push(m[1].replace(/&amp;/g, '&').slice(s.prefix.length));
+    token = /<IsTruncated>true<\/IsTruncated>/.test(xml) ? /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(xml)?.[1] || null : null;
+  } while (token);
+  return keys;
+}
+async function deleteKey(key) {
+  const r = await call('DELETE', key);
+  if (!r.ok && r.status !== 404) throw new Error(`Storage could not remove ${key}: ${r.status}`);
+}
+
+module.exports = { s3Storage, sign, putObject, listKeys, deleteKey };
