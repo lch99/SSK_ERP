@@ -35,9 +35,10 @@ const { inReach } = require('../db/erpGuard');
 const { runAction } = require('../db/runAction');
 const { audit } = require('../db/audit');
 const { localToday } = require('../db/days');
+const { countLook } = require('../db/listingDaily');
 const FILES = require('../files/files');
 const O = require('./old');
-const { searchOf, pagination, ids, num, truthy } = require('./search');
+const { searchOf, pagination, categoriesOnFile, ids, num, truthy } = require('./search');
 
 const router = express.Router();
 const APP_TOKEN = process.env.APP_TOKEN_EXPIRES_IN || '90d';
@@ -277,9 +278,8 @@ const shapeAll = (ctx, rows, { details = false } = {}) => rows.map(l => {
 });
 
 // The category names on file (a type the old app's list never had goes by its group).
-const categoriesOnFile = async () => (await db('listings').distinct('category').whereNotNull('category')).map(r => r.category);
 // Only read when the search picks a category.
-const categoriesFor = p => (p.property_category || p.property_category_id_list ? categoriesOnFile() : []);
+const categoriesFor = p => (p.property_category || p.property_category_id_list ? categoriesOnFile(db) : []);
 const areaNamesById = async list => new Map((list.length ? await db('areas').whereIn('id', list).select('id', 'name') : []).map(a => [a.id, a.name]));
 
 router.all('/property/search', wrap(async (req, res) => {
@@ -317,17 +317,20 @@ router.get('/property/:id/details', wrap(async (req, res) => {
 
 router.get('/property/:id/views-clicks-count', wrap(async (req, res) => {
   const { l } = await listingFor(req, idParam(req.params.id));
-  ok(res, { property_details_views_count_web: l.views || 0, property_listitem_clicks_count_web: 0, property_details_views_count_app: l.viewsApp || 0, property_listitem_clicks_count_app: 0 });
+  const clicks = await db('listing_daily').where('listing_id', l.id).sum({ web: 'clicks_web', app: 'clicks_app' }).first();
+  ok(res, { property_details_views_count_web: l.views || 0, property_listitem_clicks_count_web: Number(clicks?.web) || 0,
+    property_details_views_count_app: l.viewsApp || 0, property_listitem_clicks_count_app: Number(clicks?.app) || 0 });
 }));
 
-// A look at a listing's details in the app counts on it; taps in a list are not counted yet (daily counts per listing, later).
+// Opening a listing in the app, or tapping it in a list, counts for that day (db/listingDaily.js).
 router.post('/property/:id/details-views-count', wrap(async (req, res) => {
   const { l } = await listingFor(req, idParam(req.params.id));
-  await db('listings').where('id', l.id).increment('views_app', 1);
+  await countLook(db, l.id, { via: 'app', kind: 'view' });
   ok(res, true);
 }));
 router.post('/property/:id/listitem-clicks-count', wrap(async (req, res) => {
-  await listingFor(req, idParam(req.params.id));
+  const { l } = await listingFor(req, idParam(req.params.id));
+  await countLook(db, l.id, { via: 'app', kind: 'click' });
   ok(res, true);
 }));
 
@@ -605,8 +608,8 @@ router.post('/property/enquiry', wrap(async (req, res) => {
   do ticket = Array.from({ length: 10 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
   while (await db('vendor_requests').where('ticket', ticket).first('id'));
   const [id] = await db('vendor_requests').insert({
-    ticket, date: localToday(), name, phone, branch_id: v.branchId ?? null, category: String(b.property_category || '').trim().slice(0, 100) || null,
-    area: String(b.property_location || '').trim().slice(0, 150) || null, for_type: /rent/i.test(String(b.inquiry_type || '')) ? 'Rent' : 'Sale', price: null,
+    ticket, date: localToday(), name, phone, branch_id: v.branchId ?? null, category: String(b.property_category || '').trim().slice(0, 40),
+    area: String(b.property_location || '').trim().slice(0, 100), for_type: /rent/i.test(String(b.inquiry_type || '')) ? 'Rent' : 'Sale', price: null,
     status: 0, listing_id: null, handled_by: null,
     more: JSON.stringify({ property: String(b.property_name || '').trim().slice(0, 200) || null, via: 'phone app', by: v.staffId ?? null }),
   });

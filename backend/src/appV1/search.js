@@ -120,4 +120,11 @@ function pagination({ page, size, total }, shown) {
   };
 }
 
-module.exports = { searchOf, pagination, ids, num, truthy };
+// The category names on file (a type the old list never had goes by its group), read again every 5 minutes.
+let onFile = { at: 0, names: [] };
+async function categoriesOnFile(q) {
+  if (Date.now() - onFile.at > 5 * 60000) onFile = { at: Date.now(), names: (await q('listings').distinct('category').whereNotNull('category')).map(r => r.category) };
+  return onFile.names;
+}
+
+module.exports = { searchOf, pagination, categoriesOnFile, ids, num, truthy };
