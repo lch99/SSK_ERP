@@ -19,3 +19,19 @@ if (every > 0) {
   setTimeout(run, 5000).unref();
   setInterval(run, every * 60000).unref();
 }
+
+// New notifications go to phones as pushes (push/outbox.js), every PUSH_SECONDS (20; 0 = off), once the
+// Firebase service account is set (FIREBASE_SERVICE_ACCOUNT).
+const { pushNewNotices } = require('./push/outbox');
+const FCM = require('./push/fcm');
+const pushEvery = Number(process.env.PUSH_SECONDS ?? 20);
+if (pushEvery > 0 && FCM.enabled()) {
+  const db = require('./db/connection');
+  let pushing = false;
+  setInterval(() => {
+    if (pushing) return;
+    pushing = true;
+    pushNewNotices(db).catch(e => console.error('Push:', e.message)).finally(() => { pushing = false; });
+  }, pushEvery * 1000).unref();
+  console.log('Push notifications on');
+}
