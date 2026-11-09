@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const { validatePassword } = require('../../../shared/roles.js');
 const { localToday } = require('../db/days');
+const MAIL = require('../mail/mailer');
 
 const HOURS = { set: 7 * 24, reset: 24 };
 const hash = token => crypto.createHash('sha256').update(token).digest('hex');
@@ -92,4 +93,31 @@ async function askForLink(q, user) {
   }
 }
 
-module.exports = { accountFor, makeLink, readLink, useLink, askForLink, staffRefusal, freeUsername };
+// The address a person's password links go to: their own (My profile), else the one on their staff record.
+async function emailOf(q, user) {
+  const mine = (() => { try { return JSON.parse(user.profile || '{}')?.email; } catch { return null; } })();
+  const staff = user.staff_id ? await q('staff').where('id', user.staff_id).first('email', 'status', 'name', 'short_name') : null;
+  const email = String(mine || staff?.email || '').trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? { email, name: staff?.short_name || staff?.name || user.name, status: staff?.status } : null;
+}
+
+// E-mails a password link (MAIL_URL and ERP_URL set, an address on file, an Active person). `token`: one
+// already made (the office's dialog); else a new one. Returns the address it went to, or null.
+async function emailLink(q, user, { token = null, by = null } = {}) {
+  if (!MAIL.enabled()) return null;
+  const to = await emailOf(q, user);
+  if (!to || staffRefusal(to.status)) return null;
+  const link = token ? { token, ...(await readLink(q, token).then(({ row }) => ({ purpose: row.purpose, expiresAt: new Date(row.expires_at).toISOString() }))) }
+    : await makeLink(q, user, { by });
+  const url = `${MAIL.erpUrl()}#/password?t=${link.token}`;
+  const until = link.expiresAt.slice(0, 10);
+  await MAIL.sendMail({
+    to: `"${to.name.replace(/"/g, '')}" <${to.email}>`,
+    subject: link.purpose === 'reset' ? 'Choose a new SubSaleKing ERP password' : 'Set your SubSaleKing ERP password',
+    text: `Hi ${to.name},\n\nUse this link to ${link.purpose === 'reset' ? 'choose a new' : 'set your'} password for the SubSaleKing ERP. Your username is ${user.username}.\n`
+      + `The link works once, until ${until}:\n\n${url}\n\nIf you did not ask for it, you can ignore this e-mail: nothing changes until the link is used.\n`,
+  });
+  return to.email;
+}
+
+module.exports = { accountFor, makeLink, readLink, useLink, askForLink, emailLink, emailOf, staffRefusal, freeUsername };

@@ -1,6 +1,7 @@
 // /api/accounts — sign-in accounts for the people on the staff list (auth/accounts.js).
 //   GET  /api/accounts/<staffId>          their account: username, password set or not, locked, last sign-in
 //   POST /api/accounts/<staffId>/link     makes the account if needed and a one-time link → { username, token, purpose, expiresAt }
+//   POST /api/accounts/<staffId>/email-link { token }   e-mails that link to the person (mail/mailer.js) → { to }
 //   POST /api/accounts/links { base, branchId? }   Superadmin: accounts for every active person who has none, and a
 //                                          link for each who has no password yet, as an Excel file to send them
 const express = require('express');
@@ -14,6 +15,7 @@ const { inReach } = require('../db/erpGuard');
 const { audit } = require('../db/audit');
 const { localToday } = require('../db/days');
 const ACC = require('../auth/accounts');
+const MAIL = require('../mail/mailer');
 
 const router = express.Router();
 router.use(requireAuth, downtimeGate());
@@ -25,7 +27,7 @@ async function personFor(req, res, level) {
   const v = await viewerOf(req);
   const id = idOf(req.params.staffId);
   if (!AC.allows(v.policy, v.role, 'staff', level)) { res.status(403).json({ error: 'Your role cannot manage sign-in accounts.' }); return null; }
-  const staff = id && await db('staff').where('id', id).first('id', 'name', 'code', 'username', 'branch_id', 'status', 'phone');
+  const staff = id && await db('staff').where('id', id).first('id', 'name', 'code', 'username', 'branch_id', 'status', 'phone', 'email');
   if (!staff || (v.scope !== 'all' && !(await inReach(db, 'staff', [id], v)).has(id))) { res.status(404).json({ error: 'Not found, or not yours to see.' }); return null; }
   return staff;
 }
@@ -41,7 +43,24 @@ router.get('/:staffId', wrap(async (req, res) => {
   if (!staff) return;
   const u = await db('users').where('staff_id', staff.id).first();
   const link = u && await db('password_links').where('user_id', u.id).whereNull('used_at').where('expires_at', '>', new Date()).orderBy('id', 'desc').first();
-  res.json({ ...describe(u, link), staffActive: staff.status === 'active' });
+  // Whether a link can go by e-mail (set up, and an address on file).
+  const canEmail = MAIL.enabled() && !!(u ? await ACC.emailOf(db, u) : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(staff.email || '')));
+  res.json({ ...describe(u, link), staffActive: staff.status === 'active', canEmail });
+}));
+
+// E-mails the link just made in the office's dialog (the same token: making another would cancel it).
+router.post('/:staffId/email-link', wrap(async (req, res) => {
+  const staff = await personFor(req, res, 'edit');
+  if (!staff) return;
+  const u = await db('users').where('staff_id', staff.id).first();
+  const token = String(req.body?.token || '');
+  let mine = false;
+  try { mine = !!u && (await ACC.readLink(db, token)).user.id === u.id; } catch { mine = false; }
+  if (!mine) return res.status(400).json({ error: 'That link is not this person\'s, or it was used or replaced. Make a new one.' });
+  const to = await ACC.emailLink(db, u, { token });
+  if (!to) return res.status(400).json({ error: 'E-mail is not set up, or there is no e-mail address for this person.' });
+  await audit(req, { action: 'email_password_link', entity: 'staff', entityId: staff.id, detail: { username: u.username } });
+  res.json({ ok: true, to });
 }));
 
 router.post('/:staffId/link', wrap(async (req, res) => {

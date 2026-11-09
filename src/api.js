@@ -116,6 +116,8 @@ export async function setPasswordByLink(token, password) {
 export const forgotPassword = username => request('/auth/forgot', { method: 'POST', body: { username } })
 export const accountOf = staffId => request(`/accounts/${staffId}`)
 export const makeAccountLink = staffId => request(`/accounts/${staffId}/link`, { method: 'POST', body: {} })
+// The link just made, by e-mail (when the server has e-mail set up and the person an address).
+export const emailAccountLink = (staffId, token) => request(`/accounts/${staffId}/email-link`, { method: 'POST', body: { token } })
 // The address a set-password link opens: this ERP, at #/password.
 export const passwordLink = token => `${window.location.origin}${window.location.pathname}#/password?t=${token}`
 // Everyone's accounts and links as an Excel file (Superadmin).

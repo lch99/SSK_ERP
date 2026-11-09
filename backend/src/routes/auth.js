@@ -10,6 +10,7 @@ const { validateUser, validatePassword } = require('../../../shared/roles.js');
 const { tidyProfile, checkProfile } = require('../../../shared/profile.js');
 const { parseJson } = require('../db/records');
 const ACC = require('../auth/accounts');
+const MAIL = require('../mail/mailer');
 
 const router = express.Router();
 
@@ -89,10 +90,15 @@ router.post('/forgot', loginLimiter, async (req, res, next) => {
     if (!username) return res.status(400).json({ error: 'Enter your username.' });
     const u = await db('users').where({ username, is_active: true }).first();
     if (u) {
-      await ACC.askForLink(db, u);
-      await audit({ user: null }, { action: 'forgot_password', entity: 'user', entityId: u.id, detail: { username: u.username } });
+      // By e-mail when it is set up and they have an address; else their branch office is asked.
+      const mailed = await ACC.emailLink(db, u).catch(err => { console.error('Password e-mail:', err.message); return null; });
+      if (!mailed) await ACC.askForLink(db, u);
+      await audit({ user: null }, { action: 'forgot_password', entity: 'user', entityId: u.id, detail: { username: u.username, by: mailed ? 'email' : 'office' } });
     }
-    res.json({ ok: true, message: 'Your branch office has been asked to send you a new link. It works once, for 24 hours.' });
+    // The same reply whatever happened (it never tells whether an account or an address exists).
+    res.json({ ok: true, message: MAIL.enabled()
+      ? 'If your account has an e-mail address, a link is on its way to it; if not, your branch office has been asked to send you one. It works once, for 24 hours.'
+      : 'Your branch office has been asked to send you a new link. It works once, for 24 hours.' });
   } catch (err) { next(err); }
 });
 

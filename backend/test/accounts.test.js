@@ -114,3 +114,43 @@ test('the Superadmin makes everyone\'s accounts and links as one Excel file', as
   assert.equal(Number(r.headers.get('x-links')), active - Number(withPassword.n), 'a link for each without a password');
   assert.equal((await boss('POST', '/accounts/links', { base: 'javascript:alert(1)' })).status, 400);
 });
+
+test('with e-mail set up, Forgot password and the office send the link by e-mail, built from the ERP\'s own address', async () => {
+  const MAIL = require('../src/mail/mailer');
+  Object.assign(process.env, { MAIL_URL: 'json', ERP_URL: 'https://erp.example.com/', MAIL_FROM: 'SubSaleKing <no-reply@example.com>' });
+  try {
+    const [withMail, without] = data.staff.filter(s => s.type === 'staff' && s.status === 'active' && s.username).slice(6, 8);
+    await db('staff').where('id', withMail.id).update({ email: 'agent@example.com' });
+    await db('staff').where('id', without.id).update({ email: '' });
+    const first = (await boss('POST', `/accounts/${withMail.id}/link`)).body;
+    await anon('POST', `/auth/link/${first.token}`, { password: 'mail long password' });
+    const notices = async () => Number((await db('notices').count({ n: '*' }).first()).n);
+    const before = await notices();
+    const r = await anon('POST', '/auth/forgot', { username: first.username, base: 'https://evil.example.net/' });
+    assert.equal(r.status, 200);
+    const m = MAIL.sent.at(-1);
+    assert.equal(m.to[0].address, 'agent@example.com');
+    assert.match(m.text, /https:\/\/erp\.example\.com\/#\/password\?t=[\w-]+/);
+    assert.ok(!m.text.includes('evil'), 'a link someone else chose never goes out');
+    assert.equal(await notices(), before, 'nobody in the office needs to act');
+    const token = /t=([\w-]+)/.exec(m.text)[1];
+    assert.equal((await anon('GET', `/auth/link/${token}`)).body.purpose, 'reset');
+
+    // No address: the branch office is asked, and the reply is the same.
+    const second = (await boss('POST', `/accounts/${without.id}/link`)).body;
+    const sentBefore = MAIL.sent.length;
+    const r2 = await anon('POST', '/auth/forgot', { username: second.username });
+    assert.deepEqual(r2.body, r.body);
+    assert.equal(MAIL.sent.length, sentBefore);
+    assert.ok(await notices() > before);
+
+    // The office's dialog: e-mail the link it just made (the same one).
+    const acc = (await boss('GET', `/accounts/${withMail.id}`)).body;
+    assert.equal(acc.canEmail, true);
+    const made = (await boss('POST', `/accounts/${withMail.id}/link`)).body;
+    const sent = await boss('POST', `/accounts/${withMail.id}/email-link`, { token: made.token });
+    assert.deepEqual(sent.body, { ok: true, to: 'agent@example.com' });
+    assert.ok(MAIL.sent.at(-1).text.includes(made.token));
+    assert.equal((await boss('POST', `/accounts/${withMail.id}/email-link`, { token: second.token })).status, 400, 'only this person\'s own link');
+  } finally { delete process.env.MAIL_URL; delete process.env.ERP_URL; }
+});

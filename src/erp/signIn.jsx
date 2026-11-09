@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { C, btn, btnPrimary } from '../styles.js'
-import { DEMO, accountOf, makeAccountLink, passwordLink } from '../api.js'
+import { DEMO, accountOf, makeAccountLink, emailAccountLink, passwordLink } from '../api.js'
 import { useFeedback } from './feedback.jsx'
 import { Card, Modal, Pill, field } from './ui.jsx'
 import { date } from './format.js'
@@ -45,6 +45,12 @@ export function SignInCard({ s, canEdit }) {
       load()
     } catch (e) { fb.error(e) }
   }
+  const byEmail = async () => {
+    try {
+      const r = await emailAccountLink(s.id, link.token)
+      fb.toast(`Link sent to ${r.to}`)
+    } catch (e) { fb.error(e) }
+  }
   const url = link && passwordLink(link.token)
   const wa = link && waNumber(s.phone)
   const text = link && `Hi ${s.short}, here is your link to ${link.purpose === 'reset' ? 'choose a new' : 'set your'} SubSaleKing ERP password. Your username is ${link.username}. The link works once, until ${date(link.expiresAt.slice(0, 10))}: ${url}`
@@ -61,6 +67,7 @@ export function SignInCard({ s, canEdit }) {
       <Modal open={!!link} onClose={() => setLink(null)} title={`Password link for ${s.short}`} width={520}
         footer={<>
           <button style={btn} onClick={() => navigator.clipboard?.writeText(text).then(() => fb.toast('Message and link copied'), () => fb.toast('Select the link and copy it'))}>Copy message</button>
+          {acc.canEmail && <button style={btn} onClick={byEmail}>Send by e-mail</button>}
           {wa && <a href={`https://wa.me/${wa}?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer" style={{ ...btnPrimary, textDecoration: 'none' }}>Send by WhatsApp</a>}
         </>}>
         {link && (
