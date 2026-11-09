@@ -242,4 +242,4 @@ async function pruneFiles(q) {
   return old.length;
 }
 
-module.exports = { upload, saveBuffer, checkRefs, linkFiles, mayRead, mayReadMany, LINKS_AT_ONCE: 200, signedUrl, signedOk, pruneFiles, refsIn, refOf, cleanName };
+module.exports = { upload, saveBuffer, saveTemp: keep, checkRefs, linkFiles, mayRead, mayReadMany, LINKS_AT_ONCE: 200, signedUrl, signedOk, pruneFiles, refsIn, refOf, cleanName };

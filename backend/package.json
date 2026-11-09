@@ -18,7 +18,7 @@
     "legacy:inspect": "node src/legacy/inspect.js",
     "legacy:import": "node src/legacy/import.js",
     "legacy:verify": "node src/legacy/verify.js",
-    "legacy:copy-photos": "node src/legacy/copyPhotos.js"
+    "legacy:copy-files": "node src/legacy/copyFiles.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
