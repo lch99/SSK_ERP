@@ -1,7 +1,6 @@
-// Where uploaded files live. One driver today: a folder on the API's server
-// (UPLOAD_DIR, default backend/uploads, never in git). Going live it becomes
-// object storage (S3 or alike) behind the same three calls, so nothing else
-// changes: put(key, fromPath), open(key) → a readable stream, remove(key).
+// Where uploaded files live: a folder on the API's server (UPLOAD_DIR, default backend/uploads, never in
+// git), or object storage (STORAGE=s3, files/s3.js: S3, R2, Spaces…) behind the same three calls, so
+// nothing else changes: put(key, fromPath), open(key) → a readable stream, remove(key).
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
@@ -31,4 +30,8 @@ const local = {
   temp: () => path.join(ROOT, '.incoming'),
 };
 
-module.exports = { storage: local, ROOT };
+// STORAGE=s3: object storage (files/s3.js); unfinished uploads still land in the local folder first.
+const { s3Storage } = require('./s3');
+const storage = process.env.STORAGE === 's3' ? s3Storage({ temp: local.temp }) : local;
+
+module.exports = { storage, ROOT };
