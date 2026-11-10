@@ -74,7 +74,8 @@ export function Hero({ greet, place, dateText, thisMonth, lastMonth, daysIn, day
           </div>
         </div>
         <div style={{ flex: '0 1 auto', display: 'flex', gap: 22, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Ring value={ratio} label={lastMonth ? `${Math.round(ratio * 100)}%` : '—'} sub="of last month" />
+          {/* From ten times last month: "19×" (a five-digit percentage would spill out of the ring). */}
+          <Ring value={ratio} label={!lastMonth ? '—' : ratio < 10 ? `${Math.round(ratio * 100)}%` : ratio < 100 ? `${Math.floor(ratio)}×` : '99×+'} sub="of last month" />
           <Ring value={dayNo / daysIn} label={`${daysIn - dayNo}`} sub="days left" color="#ffb4c6" />
         </div>
       </div>
