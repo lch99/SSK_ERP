@@ -610,8 +610,8 @@ function UserMenu({ wide, me, profile, authDisabled, onSignOut, onChangePassword
 // "?" anywhere: every shortcut on one card.
 function ShortcutsSheet({ open, onClose }) {
   const k = (...keys) => <span style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }}>{keys.map(x => <kbd key={x} style={{ ...kbd, minWidth: 18, textAlign: 'center' }}>{x}</kbd>)}</span>
-  const row = (keys, text) => (
-    <div key={text} style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between', padding: '6px 0', fontSize: 13.5, borderBottom: `1px solid ${C.grayBg}` }}>
+  const row = (keys, text, id = text) => (
+    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between', padding: '6px 0', fontSize: 13.5, borderBottom: `1px solid ${C.grayBg}` }}>
       <span>{text}</span>{keys}
     </div>
   )
@@ -622,7 +622,7 @@ function ShortcutsSheet({ open, onClose }) {
         <div>
           {head('Anywhere')}
           {row(k(isMac ? '⌘' : 'Ctrl', 'K'), 'Quick search')}
-          {row(k('/'), 'Quick search')}
+          {row(k('/'), 'Quick search', 'quick-search-slash')}
           {row(k('['), 'Fold or unfold the menu')}
           {row(k('?'), 'This list')}
           {row(k('Esc'), 'Close a panel or dialog')}
