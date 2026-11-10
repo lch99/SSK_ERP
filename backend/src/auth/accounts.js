@@ -42,12 +42,14 @@ async function accountFor(q, staff) {
   return { user: await q('users').where('id', typeof id === 'object' ? id.id : id).first(), made: true };
 }
 
-// A new one-time link for the account (older unused ones stop working). Returns { token, purpose, expiresAt }.
+// A new one-time link for the account (older unused ones stop working; one the person asked for through
+// Forgot password leaves the office's links alone, so nobody can cancel them by typing a username).
+// Returns { token, purpose, expiresAt }.
 async function makeLink(q, user, { by = null, purpose = null } = {}) {
   const kind = purpose || (user.password_hash ? 'reset' : 'set');
   const token = crypto.randomBytes(24).toString('base64url');
   const expires = new Date(Date.now() + HOURS[kind] * 3600000);
-  await q('password_links').where('user_id', user.id).whereNull('used_at').del();
+  await q('password_links').where('user_id', user.id).whereNull('used_at').modify(w => { if (by == null) w.whereNull('created_by'); }).del();
   await q('password_links').insert({ user_id: user.id, token_hash: hash(token), purpose: kind, expires_at: expires, created_by: by });
   return { token, purpose: kind, expiresAt: expires.toISOString() };
 }
@@ -68,9 +70,10 @@ async function useLink(q, token, password) {
   const { row, user } = await readLink(q, token);
   const why = validatePassword(password);
   if (why) throw refused(400, why);
+  const spent = await q('password_links').where('id', row.id).whereNull('used_at').update({ used_at: q.fn.now() });
+  if (!spent) throw refused(410, 'This link was already used. Sign in with your password, or ask for a new link.');
   await q('users').where('id', user.id).update({ password_hash: await bcrypt.hash(password, 12), token_version: Number(user.token_version) + 1,
     login_attempts: 0, locked: false, password_changed_at: q.fn.now() });
-  await q('password_links').where('id', row.id).update({ used_at: q.fn.now() });
   return q('users').where('id', user.id).first();
 }
 

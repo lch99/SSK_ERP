@@ -31,6 +31,8 @@ async function backup({ all = false, now = new Date(), dir = process.env.BACKUP_
     : [[...common, '--routines', '--triggers', ...HISTORY.map(t => `--ignore-table=${db}.${t}`), db], [...common, '--no-data', db, ...HISTORY]];
   const gzip = zlib.createGzip({ level: 6 });
   const written = pipeline(gzip, fs.createWriteStream(file));
+  written.catch(() => {}); // awaited below; this only stops an early failure (a full disk) from going unhandled
+  const writeFailed = new Promise((_, no) => { written.catch(no); });
   // The password goes in the environment, never on the command line (where `ps` would show it).
   const run = args => new Promise((ok, fail) => {
     const dump = spawn(process.env.MYSQLDUMP || 'mysqldump', args, { env: { ...process.env, MYSQL_PWD: process.env.DB_PASSWORD || '' }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -41,11 +43,12 @@ async function backup({ all = false, now = new Date(), dir = process.env.BACKUP_
     dump.on('close', code => (code === 0 ? ok() : fail(new Error(`mysqldump stopped (${code}): ${errors.trim().slice(0, 300)}`))));
   });
   try {
-    for (const args of passes) await run(args);
+    for (const args of passes) await Promise.race([run(args), writeFailed]);
     gzip.end();
     await written;
   } catch (err) {
     gzip.destroy();
+    await written.catch(() => {});
     await fsp.rm(file, { force: true });
     throw err;
   }

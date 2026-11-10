@@ -38,6 +38,7 @@ const { localToday } = require('../db/days');
 const { countLook } = require('../db/listingDaily');
 const FILES = require('../files/files');
 const O = require('./old');
+const { alert, whereOf } = require('../ops/alerts');
 const { searchOf, pagination, categoriesOnFile, ids, num, truthy } = require('./search');
 
 const router = express.Router();
@@ -53,6 +54,7 @@ const TYPE_OF_STATUS = { 400: 'BAD_REQUEST', 401: 'UNAUTHENTICATED', 403: 'INSUF
 const wrap = fn => (req, res) => fn(req, res).catch(err => {
   if (err.status && err.status < 500) return fail(res, err.status, err.code || TYPE_OF_STATUS[err.status] || 'BAD_REQUEST', err.message);
   console.error(err);
+  alert(err, whereOf(req));
   fail(res, 500, 'SERVER_ERROR', 'An internal error has occurred while processing your request.');
 });
 const refuse = (status, message, code) => Object.assign(new Error(message), { status, code });
@@ -624,7 +626,10 @@ router.use((req, res) => fail(res, 404, 'RESOURCE_NOT_FOUND', 'Not found.'));
 router.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   if (err.type === 'entity.too.large') return fail(res, 413, 'BAD_REQUEST', 'That is too much to send at once. Send fewer photos at a time.');
   if (err.type === 'entity.parse.failed') return fail(res, 400, 'BAD_REQUEST', 'Malformed JSON input.');
+  const status = Number(err.status || err.statusCode);
+  if (status >= 400 && status < 500) return fail(res, status, TYPE_OF_STATUS[status] || 'BAD_REQUEST', 'That request could not be read.');
   console.error(err);
+  alert(err, whereOf(req));
   fail(res, 500, 'SERVER_ERROR', 'An internal error has occurred while processing your request.');
 });
 

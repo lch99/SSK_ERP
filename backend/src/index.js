@@ -1,8 +1,15 @@
 const app = require('./app');
 const { alert } = require('./ops/alerts');
 
-// Anything that escapes a request (a scheduled job, a stray promise) is logged and told too.
-process.on('unhandledRejection', err => { console.error('Unhandled:', err); alert(err, 'background'); });
+// Anything that escapes a request (a scheduled job, a stray promise) is logged and told too, then the
+// server stops as Node would without this listener, so its supervisor (pm2, systemd) starts it afresh
+// instead of it running on in an unknown state.
+const stop = label => err => {
+  console.error(`${label}:`, err);
+  alert(err, 'background').finally(() => process.exit(1));
+};
+process.on('unhandledRejection', stop('Unhandled'));
+process.on('uncaughtException', stop('Uncaught'));
 
 const { runTimeRules } = require('./db/erpRun');
 

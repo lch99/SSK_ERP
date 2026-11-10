@@ -154,3 +154,19 @@ test('with e-mail set up, Forgot password and the office send the link by e-mail
     assert.equal((await boss('POST', `/accounts/${withMail.id}/email-link`, { token: second.token })).status, 400, 'only this person\'s own link');
   } finally { delete process.env.MAIL_URL; delete process.env.ERP_URL; }
 });
+
+test('a link used twice at once sets one password; Forgot password never cancels the link the office sent', async () => {
+  const agent = data.staff.filter(s => s.type === 'staff' && s.status === 'active' && s.username)[9];
+  const MAIL = require('../src/mail/mailer');
+  Object.assign(process.env, { MAIL_URL: 'json', ERP_URL: 'https://erp.example.com/' });
+  try {
+    await db('staff').where('id', agent.id).update({ email: 'nine@example.com' });
+    const office = (await boss('POST', `/accounts/${agent.id}/link`)).body;
+    const sentBefore = MAIL.sent.length;
+    assert.equal((await anon('POST', '/auth/forgot', { username: office.username })).status, 200);
+    assert.equal(MAIL.sent.length, sentBefore + 1, 'the e-mailed link went');
+    assert.equal((await anon('GET', `/auth/link/${office.token}`)).status, 200, 'the office\'s link still works');
+    const both = await Promise.all(['first long password', 'second long password'].map(password => anon('POST', `/auth/link/${office.token}`, { password })));
+    assert.deepEqual(both.map(r => r.status).sort(), [200, 410]);
+  } finally { delete process.env.MAIL_URL; delete process.env.ERP_URL; }
+});

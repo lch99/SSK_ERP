@@ -50,3 +50,16 @@ test('a compressed copy of every table, kept off the server, old copies removed'
   assert.ok(objects.has(`/bk/backups/${path.basename(r.file)}`));
   assert.deepEqual(fs.readdirSync(dir), [path.basename(r.file)]);
 });
+
+test('a dump that fails says why and leaves no file named like a backup', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ssk-backup-fail-'));
+  const was = process.env.MYSQLDUMP;
+  const fake = path.join(dir, 'mysqldump');
+  fs.writeFileSync(fake, '#!/bin/sh\necho "Access denied for user" >&2\nexit 2\n', { mode: 0o755 });
+  process.env.MYSQLDUMP = fake;
+  try {
+    const { backup } = require('../src/ops/backup');
+    await assert.rejects(backup({ dir, now: new Date('2026-11-10T03:00:00'), keepDays: 30 }), /mysqldump stopped \(2\): Access denied/);
+    assert.deepEqual(fs.readdirSync(dir).filter(f => f.endsWith('.sql.gz')), []);
+  } finally { if (was === undefined) delete process.env.MYSQLDUMP; else process.env.MYSQLDUMP = was; fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -8,7 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const db = require('./db/connection');
-const { alert } = require('./ops/alerts');
+const { alert, whereOf } = require('./ops/alerts');
 const { setupRouter, branchesRouter } = require('./routes/setup');
 const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
@@ -56,9 +56,12 @@ app.use('/api/public', publicRouter);
 
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'That is too much to send at once.' });
+  // The sender's mistake (JSON that doesn't read, a request cut off, an unknown charset): a 4xx, not told.
+  const status = Number(err.status || err.statusCode);
+  if (status >= 400 && status < 500) return res.status(status).json({ error: status === 400 ? 'That request could not be read.' : 'That request was refused.' });
   console.error(err);
-  // The method and the route's shape (ids as :id), never the request's data.
-  alert(err, `${req.method} ${req.baseUrl}${req.route?.path || req.path.replace(/\d+/g, ':id')}`);
+  // The method and the address's shape (ids and names as :x), never the request's data.
+  alert(err, whereOf(req));
   res.status(500).json({ error: 'Something went wrong on the server.' });
 });
 

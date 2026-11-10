@@ -52,26 +52,35 @@ async function pushNewNotices(q, { now = new Date() } = {}) {
   const moved = await q('settings').where('key', KEY).whereRaw('json_unquote(value) = ?', [String(last)]).update({ value: JSON.stringify(upTo), updated_at: q.fn.now() });
   if (!moved) return out;
   for (const n of notices) {
-    const at = new Date(String(n.at).replace(' ', 'T'));
-    if (Number.isFinite(at.getTime()) && now - at > STALE_HOURS * 3600000) { out.skipped++; continue; }
-    const m = message(n);
-    const accounts = await accountsFor(q, String(n.to_whom));
-    if (accounts === null) {
-      const r = await FCM.send({ topic: 'system', ...m });
-      if (r.ok) out.sent++; else console.error(`Push to everyone (notice ${n.id}):`, r.error);
-      continue;
-    }
-    if (!accounts.length) continue;
-    const already = new Set(parseJson(n.read_by) || []);
-    if (already.has(Number(n.to_whom))) continue;
-    for (const d of await q('app_devices').whereIn('user_id', accounts).select('id', 'fcm_token')) {
-      const r = await FCM.send({ to: d.fcm_token, ...m });
-      if (r.ok) out.sent++;
-      else if (r.gone) { out.gone++; await q('app_devices').where('id', d.id).del(); }
-      else console.error(`Push (notice ${n.id}):`, r.error);
+    try { await pushOne(q, n, now, out); } catch (err) {
+      // Google unreachable: this notice and the rest go again next run (a phone may get this one twice).
+      await q('settings').where('key', KEY).whereRaw('json_unquote(value) = ?', [String(upTo)]).update({ value: JSON.stringify(n.id - 1), updated_at: q.fn.now() });
+      throw err;
     }
   }
   return out;
+}
+
+// One notice to its people's phones (a network failure throws; a refused token is forgotten).
+async function pushOne(q, n, now, out) {
+  const at = new Date(String(n.at).replace(' ', 'T'));
+  if (Number.isFinite(at.getTime()) && now - at > STALE_HOURS * 3600000) { out.skipped++; return; }
+  const m = message(n);
+  const accounts = await accountsFor(q, String(n.to_whom));
+  if (accounts === null) {
+    const r = await FCM.send({ topic: 'system', ...m });
+    if (r.ok) out.sent++; else console.error(`Push to everyone (notice ${n.id}):`, r.error);
+    return;
+  }
+  if (!accounts.length) return;
+  const already = new Set(parseJson(n.read_by) || []);
+  if (already.has(Number(n.to_whom))) return;
+  for (const d of await q('app_devices').whereIn('user_id', accounts).select('id', 'fcm_token')) {
+    const r = await FCM.send({ to: d.fcm_token, ...m });
+    if (r.ok) out.sent++;
+    else if (r.gone) { out.gone++; await q('app_devices').where('id', d.id).del(); }
+    else console.error(`Push (notice ${n.id}):`, r.error);
+  }
 }
 
 module.exports = { pushNewNotices, accountsFor };

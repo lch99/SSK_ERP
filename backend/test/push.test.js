@@ -34,6 +34,7 @@ before(async () => {
     }
     if (req.url === '/v1/projects/test-proj/messages:send' && req.headers.authorization === 'Bearer at-1') {
       const { message } = JSON.parse(body);
+      if (message.token === 'drop-token') { req.socket.destroy(); return; } // Google unreachable
       if (message.token === 'dead-token') {
         res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } }));
         return;
@@ -102,4 +103,22 @@ test('new notices reach the right phones; old, read and earlier ones do not; a d
 
   sent.length = 0;
   assert.deepEqual(await pushNewNotices(db, { now }), { sent: 0, gone: 0, skipped: 0 }, 'nothing twice');
+});
+
+test('when Google can\'t be reached mid-way, the notices not yet sent go again on the next run', async () => {
+  const now = new Date();
+  const [x, y] = data.staff.filter(s => s.type === 'staff' && s.status === 'active').slice(10, 12);
+  const [ux] = await db('users').insert({ username: 'drop', name: 'drop', role: 'staff', staff_id: x.id, password_hash: 'x' });
+  const [uy] = await db('users').insert({ username: 'fine', name: 'fine', role: 'staff', staff_id: y.id, password_hash: 'x' });
+  await db('app_devices').insert([{ user_id: ux, platform: 'android', fcm_token: 'drop-token' }, { user_id: uy, platform: 'android', fcm_token: 'fine-token' }]);
+  const add = (to, text) => db('notices').insert({ at: stamp(now), read_by: '[]', link: null, to_whom: String(to), cat: 'notice', text });
+  await add(x.id, 'To the phone that drops.');
+  await add(y.id, 'After it.');
+  sent.length = 0;
+  await assert.rejects(pushNewNotices(db, { now }));
+  assert.equal(sent.length, 0, 'nothing after the failure went');
+  await db('app_devices').where('fcm_token', 'drop-token').update({ fcm_token: 'agent-token-2' });
+  const r = await pushNewNotices(db, { now });
+  assert.equal(r.sent, 2, 'both go on the next run');
+  assert.deepEqual(sent.map(m => m.notification.body), ['To the phone that drops.', 'After it.']);
 });

@@ -14,7 +14,9 @@ const REGISTRATION = new Set(['REN', 'REA', 'PEA']);
 
 const json = v => (v == null ? {} : typeof v === 'string' ? (() => { try { return JSON.parse(v); } catch { return {}; } })() : v);
 const text = v => (v == null ? '' : String(v).trim());
-const day = v => (v == null ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
+// node-postgres gives a date as local midnight: the day is read in local time (toISOString would give the day before east of UTC).
+const pad = n => String(n).padStart(2, '0');
+const day = v => (v == null ? '' : v instanceof Date ? `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}` : String(v).slice(0, 10));
 
 // The panel's two tables, as they are (Npgsql's names, quoted).
 async function readPanel(pg) {
@@ -30,7 +32,7 @@ function fromPanel(p, awards = []) {
   const socials = Object.fromEntries(Object.entries(json(p.SocialLinks)).map(([k, v]) => [SOCIAL[k], text(v)]).filter(([k, v]) => k && v));
   if (Object.keys(socials).length) out.socials = socials;
   const reg = text(p.AgentCertification).toUpperCase();
-  if (REGISTRATION.has(reg) && text(p.AgentCertificationNumber)) Object.assign(out, { regType: reg, regNo: text(p.AgentCertificationNumber).slice(0, 40) });
+  if (REGISTRATION.has(reg) && text(p.AgentCertificationNumber)) Object.assign(out, { regType: reg, regNo: text(p.AgentCertificationNumber).slice(0, 30) });
   const flags = json(p.FeatureFlags);
   const access = Object.fromEntries(Object.entries(SWITCH).filter(([k]) => typeof flags[k] === 'boolean').map(([k, a]) => [a, flags[k]]));
   if (Object.keys(access).length) out.access = access;

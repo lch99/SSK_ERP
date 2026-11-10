@@ -19,13 +19,13 @@ test('panel details land on the same people; blanks keep what is there', async (
     staff: [
       { ID: a.id, Bio: 'Ten years in Kepong condos.', SocialLinks: { Facebook: 'https://facebook.com/a', TikTok: '', Lemon8: 'https://lemon8.com/a' },
         AgentCertification: 'REN', AgentCertificationNumber: '31234', FeatureFlags: { AgentProfilePage: true, TripIncentiveListings: true, EnlistSinlandBOP: true }, AvatarMediaUID: 'abc123' },
-      { ID: b.id, Bio: '', SocialLinks: '{}', AgentCertification: null, AgentCertificationNumber: null, FeatureFlags: '{"AgentProfilePage":false}', AvatarMediaUID: null },
+      { ID: b.id, Bio: '', SocialLinks: '{}', AgentCertification: 'REA', AgentCertificationNumber: 'E 1234 / renewed 2025 (Kuala Lumpur office)', FeatureFlags: '{"AgentProfilePage":false}', AvatarMediaUID: null },
       { ID: 999999, Bio: 'Not one of ours.' },
     ],
-    awards: [{ StaffID: a.id, AwardName: 'Top Negotiator 2025', AwardingOrganization: 'SubSaleKing', DateReceived: new Date('2025-12-20T00:00:00Z'), AwardDescription: null, SortOrder: 1 }],
+    awards: [{ StaffID: a.id, AwardName: 'Top Negotiator 2025', AwardingOrganization: 'SubSaleKing', DateReceived: new Date(2025, 11, 20) /* local midnight, as node-postgres gives a date */, AwardDescription: null, SortOrder: 1 }],
   };
   const r = await applyPanel(db, panel);
-  assert.deepEqual(r, { panel: 3, matched: 2, notFound: 1, bios: 1, socials: 1, registrations: 1, switches: 2, awards: 1, photosLeft: 1 });
+  assert.deepEqual(r, { panel: 3, matched: 2, notFound: 1, bios: 1, socials: 1, registrations: 2, switches: 2, awards: 1, photosLeft: 1 });
   const A = await db('staff').where('id', a.id).first();
   assert.equal(A.bio, 'Ten years in Kepong condos.');
   assert.deepEqual(parseJson(A.socials), { ...(a.socials || {}), facebook: 'https://facebook.com/a', lemon8: 'https://lemon8.com/a' });
@@ -35,6 +35,7 @@ test('panel details land on the same people; blanks keep what is there', async (
   assert.deepEqual(parseJson(A.awards), [{ name: 'Top Negotiator 2025', org: 'SubSaleKing', date: '2025-12-20' }]);
   const B = await db('staff').where('id', b.id).first();
   assert.equal(B.bio, 'Kept as it was.');
+  assert.equal(B.reg_no.length, 30, 'a long number is cut to its column, not refused');
   assert.deepEqual(parseJson(B.access), { agent: true, addListing: true, tripIncentive: false, profilePage: false });
 });
 
