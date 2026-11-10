@@ -120,7 +120,7 @@ export function prunePreviews(listings) {
 
 // The image to show for `src`: a File just picked (shown at once, before it is
 // shrunk) or a stored preview key. Null while loading or when there is none.
-export function usePhoto(src) {
+export function usePhoto(src, retry = 0) {
   const [url, setUrl] = useState(() => (typeof src === 'string' ? urls.get(src) || null : null))
   useEffect(() => {
     if (!src) { setUrl(null); return }
@@ -132,7 +132,7 @@ export function usePhoto(src) {
     let live = true
     previewUrl(src).then(u => { if (live) setUrl(u) })
     return () => { live = false }
-  }, [src])
+  }, [src, retry])
   return url
 }
 
@@ -142,10 +142,18 @@ export const coverOf = photos => {
   return shown.find(p => p.cover) || shown[0] || null
 }
 
-// A photo filling its box, cropped to fit; renders `fallback` until it loads.
+// A photo filling its box, cropped to fit; renders `fallback` until it loads, and instead of a
+// broken image when it can't: a server link that ran out while the page was open is asked for
+// again once; a link that fails twice (or comes back the same) shows the fallback.
 export function Photo({ src, alt = '', fallback = null, style }) {
-  const url = usePhoto(src)
-  if (!url) return fallback
-  return <img src={url} alt={alt} loading="lazy" decoding="async" draggable={false}
+  const [bad, setBad] = useState({ src, urls: [] })
+  const failed = bad.src === src ? bad.urls : []
+  const url = usePhoto(src, failed.length ? 1 : 0)
+  if (!url || failed.length > 1 || failed.includes(url)) return fallback
+  const onError = () => {
+    if (typeof src === 'string' && fileId(src) != null) signed.delete(src)
+    setBad({ src, urls: [...failed, url] })
+  }
+  return <img key={url} src={url} alt={alt} loading="lazy" decoding="async" draggable={false} onError={onError}
     style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover', ...style }} />
 }

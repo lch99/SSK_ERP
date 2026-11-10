@@ -66,7 +66,13 @@ const serve = part => async (req, res, next) => {
     });
     if (part !== 'preview') res.set('Content-Length', String(f.size));
     const stream = storage.open(key);
-    stream.on('error', err => (res.headersSent ? res.destroy(err) : next(err)));
+    stream.on('error', err => {
+      if (res.headersSent) return res.destroy(err);
+      // The record names a file storage no longer has (both storages say ENOENT): gone, not a server fault.
+      if (err.code !== 'ENOENT') return next(err);
+      for (const h of ['Content-Type', 'Content-Disposition', 'Content-Length', 'Cache-Control']) res.removeHeader(h);
+      res.status(404).json({ error: 'This file is no longer kept.' });
+    });
     stream.pipe(res);
   } catch (err) { next(err); }
 };

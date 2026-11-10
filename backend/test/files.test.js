@@ -92,6 +92,12 @@ test('a photo gets a small preview made on the server', async () => {
   // A link only works as it was signed, and not for long.
   assert.equal((await open(link.body.url.replace(/sig=./, 'sig=x'))).status, 403);
   assert.equal((await open(link.body.url.replace(/exp=\d+/, 'exp=1'))).status, 403);
+  // A file storage no longer has is gone (404), not a server fault.
+  const row = await db('files').where('id', up.body.id).first();
+  fs.rmSync(path.join(process.env.UPLOAD_DIR, row.preview_key));
+  const gone = await open(link.body.preview);
+  assert.equal(gone.status, 404);
+  assert.match(gone.headers.get('content-type'), /json/);
 });
 
 test('an upload belongs to who sent it, then to the record that uses it, and opens for who sees that record', async () => {
