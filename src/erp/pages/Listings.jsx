@@ -10,6 +10,7 @@ import { CARD, COLUMN, PAGE } from '../help.js'
 import { rm, rm0, rmShort, date, num, ago, maskIc } from '../format.js'
 import Icon from '../Icon.jsx'
 import ListingActions, { photosOf, videosOf, mediaCount } from './ListingActions.jsx'
+import { listingDetailRows } from './ListingDetails.jsx'
 import { Photo, coverOf, prunePreviews } from '../photos.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { useCan, useAccess } from '../access.jsx'
@@ -320,7 +321,7 @@ export function ListingDetails({ l, m, onBook }) {
         )}
         <KV min={160} items={[
           [l.type === 'sale' ? 'Ad Price' : 'Ad Price (rent)', <AdPrice key={`${l.id}-${l.askPrice}`} l={l} />], ['Best Price', rm(l.bestPrice)],
-          ['Market Value', l.marketValue ? rm(l.marketValue) : 'Not set'], ['Built-up', `${num(l.builtUp)} sq ft`], l.land && ['Land', `${l.land} ft`],
+          ['Market Value', l.marketValue ? rm(l.marketValue) : 'Not set'], ['Built-up', `${num(l.builtUp)} sq ft`], ...listingDetailRows(l),
           ['Rooms', l.beds ? `${l.beds} bed · ${l.baths} bath` : `${l.baths} toilets`], ['Tenure', l.tenure], ['Furnishing', l.furnishing],
           ['Category', `${LISTING_CATEGORY[listingCategory(l)]} · ${l.category}`], ['Address', `${l.address}, ${l.postcode} ${l.city}, ${l.state}`],
           ['C.Date', date(l.created)], ['U.Date', date(l.updated)], l.commission != null && ['Commission', `${l.commission}%`],
@@ -332,7 +333,10 @@ export function ListingDetails({ l, m, onBook }) {
           </div>
         )}
         {l.status === 'active' && L.isOutdated(l, m.today) && <p style={{ fontSize: 12.5, color: C.warn, margin: '8px 0 0' }}>Not updated for over {L.LISTING_RULES.outdatedDays[l.type === 'rental' ? 'rental' : 'sale']} days: it will be marked Outdated unless someone follows it up.</p>}
+        {l.shortDescription && <p style={{ fontSize: 13, margin: '10px 0 0', fontWeight: 600, whiteSpace: 'pre-wrap' }}>{l.shortDescription}</p>}
         {l.description && <p style={{ fontSize: 13, margin: '10px 0 0', whiteSpace: 'pre-wrap' }}>{l.description}</p>}
+        {l.renoDescription && <p style={{ fontSize: 12.5, margin: '8px 0 0', whiteSpace: 'pre-wrap' }}><span style={{ color: C.muted }}>Renovation: </span>{l.renoDescription}</p>}
+        {l.furnishDescription && <p style={{ fontSize: 12.5, margin: '8px 0 0', whiteSpace: 'pre-wrap' }}><span style={{ color: C.muted }}>Furnishing: </span>{l.furnishDescription}</p>}
         {l.remarks && <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>Personal use remarks: {l.remarks}</p>}
         {l.flags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>{l.flags.map(f => <Pill key={f} tone={f === 'Process Deal' ? 'blue' : 'gray'} dot={false}>{f}</Pill>)}</div>}
       </Block>

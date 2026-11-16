@@ -167,9 +167,9 @@ const SECRET_COLUMNS = {
 // same way, and the report asks where it should go.
 const HISTORY_ONLY = {
   db_admin: 'company details: type them into Setup, step 1',
-  db_appointment: 'viewings: no table yet (Phase 2)', db_appointment_property: 'viewings: no table yet (Phase 2)',
-  db_appointment_remarks: 'viewings: no table yet (Phase 2)', db_appointment_review: 'viewings: no table yet (Phase 2)',
-  db_appointment_timesheet: 'viewings: no table yet (Phase 2)',
+  // The current ERP's Appointment page is gone ("Function not found", 2026-11-16); viewings start afresh in Viewings.
+  ...Object.fromEntries(['db_appointment', 'db_appointment_property', 'db_appointment_remarks', 'db_appointment_review', 'db_appointment_timesheet']
+    .map(t => [t, 'old appointments (a feature the current ERP has retired): history only'])),
   db_property_title_manager: 'building project manager history: no table yet (title_managers, Phase 1)',
   db_property_title_handler: 'building project handler history: no table yet (title_managers, Phase 1)',
   db_property_draft: 'half-filled new listings (one per agent), never saved',
@@ -315,6 +315,9 @@ const TABLES = {
       'property_details_views_count_app', 'images_count', 'property_contact', 'property_contact_name', 'property_marketing_remarks',
       'property_marketing_remarks_privacy', 'property_desc', 'property_remarks', 'property_restriction', 'property_placement', 'property_specs',
       'property_reno', 'property_pricing', 'property_comm', 'vendor_request_id', 'iProp', 'propGuru', 'mudahmy', ...LISTING_FLAGS.map(f => f[0])],
+    // The listing form's other boxes: car park, utilities/store rooms, renovation cost, bank value (posted as
+    // property_price_psqf, labelled "Bank Value") and the short, renovation and furnishing descriptions.
+    optional: ['front_garage', 'property_store', 'property_reno_cost', 'property_price_psqf', 'property_desc_short', 'property_desc_short_reno', 'property_furnish_desc'],
     transform(r, ctx) {
       if (deleted(r.property_stat)) return skip('deleted in the old ERP');
       const listingId = int(r.property_id);
@@ -351,7 +354,11 @@ const TABLES = {
         more: JSON.stringify(Object.fromEntries(Object.entries({
           unit: unit || null, restriction: textOrNull(r.property_restriction), placement: textOrNull(r.property_placement),
           specs: textOrNull(r.property_specs), renovation: textOrNull(r.property_reno), pricing: textOrNull(r.property_pricing),
-          commission: textOrNull(r.property_comm), delisted: draftCode === 3 || null,
+          // The form's boxes start at 0: a 0 there is "not filled in".
+          commission: num(r.property_comm) > 0 ? num(r.property_comm) : null, delisted: draftCode === 3 || null,
+          carpark: int(r.front_garage) > 0 ? int(r.front_garage) : null, utilityRooms: int(r.property_store) > 0 ? int(r.property_store) : null,
+          renoCost: money(r.property_reno_cost) > 0 ? money(r.property_reno_cost) : null, bankValue: money(r.property_price_psqf) > 0 ? money(r.property_price_psqf) : null,
+          shortDescription: textOrNull(r.property_desc_short), renoDescription: textOrNull(r.property_desc_short_reno), furnishDescription: textOrNull(r.property_furnish_desc),
           marketValueText: marketText && money(marketText) == null ? marketText : null,
           areaManagerId: ctx.person(r.manager_id), projectManagerId: ctx.person(r.title_manager_id), branchManagerId: ctx.person(r.branch_manager_id),
           vendorRequestId: id(r.vendor_request_id),

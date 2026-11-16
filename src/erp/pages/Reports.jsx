@@ -354,6 +354,7 @@ function Landlord() {
   const [status, setStatus] = useState('')
   const [arc, setArc] = useState('')
   const [verify, setVerify] = useState(null)
+  const [history, setHistory] = useState(null)
   const [form, setForm] = useState({ status: 1, remarks: '' })
   const [error, setError] = useState(null)
   // E-Forms with a landlord check, a page at a time; how many by status, and the unverified ones per archive.
@@ -382,9 +383,14 @@ function Landlord() {
           { key: 'landlord', label: 'Landlord', render: x => <span style={{ fontSize: 13 }}>{x.owner.name}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.owner.phone}</span></span> },
           { key: 'status', label: 'Verification', render: x => <span><Status of={LANDLORD_STATUS} value={x.landlordCheck.status} />{x.landlordCheck.on && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{date(x.landlordCheck.on)}</span>}</span> },
           { key: 'remarks', label: 'Remarks', render: x => <span style={{ fontSize: 12.5, color: C.muted }}>{x.landlordCheck.remarks || '—'}</span> },
-          { key: 'act', label: '', card: false, render: x => (x.landlordCheck.status === -1
-            ? <button style={{ ...btn, fontSize: 13, padding: '5px 10px' }} onClick={() => { setVerify(x); setForm({ status: 1, remarks: '' }) }}>Verify</button>
-            : <span style={{ fontSize: 12.5, color: C.ok }}>Done</span>) },
+          // Unable to verify can be tried again; the earlier tries stay in the case's history.
+          { key: 'act', label: '', card: false, render: x => (
+            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+              {x.landlordCheck.status === 1 ? <span style={{ fontSize: 12.5, color: C.ok }}>Done</span>
+                : <button style={{ ...btn, fontSize: 13, padding: '5px 10px' }} onClick={() => { setVerify(x); setForm({ status: 1, remarks: '' }) }}>{x.landlordCheck.status === 0 ? 'Try again' : 'Verify'}</button>}
+              {(x.landlordCheck.history || []).length > 0 && <button style={{ ...btn, fontSize: 13, padding: '5px 10px' }} onClick={() => setHistory(x)}>History</button>}
+            </span>
+          ) },
         ]} />
       </Card>
       <Modal open={!!verify} onClose={() => setVerify(null)} title={verify ? `Verify landlord · ${verify.code}` : ''}
@@ -399,6 +405,20 @@ function Landlord() {
           </FormField>
           <FormField label="Remarks" required={form.status === 0}><TextArea value={form.remarks} onChange={e => setForm({ ...form, remarks: e.target.value })} /></FormField>
         </div>
+      </Modal>
+      <Modal open={!!history} onClose={() => setHistory(null)} title={history ? `Landlord checks · ${history.code}` : ''}
+        footer={<button style={btn} onClick={() => setHistory(null)}>Close</button>}>
+        {history && (
+          <div style={{ display: 'grid', gap: 10 }}>
+            {[...(history.landlordCheck.history || []), history.landlordCheck].slice().reverse().map((h, i) => (
+              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 13.5 }}>
+                <span style={{ minWidth: 92, color: C.muted }}>{h.on ? date(h.on) : '—'}</span>
+                <Status of={LANDLORD_STATUS} value={h.status} />
+                <span style={{ flex: 1, color: C.muted }}>{h.remarks || ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Modal>
     </>
   )

@@ -88,6 +88,10 @@ function listingOf(req, l, ctx, { details = false } = {}) {
     description: l.description || null, bestPrice: l.bestPrice ?? null, askingPrice: l.askPrice ?? null, marketValue: l.marketValue ?? null,
     priceBand: band, beds: l.beds ?? null, baths: l.baths ?? null, builtUp: l.builtUp ?? null, tenure: l.tenure || null,
     furnishing: l.furnishing || null, renovated: l.specs === 'renovated',
+    // The rest of the listing form that a buyer may read (never the race, bank value or commission).
+    carParks: l.carpark ?? null, storeRooms: l.utilityRooms ?? null, land: l.land || null, pricePerSqft: L.pricePerSqft(l),
+    placement: L.choiceLabel('placement', l.placement), specs: L.choiceLabel('specs', l.specs), renovation: L.choiceLabel('renovation', l.renovation),
+    pricing: L.choiceLabel('pricing', l.pricing), shortDescription: l.shortDescription || null,
     marketingRemarks: l.remarksPrivate ? null : l.marketingRemarks || null,
     flags: (l.flags || []).filter(f => PUBLIC_FLAGS.includes(f)), hotLists: L.hotLists(l),
     photoCount: photos.length || l.photos || 0, coverUrl: cover ? photoUrl(req, cover) : null,

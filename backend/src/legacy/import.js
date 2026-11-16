@@ -531,20 +531,25 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
 
   // Landlord verification of archived cases → the E-Form's check (Reports). Archived and
   // never checked: Pending Verification (−1), as the old report shows it.
+  // A case checked more than once (tried again after "Unable to verify") keeps the earlier checks as its history.
   const checked = new Map();
   await fillIn('db_landlord_verification', r => {
     const c = ctx.caseDeal.get(M.id(r.case_id));
     if (!c) return { note: 'its case line is not imported' };
     const key = `${M.day(r.verification_date) || M.day(r.created_at) || ''}#${M.pad(r.id, 12)}`;
-    if (!checked.has(c.dealId) || key > checked.get(c.dealId).key) checked.set(c.dealId, { key, r, archiveId: c.archiveId });
+    if (!checked.has(c.dealId)) checked.set(c.dealId, { tries: [], archiveId: c.archiveId });
+    checked.get(c.dealId).tries.push({ key, r });
     return { target: 'deals', id: c.dealId };
   });
   {
     const archived = new Map();
     for (const c of ctx.caseDeal.values()) if (c.archiveId && !archived.has(c.dealId)) archived.set(c.dealId, c.archiveId);
     const updates = [...archived].filter(([d]) => !checked.has(d)).map(([id, arc]) => ({ id, lv_status: -1, lv_archive_id: arc }));
-    for (const [id, { r, archiveId }] of checked) {
-      updates.push({ id, lv_status: M.int(r.verification_status) ?? -1, lv_on: M.day(r.verification_date), lv_remarks: M.text(r.remarks) || null, lv_archive_id: archiveId });
+    const check = r => ({ status: M.int(r.verification_status) ?? -1, on: M.day(r.verification_date), remarks: M.text(r.remarks) || null });
+    for (const [id, { tries, archiveId }] of checked) {
+      const [last, ...earlier] = tries.sort((a, b) => (a.key < b.key ? 1 : -1)).map(t => check(t.r));
+      const history = earlier.reverse().filter(h => h.status !== -1);
+      updates.push({ id, lv_status: last.status, lv_on: last.on, lv_remarks: last.remarks, lv_archive_id: archiveId, lv_history: history.length ? JSON.stringify(history) : null });
     }
     await w.updateEach('deals', updates);
   }

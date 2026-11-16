@@ -108,12 +108,13 @@ export function SetPasswordScreen({ token, onSignedIn, onDone }) {
   )
 }
 
-export function FirstUserScreen({ onSignedIn }) {
-  const [f, setF] = useState({ name: '', username: '', password: '', confirm: '' })
+// needsSetupKey: the server asks for its ADMIN_TOKEN, so only whoever set up the server can make this account.
+export function FirstUserScreen({ onSignedIn, needsSetupKey = false }) {
+  const [f, setF] = useState({ name: '', username: '', password: '', confirm: '', setupKey: '' })
   const set = k => e => setF({ ...f, [k]: e.target.value })
   const { busy, errors, setErrors, submit } = useSubmit(async () => {
     if (f.password !== f.confirm) return setErrors(["The two passwords don't match."])
-    onSignedIn(await createFirstUser({ name: f.name, username: f.username.trim().toLowerCase(), password: f.password }))
+    onSignedIn(await createFirstUser({ name: f.name, username: f.username.trim().toLowerCase(), password: f.password, ...(needsSetupKey && { setupKey: f.setupKey }) }))
   })
   return (
     <>
@@ -126,6 +127,7 @@ export function FirstUserScreen({ onSignedIn }) {
       <Field title="Username" value={f.username} onChange={set('username')} autoComplete="username" autoCapitalize="none" placeholder="e.g. jonathan" />
       <Field title={`Password (at least ${PASSWORD_MIN} characters)`} type="password" value={f.password} onChange={set('password')} autoComplete="new-password" />
       <Field title="Password again" type="password" value={f.confirm} onChange={set('confirm')} autoComplete="new-password" />
+      {needsSetupKey && <Field title="Setup key (ADMIN_TOKEN on the server)" type="password" value={f.setupKey} onChange={set('setupKey')} autoComplete="off" />}
       <button style={{ ...btnPrimary, width: '100%' }} disabled={busy} type="submit">{busy ? 'Creating…' : 'Create account'}</button>
       <ErrorList errors={errors} />
     </form>

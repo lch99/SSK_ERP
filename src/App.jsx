@@ -15,6 +15,7 @@ export default function App() {
   const [notice, setNotice] = useState(null)
   const [error, setError] = useState(null)
   const [authDisabled, setAuthDisabled] = useState(false)
+  const [needsSetupKey, setNeedsSetupKey] = useState(false)
 
   async function boot() {
     setPhase('loading')
@@ -28,6 +29,7 @@ export default function App() {
       if (getToken()) {
         try { setMe((await getMe()).user); return setPhase('in') } catch { /* fall through to sign-in */ }
       }
+      setNeedsSetupKey(!!status.needsSetupKey)
       setPhase(status.needsFirstUser ? 'first' : 'login')
     } catch (e) {
       setError(e.message)
@@ -56,7 +58,7 @@ export default function App() {
       {token && phase !== 'loading' && phase !== 'error' && !authDisabled && (
         <SetPasswordScreen token={token} onSignedIn={user => { leaveLink(); signedIn(user) }} onDone={() => { leaveLink(); if (phase === 'in') return; setPhase('login') }} />
       )}
-      {!(token && !authDisabled) && phase === 'first' && <FirstUserScreen onSignedIn={signedIn} />}
+      {!(token && !authDisabled) && phase === 'first' && <FirstUserScreen onSignedIn={signedIn} needsSetupKey={needsSetupKey} />}
       {!(token && !authDisabled) && phase === 'login' && <LoginScreen onSignedIn={signedIn} notice={notice} />}
       {!(token && !authDisabled) && phase === 'in' && me && (
         <Shell me={me} authDisabled={authDisabled}

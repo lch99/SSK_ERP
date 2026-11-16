@@ -8,6 +8,8 @@ import { useFeedback } from '../feedback.jsx'
 import { rm } from '../format.js'
 import { Review, changedRows, missing, needText, markGaps } from '../review.jsx'
 import ListingPreview from './ListingPreview.jsx'
+import { ListingDetailFields, detailValues } from './ListingDetails.jsx'
+import * as L from '../../../shared/listings.js'
 import Icon from '../Icon.jsx'
 import { useGate, useAccess } from '../access.jsx'
 import { UPLOADS } from '../../../shared/files.js'
@@ -107,7 +109,11 @@ export default function ListingActions({ l, quiet, onBook }) {
   const price = v => (v === '' || v == null ? '' : rm(Number(v)))
   const editChanges = dialog === 'edit' ? changedRows(start, f, [['askPrice', 'Ad Price', price], ['bestPrice', 'Best Price', price], ['marketValue', 'Market Value', price],
     ['commission', 'Commission', v => `${v}%`], ['builtUp', 'Built-up (sq ft)'], ['beds', 'Bedrooms'], ['baths', 'Bathrooms'], ['tenure', 'Tenure'], ['furnishing', 'Furnishing'],
-    ['ownerName', 'Owner Name'], ['ownerPhone', 'Owner Contact'], ['description', 'Full Descriptions'], ['remarks', 'Personal Use Remarks']]) : []
+    ['ownerName', 'Owner Name'], ['ownerPhone', 'Owner Contact'], ['description', 'Full Descriptions'], ['remarks', 'Personal Use Remarks'],
+    ['land', 'Land area'], ['carpark', 'Car Parks'], ['utilityRooms', 'Utilities / Store Rooms'],
+    ...Object.entries(L.LISTING_CHOICES).map(([k, c]) => [k, c.label, v => L.choiceLabel(k, v)]),
+    ['renoCost', 'Renovation Cost', price], ['bankValue', 'Bank Value', price],
+    ['shortDescription', 'Short Description'], ['renoDescription', 'Renovation Description'], ['furnishDescription', 'Furnishing Description']]) : []
 
   // Listings outside the viewer's own (the whole agency's) can only be viewed with a customer.
   const mine = inReach(l)
@@ -120,7 +126,7 @@ export default function ListingActions({ l, quiet, onBook }) {
         book, book && '-',
         { label: 'Edit listing', icon: 'edit', onClick: () => openWith('edit', { askPrice: l.askPrice, bestPrice: l.bestPrice, marketValue: l.marketValue ?? '', commission: l.commission ?? '',
           beds: l.beds, baths: l.baths, builtUp: l.builtUp, tenure: l.tenure, furnishing: l.furnishing, description: l.description || '', remarks: l.remarks || '',
-          ownerName: l.owner.name, ownerPhone: l.owner.phone }) },
+          ownerName: l.owner.name, ownerPhone: l.owner.phone, ...detailValues(l) }) },
         { label: 'Change Listing Owner', icon: 'staff', sub: `Now ${m.staffName(l.holderId)}`, onClick: () => openWith('owner', { holderId: String(l.holderId) }) },
         { label: 'Update Listing Tracking', icon: 'refresh', onClick: () => openWith('track', { status: TRACKING.some(([k]) => k === l.status) ? l.status : 'active', trackingPrice: l.trackingPrice ?? '' }) },
         { label: 'Listing Settings', icon: 'setup', onClick: () => openWith('settings', { flags: [...l.flags] }) },
@@ -140,7 +146,9 @@ export default function ListingActions({ l, quiet, onBook }) {
           <button style={btn} onClick={() => setStep('form')}>Back to edit</button>
           <button style={{ ...btnPrimary, opacity: busy || !editChanges.length ? 0.5 : 1 }} disabled={busy || !editChanges.length} onClick={() => save(() => erp.updateListing(l.id, { askPrice: f.askPrice, bestPrice: f.bestPrice, marketValue: f.marketValue, commission: f.commission,
             beds: f.beds, baths: f.baths, builtUp: f.builtUp, tenure: f.tenure, furnishing: f.furnishing, description: f.description, remarks: f.remarks,
-            owner: { name: f.ownerName, phone: f.ownerPhone } }), `${l.code} saved`)}>Save &amp; Publish</button>
+            owner: { name: f.ownerName, phone: f.ownerPhone },
+            // Only the details that changed (an imported listing keeps a value it was never edited for as it is).
+            ...Object.fromEntries(L.LISTING_DETAILS.filter(k => String(f[k] ?? '') !== String(start[k] ?? '')).map(k => [k, f[k]])) }), `${l.code} saved`)}>Save &amp; Publish</button>
         </> : <>
           <button style={btn} onClick={close}>Cancel</button>
           <button style={btnPrimary} onClick={() => {
@@ -166,6 +174,7 @@ export default function ListingActions({ l, quiet, onBook }) {
           <FormField label="Owner Contact" required help="e.g. 012-3456789"><input style={field} type="tel" value={f.ownerPhone || ''} onChange={set('ownerPhone')} /></FormField>
           <FormField label="Full Descriptions" wide><TextArea rows={3} value={f.description || ''} onChange={set('description')} /></FormField>
           <FormField label="Personal Use Remarks" wide help="This won't show on public."><TextArea value={f.remarks || ''} onChange={set('remarks')} /></FormField>
+          <ListingDetailFields f={f} setF={setF} />
         </div>}
       </Modal>
 
@@ -313,7 +322,7 @@ export default function ListingActions({ l, quiet, onBook }) {
             })}
           </div>
         )}
-        <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>Published photos and videos show on the SubSaleKing site. Unpublished ones stay private. (Demo: photos are kept as small previews in this browser; videos are not stored.)</p>
+        <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>Published photos and videos show on the SubSaleKing site. Unpublished ones stay private.{DEMO && ' (Demo: photos are kept as small previews in this browser; videos are not stored.)'}</p>
       </Modal>
     </>
   )

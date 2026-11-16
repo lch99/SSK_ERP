@@ -94,7 +94,7 @@ export const archiveCases = () => change((data, setup, today) => {
   for (const p of due) p.archiveId = arc.id
   for (const dealId of new Set(due.map(p => p.dealId))) {
     const deal = data.deals.find(d => d.id === dealId)
-    if (deal.type !== 'project' && !deal.landlordCheck) deal.landlordCheck = { archiveId: arc.id, status: -1, on: null, remarks: '' }
+    if (deal.type !== 'project' && !deal.landlordCheck) deal.landlordCheck = { archiveId: arc.id, status: -1, on: null, remarks: '', history: [] }
   }
 })
 
@@ -103,7 +103,10 @@ export const verifyLandlord = (dealId, status, remarks) => change((data, setup, 
   if (!deal?.landlordCheck) return 'This case is not archived yet.'
   if (![0, 1].includes(status)) return 'Pick Verified or Unable to verify.'
   if (status === 0 && !str(remarks)) return 'Say why it could not be verified.'
-  deal.landlordCheck = { ...deal.landlordCheck, status, on: today, remarks: str(remarks) || 'Confirmed by phone.' }
+  // Tried again (after "Unable to verify"): the earlier result goes to the history, newest last.
+  const was = deal.landlordCheck
+  const history = [...(was.history || []), ...(was.status === -1 ? [] : [{ status: was.status, on: was.on, remarks: was.remarks }])]
+  deal.landlordCheck = { ...was, status, on: today, remarks: str(remarks) || 'Confirmed by phone.', history }
 })
 
 // ── Numbers ──
@@ -354,6 +357,13 @@ export const addListing = body => change((data, setup, today) => {
   if (!str(body?.ownerName)) errors.push('Owner Name is required.')
   if (!validPhone(body?.ownerPhone)) errors.push('Please enter a valid phone number for the owner.')
   if (Object.values(body || {}).some(v => typeof v === 'string' && EMOJI.test(v))) errors.push('Emojis are not allowed.')
+  const details = L.listingDetails(body || {})
+  if (details.error) errors.push(details.error)
+  // Videos uploaded with the form (the server's; the demo sends only how many).
+  const videoSet = Array.isArray(body?.videoSet) && body.videoSet.length
+    ? body.videoSet.map(v => ({ id: Number(v.id), name: str(v.name), published: v.published !== false, ...(typeof v.file === 'string' && { file: str(v.file) }) }))
+    : null
+  if (videoSet?.length > UPLOADS.listingVideo.maxFiles) errors.push(`A listing holds up to ${UPLOADS.listingVideo.maxFiles} videos.`)
   // The same unit, owner phone, title and type is one listing (the current ERP's duplicate check).
   const digits = p => String(p || '').replace(/\D/g, '')
   const dup = data.listings.find(l => l.type === body?.type && same(l.title, body?.title) && digits(l.owner.phone) === digits(body?.ownerPhone) && same(l.address.split(',')[0], body?.unit))
@@ -373,10 +383,12 @@ export const addListing = body => change((data, setup, today) => {
     beds: Number(body.beds) || 0, baths: Number(body.baths) || 0, builtUp: Number(body.builtUp) || 0, land: null, tenure: body.tenure || 'Freehold',
     furnishing: body.furnishing || 'Partly furnished', askPrice: ask, bestPrice: Number(body.bestPrice) || ask, marketValue: Number(body.marketValue) || null, status: 'active', closedOn: null,
     branchId: branch?.id ?? holder.branchId, holderId: holder.id, creatorId: holder.id, flags: body.flags || [], portals: [], created: today, updated: today,
-    views: 0, viewsApp: 0, enquiries: 0, photos: photoSet ? photoSet.length : Number(body.photos) || 0, ...(photoSet && { photoSet }), videos: Number(body.videos) || 0, owner: { name: str(body.ownerName), ic: '', phone: str(body.ownerPhone) }, dealId: null, priceUpdated: today, photosOn: today,
+    views: 0, viewsApp: 0, enquiries: 0, photos: photoSet ? photoSet.length : Number(body.photos) || 0, ...(photoSet && { photoSet }), videos: videoSet ? videoSet.length : Number(body.videos) || 0, ...(videoSet && { videoSet }), owner: { name: str(body.ownerName), ic: '', phone: str(body.ownerPhone) }, dealId: null, priceUpdated: today, photosOn: today,
     followUps: [], titleId: data.titles.find(t => same(t.name, body.title) && same(t.area, body.area))?.id ?? null,
     share: { users: [], pmId: null, coPh: [] }, marketingRemarks: '', remarksPrivate: true, description: str(body.desc), remarks: str(body.remarks), draft: !!body.draft,
-    phLog: [{ on: today, staffId: holder.id, from: 'created' }] })
+    phLog: [{ on: today, staffId: holder.id, from: 'created' }],
+    // Car park, race, placement…: only those filled in (the record stays as small as before for the rest).
+    ...Object.fromEntries(Object.entries(details.fields).filter(([, v]) => v != null)) })
   // Tell whoever watches the building, and the building's lead for this type.
   const l = data.listings.at(-1)
   const title = data.titles.find(t => t.id === l.titleId)
@@ -767,7 +779,7 @@ const EMOJI = /\p{Extended_Pictographic}/u
 // unit and renovation: kept apart from the address by the old ERP's records (the phone app edits them).
 const LISTING_EDIT = ['askPrice', 'bestPrice', 'marketValue', 'flags', 'status', 'trackingPrice', 'holderId', 'portals', 'marketingRemarks', 'remarksPrivate',
   'description', 'remarks', 'photoSet', 'videoSet', 'share', 'title', 'area', 'category', 'beds', 'baths', 'builtUp', 'tenure', 'furnishing', 'commission',
-  'unit', 'renovation']
+  'unit', ...L.LISTING_DETAILS]
 export const updateListing = (id, fields) => change((data, setup, today) => {
   const l = data.listings.find(x => x.id === id)
   if (!l) return 'That listing no longer exists.'
@@ -781,6 +793,9 @@ export const updateListing = (id, fields) => change((data, setup, today) => {
   if (f.status && !['active', 'rented', 'invalid', 'sold_other', 'outdated', 'sold'].includes(f.status)) return 'Unknown status.'
   if (f.holderId != null && !data.staff.some(s => s.id === Number(f.holderId))) return 'Pick the new listing owner.'
   if ('askPrice' in f && !(Number(f.askPrice) >= 0)) return 'The price cannot be negative.'
+  const details = L.listingDetails(f, l)
+  if (details.error) return details.error
+  Object.assign(f, details.fields)
   const maxVideos = UPLOADS.listingVideo.maxFiles
   if (f.videoSet?.length > maxVideos) return `A listing holds up to ${maxVideos} videos. Delete one before adding another.`
   if (f.share) {

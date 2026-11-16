@@ -1,4 +1,5 @@
 // /api/auth — sign in, first-run account, own profile and password.
+const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
@@ -17,17 +18,28 @@ const router = express.Router();
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Too many sign-in attempts. Try again in a few minutes.' } });
 
-// Whether the very first account still has to be created.
+// The first account on a server anyone can reach: ADMIN_TOKEN (backend/.env) is the setup key the
+// person creating it must type, so a stranger who opens the new site first cannot make themselves
+// superadmin. Required in production; optional elsewhere (a laptop).
+const setupKey = () => String(process.env.ADMIN_TOKEN || '');
+const hash = v => crypto.createHash('sha256').update(String(v)).digest();
+const keyMatches = typed => crypto.timingSafeEqual(hash(typed ?? ''), hash(setupKey()));
+
+// Whether the very first account still has to be created (and whether that needs the setup key).
 router.get('/status', async (req, res, next) => {
   try {
     if (AUTH_DISABLED) return res.json({ authDisabled: true, needsFirstUser: false });
     const { n } = await db('users').count({ n: '*' }).first();
-    res.json({ needsFirstUser: Number(n) === 0 });
+    res.json({ needsFirstUser: Number(n) === 0, ...(Number(n) === 0 && { needsSetupKey: !!setupKey() }) });
   } catch (err) { next(err); }
 });
 
 // First run only: create the first superadmin. Refused once any account exists.
 router.post('/first-user', loginLimiter, async (req, res, next) => {
+  if (!setupKey() && process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Set ADMIN_TOKEN in the server\'s backend/.env (a long random setup key), restart it, then create the first account with that key.' });
+  }
+  if (setupKey() && !keyMatches(req.body?.setupKey)) return res.status(403).json({ error: 'That setup key is not right.' });
   const body = { username: String(req.body?.username || '').trim().toLowerCase(), name: String(req.body?.name || '').trim(),
     role: 'superadmin', branchId: null, password: req.body?.password };
   const errors = validateUser(body, { isNew: true });

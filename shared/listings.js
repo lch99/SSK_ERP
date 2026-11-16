@@ -115,6 +115,43 @@ export const hidePhone = phone => {
   return d.length < 7 ? '•••' : `${d.slice(0, 3)}-•••• ${d.slice(-3)}`
 }
 
+// ── A listing's other details, as the current ERP's form saves them ──
+// Choices are kept by the codes that form posts (an imported listing has the same ones); a value
+// that is not one of them (the phone app sends renovation as free text) is shown as it is.
+export const LISTING_CHOICES = {
+  restriction: { label: 'Vendor/Landlord Race', options: { cina: 'Chinese', india: 'Indian', melayu: 'Malay', 'malay-reserved': 'Malay Reserved' } },
+  placement: { label: 'Listing Placement', options: { intermediate: 'Intermediate', cornerlot: 'Corner lot' } },
+  specs: { label: 'Specs', options: { basic: 'Basic', renovated: 'Renovated', 'partly-renovated': 'Partly renovated' } },
+  renovation: { label: 'Renovation', options: { fully: 'Fully renovated', partly: 'Partly renovated' } },
+  pricing: { label: 'Pricing', options: { nett: 'Nett', nego: 'Negotiable' } },
+}
+// Numbers (blank is "not set") and texts; with the choices, what Add and Edit save.
+export const LISTING_NUMBERS = ['carpark', 'utilityRooms', 'renoCost', 'bankValue']
+export const LISTING_TEXTS = ['land', 'shortDescription', 'renoDescription', 'furnishDescription']
+export const LISTING_DETAILS = [...Object.keys(LISTING_CHOICES), ...LISTING_NUMBERS, ...LISTING_TEXTS]
+export const choiceLabel = (key, v) => (v == null || v === '' ? null : LISTING_CHOICES[key]?.options[v] ?? String(v))
+// The ad price over the built-up area (sale listings only: a rent per sq ft says little).
+export const pricePerSqft = l => (l.type === 'sale' && l.askPrice > 0 && l.builtUp > 0 ? Math.round(l.askPrice / l.builtUp) : null)
+// The details from a form or the app: numbers as numbers (blank → null), a choice only from its list
+// (or blank, or the text it already had), texts trimmed. Returns { fields } or { error }.
+export function listingDetails(body, had = {}) {
+  const fields = {}
+  for (const k of LISTING_NUMBERS) {
+    if (!(k in body)) continue
+    const v = body[k] === '' || body[k] == null ? null : Number(body[k])
+    if (v != null && !(v >= 0)) return { error: 'Car parks, rooms, renovation cost and bank value cannot be negative.' }
+    fields[k] = v
+  }
+  for (const [k, c] of Object.entries(LISTING_CHOICES)) {
+    if (!(k in body)) continue
+    const v = body[k] == null ? '' : String(body[k]).trim()
+    if (v && !(v in c.options) && v !== had[k] && k !== 'renovation') return { error: `Pick a ${c.label.toLowerCase()} from the list.` }
+    fields[k] = v || null
+  }
+  for (const k of LISTING_TEXTS) if (k in body) fields[k] = body[k] == null ? null : String(body[k]).trim() || null
+  return { fields }
+}
+
 // ── Product Handler: who handles the listing, and why ──
 // Slots on `l.share`: `pmId` is the Main Product Handler (the current ERP's
 // pm_user_id), `coPh` up to three Co-Product Handlers { staffId, until, locked }.

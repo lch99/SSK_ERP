@@ -707,7 +707,7 @@ export function makeErpSample(setup, asOf = localToday()) {
     const roll = R.next()
     const status = age > 21 ? (roll < 0.85 ? 1 : roll < 0.95 ? 0 : -1) : (roll < 0.35 ? 1 : -1)
     deal.landlordCheck = { archiveId: arcId, status, on: status === -1 ? null : addDays(archiveById[arcId].date, R.int(1, Math.max(1, Math.min(age, 14)))),
-      remarks: status === 0 ? R.pick(['Landlord did not answer three calls.', 'Phone number no longer in use.']) : status === 1 ? R.pick(['Confirmed by phone.', 'Landlord confirmed the deal and the fees.']) : '' }
+      remarks: status === 0 ? R.pick(['Landlord did not answer three calls.', 'Phone number no longer in use.']) : status === 1 ? R.pick(['Confirmed by phone.', 'Landlord confirmed the deal and the fees.']) : '', history: [] }
   }
 
   // ── Customer Database: leads with the current ERP's action and status ──

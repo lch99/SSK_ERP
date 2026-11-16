@@ -123,7 +123,8 @@ before(async () => {
     line(896, 'TEAM_LEADER_INCENTIVE_PH', 11, 10, 100, { case_status: 2, case_stat: '', arc_id: 0, staff_salary_id: 60 }),   // queried, but its salary request is clear
     line(897, 'SALARY_SA', 12, 70, 99, { case_link: 950, case_stat: '', arc_id: 0 }),                         // close 950: no line 950 itself, and 904 is deleted
   ]);
-  await rows('db_landlord_verification', [{ id: 1, case_id: 900, verification_status: 1, verification_date: '2025-07-05', remarks: 'Called' }]);
+  await rows('db_landlord_verification', [{ id: 1, case_id: 900, verification_status: 1, verification_date: '2025-07-05', remarks: 'Called' },
+    { id: 2, case_id: 900, verification_status: 0, verification_date: '2025-07-01', remarks: 'No answer' }]);
   await rows('db_eforms_request', [
     { request_id: 70, form_id: 500, staff_id: 12, request_type: 'balancetovendor_ver2', request_date: '2025-06-11', request_status: 5, version_id: 1, balance_to_vendor: 1000,
       transfer_name: 'Owner One', transfer_bank_id: 3, transfer_bank_acc_no: '1122', payment_date: '2025-06-12' },
@@ -335,7 +336,9 @@ test('E-Forms keep the old money exactly, their parties, documents and checks', 
   assert.deepEqual([d.status, d.type, d.agent_id, d.holder_id], ['closed', 'sale', 12, 11]);
   assert.deepEqual([d.billed, d.sst, d.fee_ex_sst, d.net, d.sst_pct, d.sst_mode].map(v => (typeof v === 'string' ? v : Number(v))), [10800, 800, 10000, 10000, 8, 'included']);
   assert.equal(d.closed_on, '2025-06-15');
-  assert.equal(d.lv_status, 1);
+  // Checked twice: the latest is the check, the earlier "Unable to verify" its history.
+  assert.deepEqual([d.lv_status, d.lv_on, d.lv_remarks], [1, '2025-07-05', 'Called']);
+  assert.deepEqual(json(d.lv_history), [{ status: 0, on: '2025-07-01', remarks: 'No answer' }]);
   assert.equal(d.lv_archive_id, 40);
   assert.deepEqual(json(d.other_owners), [{ name: 'Co Owner', ic: '700101-01-0001', phone: '' }]);
   assert.equal(json(d.docs)['Letter of offer'], true);

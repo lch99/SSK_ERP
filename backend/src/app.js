@@ -54,6 +54,20 @@ app.use('/api/accounts', accountsRouter);
 // What the website reads (public fields only; no sign-in but for saved listings).
 app.use('/api/public', publicRouter);
 
+// The ERP's pages too, when this server is the only one (staging): WEB_DIR is the built frontend
+// (`VITE_USE_SERVER=true npm run build` in the project root → dist/). Its files under assets/ have
+// their content's hash in the name, so they keep for a year; the page and the service worker never do,
+// so a new release reaches everyone on their next visit. Without WEB_DIR, nginx (or another host)
+// serves the pages and passes /api and /v1 here.
+if (process.env.WEB_DIR) {
+  const path = require('path');
+  const web = path.resolve(__dirname, '..', process.env.WEB_DIR);
+  app.use(express.static(web, {
+    index: 'index.html',
+    setHeaders: (res, file) => res.setHeader('Cache-Control', /[\\/]assets[\\/]/.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache'),
+  }));
+}
+
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'That is too much to send at once.' });
   // The sender's mistake (JSON that doesn't read, a request cut off, an unknown charset): a 4xx, not told.

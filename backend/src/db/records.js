@@ -162,7 +162,7 @@ const MODELS = {
     otherBuyers: 'other_buyers:json[]', otherOwners: 'other_owners:json[]', coBroke: 'co_broke:json', referral: 'referral:json', rental: 'rental:json',
     docs: 'docs:json{}', files: 'files:json{}', remark: 'remark', cancelledOn: 'cancelled_on:date', cancelReason: 'cancel_reason',
     closedOn: 'closed_on:date',
-    landlordCheck: group({ archiveId: 'lv_archive_id', status: 'lv_status', on: 'lv_on:date', remarks: 'lv_remarks' }, 'lv_status'),
+    landlordCheck: group({ archiveId: 'lv_archive_id', status: 'lv_status', on: 'lv_on:date', remarks: 'lv_remarks', history: 'lv_history:json[]' }, 'lv_status'),
     invoiceNo: 'invoice_no', invoiceOn: 'invoice_on:date',
   }),
 

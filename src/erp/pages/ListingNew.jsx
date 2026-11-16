@@ -3,7 +3,7 @@ import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { LISTING_SETTINGS, CATEGORIES } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { useList, useRecord, useRecordReader } from '../useList.js'
-import { madeId, fromReply } from '../../api.js'
+import { madeId, fromReply, DEMO, uploadFile } from '../../api.js'
 import { isAgent } from '../model.js'
 import { Page, Card, Notice, FormField, FileInput, go, field } from '../ui.jsx'
 import { PAGE } from '../help.js'
@@ -11,6 +11,7 @@ import { useFeedback } from '../feedback.jsx'
 import { useReview, missing, needText, markGaps } from '../review.jsx'
 import { rm } from '../format.js'
 import ListingPreview from './ListingPreview.jsx'
+import { ListingDetailFields, listingDetailRows } from './ListingDetails.jsx'
 import { STATES } from './options.js'
 import { savePreviews } from '../photos.jsx'
 
@@ -35,12 +36,13 @@ function ListingForm({ vr, state }) {
   // Product handlers are agents (office staff don't hold listings).
   const holders = d.staff.filter(s => isAgent(s) && s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
   const [f, setF] = useState(() => ({ type: vr?.forType === 'Rent' ? 'rental' : 'sale', state: vr ? state || 'Selangor' : 'Selangor',
-    category: vr?.category && CATEGORIES[vr.category] ? vr.category : 'Condominium', tenure: 'Freehold', race: 'cina', furnishing: 'Partly furnished',
+    category: vr?.category && CATEGORIES[vr.category] ? vr.category : 'Condominium', tenure: 'Freehold', restriction: 'cina', furnishing: 'Partly furnished',
     flags: [], holderId: String((vr?.handledBy && holders.find(s => s.id === vr.handledBy)?.id) || holders[0]?.id || ''),
     ...(vr ? { area: vr.area, askPrice: String(vr.price), ownerName: vr.name, ownerPhone: vr.phone } : {}) }))
   const [photoFiles, setPhotoFiles] = useState([])
   const photos = photoFiles.length
-  const [videos, setVideos] = useState(0)
+  const [videoFiles, setVideoFiles] = useState([])
+  const videos = videoFiles.length
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const set = k => e => setF({ ...f, [k]: e.target.value })
@@ -52,8 +54,10 @@ function ListingForm({ vr, state }) {
   async function preview() {
     const gaps = missing([['Area', f.area], ['Title (building / taman)', f.title], ['Advertised Price', f.askPrice], ['Unit Number & Jalan', f.unit], ['Owner Name', f.ownerName], ['Owner Contact', f.ownerPhone]])
     if (gaps.length) { setError(needText(gaps)); if (!markGaps(gaps)) window.scrollTo(0, 0); return false }
-    const race = { cina: 'Chinese', india: 'Indian', melayu: 'Malay', 'malay-reserved': 'Malay Reserved' }[f.race]
     const price = v => (Number(v) > 0 ? rm(Number(v)) : '')
+    // Blank numbers are "not set" (the rows only list what was filled in).
+    const details = listingDetailRows({ ...f, ...Object.fromEntries(['carpark', 'utilityRooms', 'renoCost', 'bankValue'].map(k => [k, f[k] === '' || f[k] == null ? null : Number(f[k])])),
+      askPrice: Number(f.askPrice), builtUp: Number(f.builtUp) })
     return review({
       title: 'Preview before publishing', confirmLabel: 'Publish listing',
       intro: 'This is how the listing will look on the SubSaleKing website once it is published. Check it, then publish, or go back to edit.',
@@ -61,7 +65,7 @@ function ListingForm({ vr, state }) {
       preview: <ListingPreview photos={photos} videos={videos} cover={photoFiles[0]} agent={m.staff[Number(f.holderId)]} l={{ ...f, description: f.desc }} />,
       sections: [{ title: 'Private', note: 'Never shown on the website', rows: [
         ['Owner', `${f.ownerName} · ${f.ownerPhone}`], ['Unit Number & Jalan', f.unit], ['Product Handler', m.staffName(Number(f.holderId))],
-        ['Best Price', price(f.bestPrice)], ['Market Price', price(f.marketValue)], ['Vendor/Landlord Race', race],
+        ['Best Price', price(f.bestPrice)], ['Market Price', price(f.marketValue)], ...details,
         ['Settings', f.flags.join(', ')], ['Personal Use Remarks', f.remarks],
       ] }],
     })
@@ -74,7 +78,10 @@ function ListingForm({ vr, state }) {
       // Each photo is kept as a small preview; the first is the cover.
       const keys = await savePreviews(photoFiles)
       const photoSet = photoFiles.map((file, i) => ({ id: i + 1, name: file.name, published: true, cover: i === 0, preview: keys[i] }))
-      const st = await erp.addListing({ ...f, draft, photoSet, videos, askPrice: f.askPrice, ownerName: f.ownerName, ownerPhone: f.ownerPhone, address: [f.unit, f.title, f.area].filter(Boolean).join(', ') })
+      // Videos go to the server as they are (the demo keeps only how many).
+      const videoSet = []
+      if (!DEMO) for (const [i, file] of videoFiles.entries()) videoSet.push({ id: i + 1, name: file.name, published: true, file: await uploadFile(file, 'listingVideo') })
+      const st = await erp.addListing({ ...f, draft, photoSet, videos, ...(videoSet.length && { videoSet }), askPrice: f.askPrice, ownerName: f.ownerName, ownerPhone: f.ownerPhone, address: [f.unit, f.title, f.area].filter(Boolean).join(', ') })
       const made = await fromReply(st, 'listings', madeId(st, 'listings'), readRecord)
       if (vr) await erp.setVendorRequest(vr.id, 2, made.id)
       fb.toast(`${made.code} ${draft ? 'saved as draft' : 'published'}${vr ? ` · ticket ${vr.ticket} set to Listing Created` : ''}`)
@@ -113,11 +120,6 @@ function ListingForm({ vr, state }) {
             <FormField label="Tenure">
               <select style={{ ...sel, width: '100%' }} value={f.tenure} onChange={set('tenure')}><option value="Freehold">Freehold</option><option value="Leasehold">Leasehold</option></select>
             </FormField>
-            <FormField label="Vendor/Landlord Race">
-              <select style={{ ...sel, width: '100%' }} value={f.race} onChange={set('race')}>
-                {[['cina', 'Chinese'], ['india', 'Indian'], ['melayu', 'Malay'], ['malay-reserved', 'Malay Reserved']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </FormField>
           </div>
         </Card>
         <Card title="Price and details">
@@ -127,7 +129,6 @@ function ListingForm({ vr, state }) {
             <FormField label="Market Price (RM)"><input type="number" style={field} value={f.marketValue || ''} onChange={set('marketValue')} /></FormField>
             <FormField label="Bedrooms"><input type="number" style={field} value={f.beds || ''} onChange={set('beds')} /></FormField>
             <FormField label="Bathrooms"><input type="number" style={field} value={f.baths || ''} onChange={set('baths')} /></FormField>
-            <FormField label="Car Parks"><input type="number" style={field} value={f.parks || ''} onChange={set('parks')} /></FormField>
             <FormField label="Furnishing" wide>{radio('furnishing', [['Unfurnished', 'Non-Furnish'], ['Partly furnished', 'Partial Furnished'], ['Fully furnished', 'Furnitured']])}</FormField>
             <FormField label="Settings" wide>
               <div style={{ display: 'flex', gap: '8px 16px', flexWrap: 'wrap', paddingTop: 4 }}>
@@ -140,6 +141,9 @@ function ListingForm({ vr, state }) {
             </FormField>
             <FormField label="Full Descriptions" wide><textarea style={{ ...field, minHeight: 80 }} value={f.desc || ''} onChange={set('desc')} /></FormField>
           </div>
+        </Card>
+        <Card title="More details">
+          <div style={grid}><ListingDetailFields f={f} setF={setF} /></div>
         </Card>
         <Card title="Owner (private)">
           <div style={grid}>
@@ -155,9 +159,9 @@ function ListingForm({ vr, state }) {
         <Card title="Photos and videos">
           <div style={{ display: 'grid', gap: 12 }}>
             <FormField label="Photos" help="The first one is the cover; pick another later in Album."><FileInput kind="photo" onChange={setPhotoFiles} /></FormField>
-            <FormField label="Videos" help="Optional: a walk-through of the house, the facilities or the neighbourhood."><FileInput kind="listingVideo" onChange={files => setVideos(files.length)} /></FormField>
+            <FormField label="Videos" help="Optional: a walk-through of the house, the facilities or the neighbourhood."><FileInput kind="listingVideo" onChange={setVideoFiles} /></FormField>
           </div>
-          <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>(Demo: photos are kept as small previews in this browser; videos are not stored.)</p>
+          {DEMO && <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>(Demo: photos are kept as small previews in this browser; videos are not stored.)</p>}
         </Card>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>

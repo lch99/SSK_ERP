@@ -103,8 +103,8 @@ function listingOf(l, ctx) {
     slug: `${slug(display)}-${l.type === 'rental' ? 'for-rent' : 'for-sale'}-${l.id}`,
     property_unit: tied || ctx.inReach ? l.unit || null : null,
     property_price: l.bestPrice ?? l.askPrice ?? null, property_price_asking: l.askPrice ?? null, property_price_close: null,
-    property_price_extra: l.marketValue ?? l.marketValueText ?? null, bank_value: null,
-    property_room: l.beds ?? null, property_bath: l.baths ?? null, carpark: l.carpark ?? null, utilities_rooms: null,
+    property_price_extra: l.marketValue ?? l.marketValueText ?? null, bank_value: l.bankValue ?? null,
+    property_room: l.beds ?? null, property_bath: l.baths ?? null, carpark: l.carpark ?? null, utilities_rooms: l.utilityRooms ?? null,
     property_cover: cover ? ctx.photoUrl(cover) : null,
     property_desc: l.description || null,
     // Private remarks: only those tied to the listing (and the office in reach) read them.
