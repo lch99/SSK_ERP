@@ -30,6 +30,7 @@ export function useGate() {
 export function AccessProvider({ me, children }) {
   const [policy, setPolicy] = useState(A.defaultPolicy)
   const [viewAs, setViewAs] = useState(null)   // { role, staffId } or null
+  const [switches, setSwitches] = useState(null) // the viewer's own staff access switches (ErpContext sets them)
   useEffect(() => { api.getAccess().then(r => setPolicy(r.policy)).catch(() => { /* recommended policy stays */ }) }, [])
 
   const value = useMemo(() => {
@@ -44,13 +45,21 @@ export function AccessProvider({ me, children }) {
       agentId: AGENT_TYPES.includes(role?.type) ? who.staffId ?? null : null,
       scope: A.scopeOf(policy, who.role),
       can: (area, level = 'view') => A.allows(policy, who.role, area, level),
-      opens: path => A.opens(policy, who.role, path),
-      refusal: action => A.refusal(policy, who.role, action),
+      opens: path => A.opens(policy, who.role, path) && !A.switchedOff(who.role, switches, path),
+      // Why a page is closed when the role opens it but the person's own switch doesn't, else null.
+      switchWhy: path => {
+        if (!A.opens(policy, who.role, path) || !A.switchedOff(who.role, switches, path)) return null
+        const p = String(path).replace(/^\/+/, '')
+        const sw = A.PATH_SWITCH.find(([start]) => p === start || p.startsWith(`${start}/`))?.[1]
+        return `${A.SWITCH_LABEL[sw]} is switched off for you. Ask your branch office to switch it on (on your page, under access).`
+      },
+      setSwitches: next => setSwitches(was => (JSON.stringify(was) === JSON.stringify(next ?? null) ? was : next ?? null)),
+      refusal: (action, args, data) => A.refusal(policy, who.role, action) || (args ? A.recordRefusal(policy, who.role, action, args, data, who.staffId ?? null) : null),
       manages: A.managesAccess(who.role),
       viewAs: setViewAs,
       savePolicy: async p => { const r = await api.saveAccessPolicy(p); setPolicy(r.policy); return r },
     }
-  }, [me, policy, viewAs])
+  }, [me, policy, viewAs, switches])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

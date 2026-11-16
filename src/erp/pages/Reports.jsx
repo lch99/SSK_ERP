@@ -4,7 +4,7 @@ import { C, btn, btnPrimary, sel } from '../../styles.js'
 import { useErp } from '../ErpContext.jsx'
 import { useCan } from '../access.jsx'
 import { useList, useRecord, useDebounced } from '../useList.js'
-import { DealPicker } from '../pickers.jsx'
+import { DealPicker, StaffPicker } from '../pickers.jsx'
 import { DEMO, getDealCredit, getDealsHistory } from '../../api.js'
 import { tierCredit, payoutForClose } from '../../../shared/erpRules.js'
 import { DEAL_STATUS, LANDLORD_STATUS, isAgent, r2 } from '../model.js'
@@ -35,7 +35,7 @@ const REPORTS = {
   summary: ['E-Forms by person', 'Per person: submissions, closings, cases and payouts.'],
   cases: ['Payout calculator', 'Pick a case and type a claim to preview who gets paid what.'],
   landlord: ['Landlord checks', 'Confirm each landlord after a rental case is archived.'],
-  buildings: ['Sales by building', 'Full-closed sales and rentals in each building, with its Project Manager and Project Handler (Total Transaction Value).'],
+  buildings: ['Sales by building', 'Full-closed sales and rentals in each building, with its Project Manager and Project Handler (Total Transaction Value). Pick a person to see only the ones they sold: your own progress towards Project Manager, or one of your team\'s.'],
   followups: ['Follow-ups by person', 'Listing follow-ups each person made, by action, and the viewings they booked and hosted.'],
 }
 
@@ -101,20 +101,23 @@ function Total() {
   )
 }
 
-// The current ERP's Total Transaction Value (Project Manager): what closed in
-// full in each building in the period, and who leads the building.
+// The current ERP's Total Transaction Value (Project Manager and Team Sales): what closed in full in
+// each building in the period, and who leads the building; for everyone in reach, or one person as the
+// sales agent (an agent's own progress towards Project Manager, or one of their team's).
 function Buildings() {
   const { m } = useErp()
   const r = useRange(m)
   const [q, setQ] = useState('')
-  const per = useCounts('deals', { status: 'closed', closedFrom: r.from, closedTo: r.to, counts: 'perBuilding' }).perBuilding || {}
+  const [who, setWho] = useState('')
+  const per = useCounts('deals', { status: 'closed', closedFrom: r.from, closedTo: r.to, ...(who && { agentId: who }), counts: 'perBuilding' }).perBuilding || {}
   const rows = Object.entries(per).filter(([id]) => m.titles[id]).map(([id, x]) => ({ t: m.titles[id], ...x }))
     .sort((a, b) => b.saleValue - a.saleValue || b.rentals - a.rentals || a.t.id - b.t.id)
   const shown = rows.filter(x => !q || `${x.t.name} ${x.t.area}`.toLowerCase().includes(q.toLowerCase()))
   return (
     <Card pad={16}>
-      <Toolbar>{r.ui}<SearchBox value={q} onChange={setQ} placeholder="Building or area" /><span style={{ flex: 1 }} />
-        <Download onClick={() => downloadXlsx('sales-by-building', ['Building', 'Area', 'Sales closed', 'Sale value', 'Rentals closed', 'Monthly rent', 'Agency fees', 'Project Manager', 'Project Handler'],
+      <Toolbar>{r.ui}<StaffPicker label="Person" value={who} onChange={setWho} all="Everyone" filters={{ kind: 'agent' }} branch={false} />
+        <SearchBox value={q} onChange={setQ} placeholder="Building or area" /><span style={{ flex: 1 }} />
+        <Download onClick={() => downloadXlsx(who ? `sales-by-building-${m.staff[who]?.code || who}` : 'sales-by-building', ['Building', 'Area', 'Sales closed', 'Sale value', 'Rentals closed', 'Monthly rent', 'Agency fees', 'Project Manager', 'Project Handler'],
           shown.map(x => [x.t.name, x.t.area, x.sales, x.saleValue, x.rentals, x.rentValue, x.fees, x.t.managerId ? m.staffName(x.t.managerId) : '', x.t.handlerId ? m.staffName(x.t.handlerId) : '']))} /></Toolbar>
       <DataTable rows={shown} rowKey={x => x.t.id} narrowAt={860} empty="Nothing closed in full in these dates" columns={[
         { key: 'b', label: 'Building', render: x => <span><b>{x.t.name}</b><span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.t.area}</span></span> },

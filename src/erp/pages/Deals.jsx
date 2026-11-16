@@ -17,6 +17,9 @@ import { Review, missing, needText, markGaps } from '../review.jsx'
 import { maskAcc, maskIc } from '../format.js'
 import { fileLabel } from '../../../shared/files.js'
 
+// Who the two parties are on each kind of E-Form (shown as "Purchaser Tan Ah Kow").
+const PARTIES = { sale: ['Purchaser', 'Vendor'], rental: ['Tenant', 'Landlord'], project: ['Purchaser', 'Developer'] }
+
 // E-Forms: Personal Sales (every form), Branch Sales (by branch manager) and
 // Team Sales (a leader and everyone under them), as in the current ERP.
 export default function Deals({ parts }) {
@@ -95,9 +98,15 @@ function DealList({ view }) {
         </span>
       )
     } },
-    { key: 'address', label: 'Address', sortKey: 'title', render: x => (
-      <span style={{ display: 'block', fontSize: 13 }}>{x.property.title}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.property.address.split(',')[0]}</span></span>
-    ) },
+    // The parties by name too (the current ERP's E-Forms Name Data); blank for a role that may not see them.
+    { key: 'address', label: 'Address · Parties', sortKey: 'title', render: x => {
+      const [buyer, owner] = PARTIES[x.type] || PARTIES.sale
+      const names = [x.buyer?.name && `${buyer} ${x.buyer.name}`, x.owner?.name && `${owner} ${x.owner.name}`].filter(Boolean).join(' · ')
+      return (
+        <span style={{ display: 'block', fontSize: 13 }}>{x.property.title}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{x.property.address.split(',')[0]}</span>
+          {names && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{names}</span>}</span>
+      )
+    } },
     { key: 'price', label: 'Sell/Rent Price', align: 'right', sortKey: 'price', render: x => rm(x.price) },
     { key: 'total', label: 'Total · Net Total', help: COLUMN.dealTotal, align: 'right', sortKey: 'billed', render: x => (
       <span>{rm(r2(x.money.billed - x.money.coBroke - x.money.referral))}<span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm(x.money.net)}</span></span>
@@ -123,7 +132,7 @@ function DealList({ view }) {
       {view === 'ready' ? <FlowBar here="close" /> : status === 'draft' && <FlowBar here="submit" />}
       <Card pad={16}>
         <Toolbar fold onClear={clear}>
-          <SearchBox value={q} onChange={setQ} placeholder="Case number or address" />
+          <SearchBox value={q} onChange={setQ} placeholder="Case number, address or name" />
           {byLeader && <Select label={view === 'branch' ? 'Branch manager' : 'Leader'} value={String(leadId || '')} onChange={setLead}
             options={(view === 'branch' ? tops : leaders).map(s => ({ value: String(s.id), label: `${view === 'branch' ? 'B.M ' : ''}${s.short} (${s.code})` }))} />}
           <Select label="Staff" value={who} onChange={setWho} options={[{ value: '', label: 'Everyone' }, ...people.map(s => ({ value: String(s.id), label: `${s.short} ${s.code}` }))]} />

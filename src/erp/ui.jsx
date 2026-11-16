@@ -405,7 +405,7 @@ export function Toolbar({ children, fold = false, onClear }) {
         {pickers}
         {folded && (
           <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
-            style={{ ...btn, flexShrink: 0, ...(chips.length ? { borderColor: '#f7a3b8', background: C.primaryBg, color: C.primaryDark } : null) }}>
+            style={{ ...btn, flexShrink: 0, borderColor: chips.length ? '#f7a3b8' : C.borderStrong, ...(chips.length ? { background: C.primaryBg, color: C.primaryDark } : null) }}>
             <Icon name="filter" size={15} /> Filters
             {chips.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '0 6px', lineHeight: '17px', borderRadius: 9, background: C.primary, color: '#fff' }}>{chips.length}</span>}
             <Icon name="down" size={14} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
@@ -455,9 +455,11 @@ export function Toolbar({ children, fold = false, onClear }) {
 // A min–max number filter (e.g. a price range) for a Toolbar: `from` and `to`
 // are text ('' = no limit); onChange(from, to). Digits only, so no spinners.
 const activeBox = { borderColor: '#f7a3b8', background: C.primaryBg, color: C.primaryDark }
+// The same keys when idle: a borderColor that came and went beside the border shorthand makes React warn.
+const idleBox = { borderColor: C.borderStrong, background: '#fff', color: C.text }
 export function RangeFilter({ label, from, to, onChange, unit = '', block = false, plain = false }) {
   const digits = v => v.replace(/[^\d]/g, '')
-  const box = v => ({ ...inp, width: block ? '100%' : 104, minWidth: 0, boxSizing: 'border-box', ...(v && !plain ? activeBox : null) })
+  const box = v => ({ ...inp, width: block ? '100%' : 104, minWidth: 0, boxSizing: 'border-box', ...(v && !plain ? activeBox : idleBox) })
   return (
     <span role="group" aria-label={label} style={{ display: block ? 'grid' : 'inline-flex', gridTemplateColumns: block ? 'minmax(0, 1fr) auto minmax(0, 1fr)' : undefined, gap: 6, alignItems: 'center' }}>
       <input inputMode="numeric" style={box(from)} value={from} placeholder={`Min${unit ? ` ${unit}` : ''}`} aria-label={`${label}, lowest`} onChange={e => onChange(digits(e.target.value), to)} />
@@ -471,7 +473,7 @@ export function RangeFilter({ label, from, to, onChange, unit = '', block = fals
 // `plain`: always set (a report's period), so never coloured or shown as a chip.
 export function DateFilter({ label, from, to, onChange, block = false, plain = false }) {
   // Two boxes and "to" side by side fit a small phone (each takes up to 40% of the screen).
-  const box = v => ({ ...inp, width: block ? '100%' : 'clamp(118px, 40vw, 150px)', minWidth: 0, boxSizing: 'border-box', ...(v && !plain ? activeBox : null) })
+  const box = v => ({ ...inp, width: block ? '100%' : 'clamp(118px, 40vw, 150px)', minWidth: 0, boxSizing: 'border-box', ...(v && !plain ? activeBox : idleBox) })
   return (
     <span role="group" aria-label={label} style={{ display: block ? 'grid' : 'inline-flex', gridTemplateColumns: block ? 'minmax(0, 1fr) auto minmax(0, 1fr)' : undefined, gap: 6, alignItems: 'center' }}>
       <input type="date" style={box(from)} value={from} max={to || undefined} aria-label={`${label}, from`} onChange={e => onChange(e.target.value, to)} />
@@ -1034,7 +1036,7 @@ export function Menu({ label = 'Actions', items, align = 'right', quiet = false,
     <span onClick={e => e.stopPropagation()} style={{ display: 'inline-block' }}>
       <button ref={trigger} type="button" className={quiet ? 'ssk-quiet' : undefined} aria-haspopup="menu" aria-expanded={open}
         onClick={() => setOpen(o => !o)} onKeyDown={e => { if (e.key === 'ArrowDown' && !open) { e.preventDefault(); setOpen(true) } }}
-        style={{ ...small, gap: 5, whiteSpace: 'nowrap', ...(open ? { borderColor: C.primary, color: C.primaryDark, background: C.primaryBg } : null) }}>
+        style={{ ...small, gap: 5, whiteSpace: 'nowrap', borderColor: open ? C.primary : C.borderStrong, ...(open ? { color: C.primaryDark, background: C.primaryBg } : null) }}>
         {icon && <Icon name={icon} size={15} />}{label}
         <Icon name="down" size={13} style={{ transition: 'transform .15s ease', transform: open ? 'rotate(180deg)' : 'none' }} />
       </button>

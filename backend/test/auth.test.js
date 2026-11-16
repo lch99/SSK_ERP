@@ -284,3 +284,82 @@ test('using the ERP counts as activity: an agent\'s last activity moves to today
   const { localToday } = require('../src/db/days');
   assert.equal((await db('staff').where({ id: agent.id }).first()).last_active_on, localToday());
 });
+
+// ── Review fixes (2026-11-13) ──────────────────────────────────────────────────
+const moneyInAgent = t => data.deals.find(d => d.id === t.dealId)?.agentId;
+
+test('Edit cannot change a payment Accounts cleared, nor an approved request form; a payment moves only to an E-Form in reach', async () => {
+  const agent = await free(s => s.type === 'staff' && data.moneyIn.some(t => t.status === 'cleared' && moneyInAgent(t) === s.id)
+    && data.moneyOut.some(x => (x.status === 'ready' || x.status === 'paid') && x.staffId === s.id));
+  assert.ok(agent, 'the sample has an agent with a cleared payment and an approved request form');
+  const call = await signInAs('review1', agent.id);
+  const cleared = data.moneyIn.find(t => t.status === 'cleared' && moneyInAgent(t) === agent.id);
+  const r1 = await call('POST', '/erp/actions/updateTransaction', { args: [cleared.id, { amount: 100000 }] });
+  assert.equal(r1.status, 403);
+  assert.match(r1.body.error, /cleared this payment/);
+  const approved = data.moneyOut.find(x => (x.status === 'ready' || x.status === 'paid') && x.staffId === agent.id);
+  const r2 = await call('POST', '/erp/actions/updateMoneyOut', { args: [approved.id, { account: '9999 0000 1111' }] });
+  assert.equal(r2.status, 403);
+  assert.match(r2.body.error, /approved/);
+  const team = AC.teamOf(agent.id, data.staff);
+  const open = data.moneyIn.find(t => (t.status === 'draft' || t.status === 'pending') && team.has(moneyInAgent(t)));
+  const elsewhere = data.deals.find(d => d.status === 'submitted' && !team.has(d.agentId) && !team.has(d.holderId));
+  if (open && elsewhere) {
+    const r3 = await call('POST', '/erp/actions/updateTransaction', { args: [open.id, { dealId: elsewhere.id }] });
+    assert.equal(r3.status, 403);
+    assert.match(r3.body.error, /not yours to change/);
+  }
+});
+
+test('a role with no listings access gets no owners or units, and the phone app\'s listings are closed to it', async () => {
+  const person = await free(s => s.status === 'active' && s.type === 'staff');
+  await db('staff').where('id', person.id).update({ type: 'account' });
+  await db('users').insert({ username: 'acct1', name: 'acct1', role: 'accountant', staff_id: person.id, password_hash: await bcrypt.hash(PASSWORD, 4) });
+  const { body: login } = await api.call('POST', '/auth/login', { username: 'acct1', password: PASSWORD });
+  const call = as(login.token);
+  const { status, body } = await call('GET', '/erp/state');
+  assert.equal(status, 200);
+  assert.ok(body.data.listings.length > 0);
+  assert.ok(body.data.listings.every(l => !l.owner?.phone && !l.owner?.name && /unit hidden/.test(l.address)), 'no owner or unit');
+  const app = await fetch(`${api.base.replace(/\/api$/, '/v1')}/property/search`, { method: 'POST', headers: { Authorization: `Bearer ${login.token}`, 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(app.status, 403);
+  assert.equal((await app.json()).error.type, 'INSUFFICIENT_PRIVILEGES');
+});
+
+test('"View the ERP as" never changes who a save is done as', async () => {
+  const boss = await signInAs('boss9', null, 'superadmin');
+  const agent = await free(s => s.type === 'staff' && s.status === 'active');
+  const listing = data.listings.find(l => l.status === 'active');
+  const r = await boss('POST', `/erp/actions/toggleFavourite?as=staff&asStaff=${agent.id}`, { args: ['listings', listing.id, agent.id] });
+  assert.equal(r.status, 200, r.body.error);
+  assert.equal(await db('favourites').where('viewer_id', agent.id).first(), undefined, 'not saved as the agent');
+});
+
+test('an agent sees owner requests only with Vendor Requests switched on, as in the current ERP', async () => {
+  const agent = await free(s => s.type === 'staff' && s.status === 'active');
+  await db('staff').where('id', agent.id).update({ access: JSON.stringify({ agent: true, vendorRequests: false }) });
+  const call = await signInAs('vendor1', agent.id);
+  const off = await call('GET', '/erp/vendorRequests');
+  assert.equal(off.status, 403);
+  assert.match(off.body.error, /Vendor Requests is switched off/);
+  const request = data.vendorRequests[0];
+  assert.equal((await call('POST', '/erp/actions/setVendorRequest', { args: [request.id, 1] })).status, 403);
+  await db('staff').where('id', agent.id).update({ access: JSON.stringify({ agent: true, vendorRequests: true }) });
+  assert.equal((await call('GET', '/erp/vendorRequests')).status, 200);
+});
+
+test('an agent deletes their own draft listing, but no one else\'s and nothing published', async () => {
+  const agent = await free(s => s.type === 'staff' && s.status === 'active');
+  const [mine, other] = data.listings.filter(l => !l.dealId && !data.deals.some(d => d.listingId === l.id)).slice(-2);
+  // Both theirs (holder and creator); one a draft.
+  await db('listings').whereIn('id', [mine.id, other.id]).update({ creator_id: agent.id, holder_id: agent.id, deal_id: null });
+  await db('listings').where('id', mine.id).update({ draft: true });
+  await db('listings').where('id', other.id).update({ draft: false });
+  const call = await signInAs('draft1', agent.id);
+  const published = await call('POST', '/erp/actions/deleteListing', { args: [other.id] });
+  assert.equal(published.status, 403);
+  assert.match(published.body.error, /Only your own drafts/);
+  const own = await call('POST', '/erp/actions/deleteListing', { args: [mine.id] });
+  assert.equal(own.status, 200, own.body.error);
+  assert.equal(await db('listings').where('id', mine.id).first(), undefined);
+});

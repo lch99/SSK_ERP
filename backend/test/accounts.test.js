@@ -39,8 +39,10 @@ test('the office makes a link; the agent sets a password with it, once, and sign
   assert.equal((await db('password_links').where('token_hash', t).first()), undefined, 'only a hash is kept');
 
   const early = await anon('POST', '/auth/login', { username: r.body.username, password: 'whatever-it-is' });
-  assert.equal(early.status, 403);
+  assert.equal(early.status, 401);
   assert.match(early.body.error, /not set a password yet/);
+  const nobody = await anon('POST', '/auth/login', { username: 'no-such-person-here', password: 'whatever-it-is' });
+  assert.deepEqual([nobody.status, nobody.body.error], [early.status, early.body.error], 'an account without a password looks like no account');
 
   const peek = await anon('GET', `/auth/link/${t}`);
   assert.deepEqual(peek.body, { username: r.body.username, name: agent.name, purpose: 'set' });
@@ -169,4 +171,31 @@ test('a link used twice at once sets one password; Forgot password never cancels
     const both = await Promise.all(['first long password', 'second long password'].map(password => anon('POST', `/auth/link/${office.token}`, { password })));
     assert.deepEqual(both.map(r => r.status).sort(), [200, 410]);
   } finally { delete process.env.MAIL_URL; delete process.env.ERP_URL; }
+});
+
+test('a link or a new password only for someone whose access is no wider than the maker\'s own', async () => {
+  const admin = data.staff.find(s => s.type === 'admin-staff2' && s.status === 'active');
+  const [senior, plain, mgr] = data.staff.filter(s => s.type === 'staff' && s.status === 'active' && s.id !== admin.id).slice(-3);
+  // All three in the admin's branch; one becomes Accounting (all branches, Full on money).
+  await db('staff').whereIn('id', [senior.id, plain.id, mgr.id]).update({ branch_id: admin.branchId });
+  await db('staff').where('id', senior.id).update({ type: 'account' });
+  const existing = await db('users').where('staff_id', admin.id).first();
+  if (existing) await db('users').where('id', existing.id).update({ username: 'admin-cover', role: 'admin', is_active: true, locked: false, password_hash: await bcrypt.hash(PASSWORD, 4) });
+  const call = existing ? as((await api.call('POST', '/auth/login', { username: 'admin-cover', password: PASSWORD })).body.token) : await signInAs('admin-cover', admin.id, 'admin');
+  const no = await call('POST', `/accounts/${senior.id}/link`);
+  assert.equal(no.status, 403, 'an Accounting person is above a branch admin');
+  assert.match(no.body.error, /more access than your role/);
+  assert.equal((await call('POST', `/accounts/${plain.id}/link`)).status, 200, 'an agent in their branch is fine');
+  // A Branch Manager sign-in whose person is a branch admin: no new password for that Accounting person
+  // either (the account's sign-in role says 'staff'; the person's account type decides).
+  await db('staff').where('id', mgr.id).update({ type: 'admin-staff2' });
+  const account = async st => (await db('users').where('staff_id', st.id).first())?.id
+    ?? (await db('users').insert({ username: `u${st.id}`, name: st.name, role: 'staff', staff_id: st.id, password_hash: null }))[0];
+  const mgrUser = await account(mgr);
+  await db('users').where('id', mgrUser).update({ username: 'bm-cover', role: 'manager', branch_id: admin.branchId, is_active: true, locked: false, password_hash: await bcrypt.hash(PASSWORD, 4) });
+  const bm = as((await api.call('POST', '/auth/login', { username: 'bm-cover', password: PASSWORD })).body.token);
+  const seniorUser = await account(senior), plainUser = await account(plain);
+  await db('users').whereIn('id', [seniorUser, plainUser]).update({ role: 'staff', branch_id: admin.branchId });
+  assert.equal((await bm('POST', `/users/${seniorUser}/password`, { password: 'a new long password' })).status, 403);
+  assert.equal((await bm('POST', `/users/${plainUser}/password`, { password: 'a new long password' })).status, 200, 'an agent in their branch is fine');
 });

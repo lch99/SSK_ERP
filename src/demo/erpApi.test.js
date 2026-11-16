@@ -98,3 +98,19 @@ describe('ERP demo actions', () => {
     await expect(erp.claimPay(who, mine.map(l => l.id))).rejects.toThrow(/already claimed/)
   })
 })
+
+describe('numbers after a delete', () => {
+  it('a deleted salary request never makes the next one repeat a code still on file', async () => {
+    await loadSample()
+    let { data } = await erp.getErp()
+    const first = data.payouts.find(p => p.status === 'approved' && !p.requestId && !p.stacked)
+    expect(first).toBeTruthy()
+    ;({ data } = await erp.createRequests([first.staffId], first.role ? 'incentives' : 'salary'))
+    // An older request whose lines go back to Ready, then are requested again: the count is back where it was.
+    const older = data.requests.find(r => r.status === 'new' && r.staffId !== first.staffId && data.payouts.some(p => p.requestId === r.id))
+    ;({ data } = await erp.deleteSalaryRequest(older.id))
+    ;({ data } = await erp.createRequests([older.staffId], older.kind))
+    const codes = data.requests.map(r => r.code)
+    expect(new Set(codes).size).toBe(codes.length)
+  })
+})

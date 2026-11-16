@@ -22,8 +22,9 @@ async function viewerOf(req) {
   const policy = await loadPolicy();
   let me = { staffId: staff?.id ?? null, branchId: staff?.branch_id ?? u.branchId ?? null };
   // "View the ERP as" (?as=<role>&asStaff=<id>): someone who manages access sees
-  // what that role and person would, on this request only. It only ever narrows.
-  const as = req.query?.as;
+  // what that role and person would, on this request only. It only ever narrows,
+  // and only reads: a save is always done, and logged, as the signed-in person.
+  const as = req.method === 'GET' ? req.query?.as : null;
   if (as && AC.roleOf(as) && AC.managesAccess(role)) {
     const other = /^\d+$/.test(String(req.query.asStaff || '')) ? await db('staff').where('id', Number(req.query.asStaff)).first('id', 'branch_id') : null;
     role = as;

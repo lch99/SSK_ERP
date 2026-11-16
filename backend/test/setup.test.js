@@ -114,4 +114,9 @@ test('every step is in the audit log, and big agent lists are logged as a count'
   assert.ok(rows.length >= 8);
   const agents = rows.find(r => r.entity === 'setup.agents');
   assert.deepEqual(JSON.parse(agents.detail), { mode: 'replace', rows: 12 });
+  // Never the values: a company step names its fields only.
+  const company = rows.find(r => r.entity === 'setup.company');
+  assert.ok(company, 'the company step is logged');
+  assert.ok(Array.isArray(JSON.parse(company.detail).fields));
+  for (const r of rows) assert.ok(!/\d{6,}/.test(r.detail || ''), `${r.entity} keeps no long numbers (bank accounts, licences)`);
 });

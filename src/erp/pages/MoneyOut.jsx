@@ -118,6 +118,8 @@ function PaymentDetails({ x, erp }) {
   const [f, setF] = useState({ chequeNo: x.chequeNo || '', account: x.payee.account || '' })
   const upd = (body, done) => fb.run(() => erp.updateMoneyOut(x.id, body), done)
   const paidOk = x.status === 'ready' || x.status === 'paid'
+  // Once approved, only Full on Payments out changes it (shared/access.js recordRefusal).
+  const editable = can('moneyOut', 'edit') && (!paidOk || can('moneyOut', 'full'))
   const remove = async () => {
     if (await fb.confirm({ title: `Delete ${x.voucherNo}?`, body: `This ${MONEY_OUT_TYPES[x.type]} request of ${rm(x.amount)} is removed.`, confirmLabel: 'Delete', danger: true })
       && await fb.run(() => erp.deleteMoneyOut(x.id), `${x.voucherNo} deleted`)) go('money-out')
@@ -126,7 +128,7 @@ function PaymentDetails({ x, erp }) {
   const doc = kind => `${kind.toUpperCase()} · ${x.voucherNo}\n${MONEY_OUT_TYPES[x.type]}\nPay to: ${x.payee.name}\nBank: ${x.payee.bank} ${x.payee.account}\nAmount: ${rm(x.amount)}\nDate: ${x.paidOn || x.date}\n`
   return (
     <Block title="Payment">
-      {!can('moneyOut', 'edit') ? <KV items={[['Bank', x.payee.bank || '—'], ['Bank Account Number', maskAcc(x.payee.account) || '—'], ['Receipt', <FileName value={x.receipt} empty="Not uploaded" />]]} /> : <div style={grid}>
+      {!editable ? <KV items={[['Payment Date', x.paidOn ? date(x.paidOn) : '—'], ['Bank', x.payee.bank || '—'], ['Bank Account Number', maskAcc(x.payee.account) || '—'], ['Receipt', <FileName value={x.receipt} empty="Not uploaded" />]]} /> : <div style={grid}>
         <FormField label="Payment Date" help={paidOk ? 'Saves when you pick a date' : 'After Payment Ready'}>
           <input type="date" style={field} value={x.paidOn || ''} disabled={!paidOk} onChange={e => e.target.value && upd({ paidOn: e.target.value }, `${x.voucherNo} payment date set`)} />
         </FormField>

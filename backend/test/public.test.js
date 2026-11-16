@@ -42,6 +42,12 @@ test('search: public active listings only, no owner details anywhere, the site\'
     assert.deepEqual(Object.keys(row).filter(k => /owner|unit|address|ic\b|remarksPrivate/i.test(k)), []);
     if (row.contact) assert.deepEqual(Object.keys(row.contact).sort(), ['code', 'email', 'hasProfilePage', 'id', 'name', 'phone', 'username']);
   }
+  // Never found by its unit: the address (which holds it) is not searched.
+  const withUnit = data.listings.find(l => l.status === 'active' && isPublic(l) && /^[A-Z]?-?\d+-\d+/.test(l.address || ''));
+  if (withUnit) {
+    const unit = withUnit.address.split(',')[0].trim();
+    assert.ok(!(await get(`/listings?q=${encodeURIComponent(unit)}&size=50`)).body.rows.some(x => x.id === withUnit.id), `${unit} finds nothing`);
+  }
   const page2 = await get('/listings?size=50&page=2&sort=recent-update');
   assert.ok(!page2.body.rows.some(x => r.body.rows.some(y => y.id === x.id)));
   // A listing marked On Hold is not public.

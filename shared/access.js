@@ -107,13 +107,24 @@ export const scopeOf = (policy, role) => policy?.[role]?.scope || 'team'
 // Only the Superadmin changes Setup and Roles & access.
 export const managesAccess = role => role === 'superadmin'
 
+// May someone with role `mine` take over an account with role `theirs` (make its one-time password link,
+// set its password)? Only when `theirs` reaches no further and holds no Full (approve, pay out, delete) the
+// maker lacks: a branch admin sends agents their links, but can't become Accounting or Admin (Level 2) that
+// way. The Superadmin covers everyone; nobody else covers the Superadmin.
+export function covers(policy, mine, theirs) {
+  if (managesAccess(mine)) return true
+  if (managesAccess(theirs)) return false
+  if (SCOPES.indexOf(scopeOf(policy, theirs)) > SCOPES.indexOf(scopeOf(policy, mine))) return false
+  return AREA_KEYS.every(a => levelOf(policy, theirs, a) !== 'full' || levelOf(policy, mine, a) === 'full')
+}
+
 // What each ERP action needs. Every action in src/erp/ErpContext.jsx must be
 // here (a test checks), so a new action can't slip past the roles.
 const need = (area, level) => ({ area, level })
 export const ACTIONS = {
   addCustomer: need('customers', 'edit'), updateCustomer: need('customers', 'edit'), addCustomerFollowUp: need('customers', 'edit'),
   addListing: need('listings', 'edit'), updateListing: need('listings', 'edit'), addListingFollowUp: need('listings', 'edit'), updateEnquiry: need('listings', 'edit'),
-  setVendorRequest: need('listings', 'edit'), deleteListing: need('listings', 'full'),
+  setVendorRequest: need('listings', 'edit'), deleteListing: need('listings', 'edit'), // Full, or one's own draft (recordRefusal)
   saveTitle: need('listings', 'full'), setTitleStatus: need('listings', 'full'), deleteTitle: need('listings', 'full'),
   saveArea: need('listings', 'full'), setAreaStatus: need('listings', 'full'), deleteArea: need('listings', 'full'),
   addDeal: need('deals', 'edit'), updateDeal: need('deals', 'edit'), setDealDoc: need('deals', 'edit'), requestInvoice: need('invoices', 'edit'),
@@ -142,6 +153,29 @@ export const ACTIONS = {
   // Everyone reads their own notifications.
   readNotices: { area: null },
 }
+
+// Rules on the record an action changes, on top of ACTIONS (the page and the server both ask): once
+// Accounts has moved money on, Edit no longer changes it. A cleared payment is corrected only with Full
+// on Money in; a request form that is Payment Ready or paid (its payee's bank, the payment date, the
+// receipt) only with Full on Payments out. Deleting a listing takes Full, except a draft its own creator
+// throws away. `data` holds the record (the server reads it from the table); `me` is the person's staff id.
+export function recordRefusal(policy, role, action, args, data, me = null) {
+  if (action === 'deleteListing' && !allows(policy, role, 'listings', 'full')) {
+    const l = (data?.listings || []).find(x => x.id === Number(args?.[0]))
+    if (!l || !l.draft || me == null || l.creatorId !== me) return 'Only your own drafts can be deleted with your role; ask the office to delete a published listing.'
+  }
+  if (action === 'updateTransaction') {
+    const t = (data?.moneyIn || []).find(x => x.id === Number(args?.[0]))
+    if (t?.status === 'cleared' && !allows(policy, role, 'moneyIn', 'full')) return 'Accounts has cleared this payment, so only someone with Full on Money in can change it.'
+  }
+  if (action === 'updateMoneyOut') {
+    const x = (data?.moneyOut || []).find(m => m.id === Number(args?.[0]))
+    if ((x?.status === 'ready' || x?.status === 'paid') && !allows(policy, role, 'moneyOut', 'full')) return 'This request is approved, so only someone with Full on Payments out can change it.'
+  }
+  return null
+}
+// The record each of those reads, for the server.
+export const RECORD_RULES = { updateTransaction: 'moneyIn', updateMoneyOut: 'moneyOut', deleteListing: 'listings' }
 
 // Why `role` may not run `action`, or null when it may.
 export function refusal(policy, role, action) {
@@ -178,6 +212,20 @@ export function pathNeeds(path) {
   return best && { area: best.area, level: best.level }
 }
 // May `role` open the page at `path`? Setup, Roles & access and sign-in users are the Superadmin's.
+// Pages and lists a person's own access switch opens (their staff record's `access`, set on their page):
+// as in the current ERP, an agent sees owner requests only with Vendor Requests on, and the landlord
+// checks only with Landlord Verification on. The office follows Roles & access.
+export const AGENT_ROLES = ['staff', 'sale-staff']
+export const PATH_SWITCH = [['vendor-requests', 'vendorRequests'], ['listing-roles/vendor', 'vendorRequests'], ['reports/landlord', 'landlordVerify']]
+export const LIST_SWITCH = { vendorRequests: 'vendorRequests' }
+export const SWITCH_LABEL = { vendorRequests: 'Vendor Requests', landlordVerify: 'Landlord Verification' }
+export function switchedOff(role, access, path) {
+  if (!AGENT_ROLES.includes(role)) return false
+  const p = String(path).replace(/^\/+/, '')
+  const hit = PATH_SWITCH.find(([start]) => p === start || p.startsWith(`${start}/`))
+  return !!hit && access?.[hit[1]] !== true
+}
+
 export function opens(policy, role, path) {
   const first = String(path).replace(/^\/+/, '').split('/')[0]
   if (first === 'setup' || first === 'access' || first === 'users') return managesAccess(role)

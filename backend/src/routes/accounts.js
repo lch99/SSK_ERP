@@ -27,8 +27,13 @@ async function personFor(req, res, level) {
   const v = await viewerOf(req);
   const id = idOf(req.params.staffId);
   if (!AC.allows(v.policy, v.role, 'staff', level)) { res.status(403).json({ error: 'Your role cannot manage sign-in accounts.' }); return null; }
-  const staff = id && await db('staff').where('id', id).first('id', 'name', 'code', 'username', 'branch_id', 'status', 'phone', 'email');
+  const staff = id && await db('staff').where('id', id).first('id', 'name', 'code', 'username', 'branch_id', 'status', 'phone', 'email', 'type');
   if (!staff || (v.scope !== 'all' && !(await inReach(db, 'staff', [id], v)).has(id))) { res.status(404).json({ error: 'Not found, or not yours to see.' }); return null; }
+  // A link signs in as that person: only for someone whose access is no wider than the maker's.
+  if (level !== 'view' && !AC.covers(v.policy, v.role, AC.roleForType(staff.type))) {
+    res.status(403).json({ error: `${AC.roleOf(AC.roleForType(staff.type))?.label || 'This person'} has more access than your role, so their link comes from someone with at least as much (e.g. the Superadmin).` });
+    return null;
+  }
   return staff;
 }
 

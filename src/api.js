@@ -74,6 +74,13 @@ export async function openFile(ref) {
     throw e
   }
 }
+// A saved upload's own signed link (full size: to view or download), or null in the demo.
+export async function fileUrl(ref) {
+  const id = fileId(ref)
+  if (DEMO || id == null) return null
+  const { url } = await request(`/files/${id}/link`)
+  return `${API_URL}${url}`
+}
 // A signed link to a saved upload's preview (listing photos, profile pictures), or null.
 // Several previews in one read (a list page's photos): { [ref]: url | null }, at most 200 refs.
 export async function previewLinks(refs) {

@@ -17,26 +17,22 @@ const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
 // code: what the old phone app is told (its own words for these cases).
 const refused = (status, error, code) => Object.assign(new Error(error), { status, code });
 
-// The account, or a refusal { status, message, code }.
+// The account, or a refusal { status, message, code }. Nothing about an account (locked, deactivated, no
+// password yet, suspended) is told before its password is right: a wrong guess, an unknown username and an
+// account with no password yet all get the same answer, which also says what to do about a missing password.
+const NO_MATCH = 'Wrong username or password. If you have not set a password yet, open the link your branch office sent you, or tap "Forgot password".';
 async function checkSignIn(q, rawUsername, rawPassword) {
   const username = String(rawUsername || '').trim().toLowerCase();
   const password = String(rawPassword || '');
   if (!username || !password) throw refused(400, 'Enter your username and password.', 'LOGIN_INVALID_CREDENTIALS');
   const u = await q('users').where('username', username).first();
-  if (!u) {
+  if (!u || !u.password_hash) {
     await bcrypt.compare(password, DUMMY_HASH);
-    throw refused(401, 'Wrong username or password.', 'LOGIN_INVALID_CREDENTIALS');
+    throw refused(401, NO_MATCH, 'LOGIN_INVALID_CREDENTIALS');
   }
-  if (u.locked) throw refused(403, 'This account is locked after too many wrong passwords. Ask a superadmin or your branch manager to unlock it.', 'LOGIN_ACCOUNT_DISABLED');
-  if (!u.is_active) throw refused(403, 'This account is deactivated.', 'LOGIN_ACCOUNT_DISABLED');
-  if (!u.password_hash) {
-    await bcrypt.compare(password, DUMMY_HASH);
-    throw refused(403, 'You have not set a password yet. Open the link your branch office sent you, or tap "Forgot password" to ask for a new one.', 'LOGIN_INVALID_CREDENTIALS');
-  }
-  const staff = u.staff_id ? await q('staff').where('id', u.staff_id).first('status') : null;
-  const why = ACC.staffRefusal(staff?.status);
-  if (why) throw refused(403, why, 'LOGIN_ACCOUNT_DISABLED');
   if (!(await bcrypt.compare(password, u.password_hash))) {
+    // A locked or deactivated account counts no more tries and says nothing more.
+    if (u.locked || !u.is_active) throw refused(401, NO_MATCH, 'LOGIN_INVALID_CREDENTIALS');
     const attempts = Number(u.login_attempts) + 1;
     const locked = attempts >= MAX_ATTEMPTS;
     await q('users').where('id', u.id).update({ login_attempts: attempts, locked });
@@ -47,6 +43,11 @@ async function checkSignIn(q, rawUsername, rawPassword) {
     const left = MAX_ATTEMPTS - attempts;
     throw refused(401, `Wrong username or password. ${left} attempt${left === 1 ? '' : 's'} left before the account locks.`, 'LOGIN_INVALID_CREDENTIALS');
   }
+  if (u.locked) throw refused(403, 'This account is locked after too many wrong passwords. Ask a superadmin or your branch manager to unlock it.', 'LOGIN_ACCOUNT_DISABLED');
+  if (!u.is_active) throw refused(403, 'This account is deactivated.', 'LOGIN_ACCOUNT_DISABLED');
+  const staff = u.staff_id ? await q('staff').where('id', u.staff_id).first('status') : null;
+  const why = ACC.staffRefusal(staff?.status);
+  if (why) throw refused(403, why, 'LOGIN_ACCOUNT_DISABLED');
   await q('users').where('id', u.id).update({ login_attempts: 0, last_login_at: q.fn.now() });
   return u;
 }

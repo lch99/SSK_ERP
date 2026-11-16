@@ -11,8 +11,10 @@ const { ValidationError } = require('../db/errors');
 const router = express.Router();
 router.use(requireAuth, requirePerm('setup.edit'));
 
-// The agent list can be 5,000 rows: log how many, not every cell.
-const logged = (step, body) => (step === 'agents' ? { mode: body?.mode, rows: Array.isArray(body?.rows) ? body.rows.length : 0 } : body);
+// Who, what and when, never the values (bank accounts, licence numbers): the fields a step sent; the agent
+// list (up to 5,000 rows) as how many.
+const logged = (step, body) => (step === 'agents' ? { mode: body?.mode, rows: Array.isArray(body?.rows) ? body.rows.length : 0 }
+  : { fields: body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).sort() : [] });
 
 const send = fn => async (req, res, next) => {
   try {

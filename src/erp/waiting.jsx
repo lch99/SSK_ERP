@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import { useErp } from './ErpContext.jsx'
-import { useCan } from './access.jsx'
+import { useCan, useAccess } from './access.jsx'
 import { useList } from './useList.js'
 
 // What waits on someone: the menu's badges, Home's "Waiting for you" and the
@@ -14,13 +14,14 @@ const useCounts = (key, names, skip) => useList(key, { counts: names }, { pageSi
 export function WaitingProvider({ children }) {
   const erp = useErp()
   const can = useCan()
+  const access = useAccess()
   const off = area => !erp.m || ![].concat(area).some(a => can(a, 'view'))
   const deals = useCounts('deals', 'status,readyToClose', off('deals'))
   const moneyIn = useCounts('moneyIn', 'toCheck', off('moneyIn'))
   const payouts = useCounts('payouts', 'waiting,readyToRequest,salaryToRequest', off(['payouts', 'salary']))
   const requests = useCounts('requests', 'status', off('salary'))
   const moneyOut = useCounts('moneyOut', 'toApprove', off('moneyOut'))
-  const vendor = useCounts('vendorRequests', 'status', off('listings'))
+  const vendor = useCounts('vendorRequests', 'status', off('listings') || !access?.opens('vendor-requests'))
   const viewings = useCounts('viewings', 'status', off('listings'))
   const value = {
     drafts: deals.status?.draft || 0, toClose: deals.readyToClose?.n || 0,

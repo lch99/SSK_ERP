@@ -102,6 +102,18 @@ export const verifyLandlord = (dealId, status, remarks) => change((data, setup, 
   deal.landlordCheck = { ...deal.landlordCheck, status, on: today, remarks: str(remarks) || 'Confirmed by phone.' }
 })
 
+// ── Numbers ──
+// The next number from a count, past any still on file: after a delete the count is lower than the highest
+// number in use, and a repeated voucher or SAL code would be refused by the database (both are unique).
+const freeFrom = (taken, make, n) => { while (taken.has(make(n))) n++; return n }
+const salCode = today => n => `SAL-${today.slice(0, 7)}-${String(4801 + n).padStart(5, '0')}`
+const voucherOf = (setup, branch) => seq => P.formatNumber(setup.numbering, 'voucher', branch, seq)
+function nextVoucher(data, setup, branch, branchId) {
+  const make = voucherOf(setup, branch)
+  const used = data.moneyOut.filter(x => x.branchId === branchId).length
+  return make(freeFrom(new Set(data.moneyOut.map(x => x.voucherNo)), make, P.branchStart(setup.numbering, 'voucher', branch) + used))
+}
+
 // ── Salary / Incentives: requests per person ──
 export const createRequests = (staffIds, kind) => change((data, setup, today) => {
   const pick = new Set(staffIds)
@@ -110,9 +122,13 @@ export const createRequests = (staffIds, kind) => change((data, setup, today) =>
   if (!lines.length) return 'Nobody picked has Ready lines to request.'
   const payOn = nextPayDate(setup.approvals, today)
   let id = newId(data)
-  const count = data.requests.length
-  ;[...new Set(lines.map(l => l.staffId))].forEach((sid, i) => {
-    const r = { id: id++, code: `SAL-${today.slice(0, 7)}-${String(4801 + count + i).padStart(5, '0')}`, staffId: sid, kind, date: today, payOn, status: 'new', remark: null, paidOn: null }
+  const codes = new Set(data.requests.map(r => r.code)), make = salCode(today)
+  let n = data.requests.length
+  ;[...new Set(lines.map(l => l.staffId))].forEach(sid => {
+    n = freeFrom(codes, make, n)
+    const code = make(n++)
+    codes.add(code)
+    const r = { id: id++, code, staffId: sid, kind, date: today, payOn, status: 'new', remark: null, paidOn: null }
     data.requests.push(r)
     for (const l of lines) if (l.staffId === sid) Object.assign(l, { requestId: r.id, requestOn: today })
   })
@@ -139,7 +155,9 @@ export const claimPay = (staffId, lineIds) => change((data, setup, today) => {
   for (const kind of ['salary', 'incentives']) {
     const mine = lines.filter(p => (kind === 'incentives' ? p.role : !p.role))
     if (!mine.length) continue
-    const r = { id: id++, code: `SAL-${today.slice(0, 7)}-${String(4801 + data.requests.length).padStart(5, '0')}`, staffId, kind, date: today, payOn, status: 'new', remark: null, paidOn: null }
+    const make = salCode(today)
+    const code = make(freeFrom(new Set(data.requests.map(r => r.code)), make, data.requests.length))
+    const r = { id: id++, code, staffId, kind, date: today, payOn, status: 'new', remark: null, paidOn: null }
     data.requests.push(r)
     for (const l of mine) Object.assign(l, { requestId: r.id, requestOn: today, stacked: false, stackedOn: null })
   }
@@ -281,8 +299,7 @@ export const closeDeal = id => change((data, setup, today) => {
   const out = (type, payee, amount) => {
     // Already requested by hand from the E-Form's Actions.
     if (amount <= 0 || data.moneyOut.some(x => x.dealId === id && x.type === type)) return
-    const used = data.moneyOut.filter(x => x.branchId === deal.branchId).length
-    data.moneyOut.push({ id: nextId++, voucherNo: P.formatNumber(setup.numbering, 'voucher', branch, P.branchStart(setup.numbering, 'voucher', branch) + used),
+    data.moneyOut.push({ id: nextId++, voucherNo: nextVoucher(data, setup, branch, deal.branchId),
       dealId: id, branchId: deal.branchId, staffId: deal.agentId, type, date: today, payee, amount: r2(amount),
       from: fromAcc(['balance', 'transfer', 'refund', 'ta'].includes(type) ? 'client' : 'operating'), method: 'online', chequeNo: null,
       approvedBy: null, status: 'new', query: null, readyOn: null, paidOn: null })
@@ -472,8 +489,7 @@ export const raiseRequest = (dealId, type, body) => change((data, setup, today) 
     }[type]
   }
   const branch = setup.branches.find(x => x.id === deal.branchId)
-  const used = data.moneyOut.filter(x => x.branchId === deal.branchId).length
-  data.moneyOut.push({ id: newId(data), voucherNo: P.formatNumber(setup.numbering, 'voucher', branch, P.branchStart(setup.numbering, 'voucher', branch) + used),
+  data.moneyOut.push({ id: newId(data), voucherNo: nextVoucher(data, setup, branch, deal.branchId),
     dealId, branchId: deal.branchId, staffId: deal.agentId, type, date: today, amount, payee,
     from: setup.bankAccounts.find(a => a.purpose === (['cobroke', 'referral'].includes(type) ? 'operating' : 'client'))?.id ?? setup.bankAccounts[0]?.id ?? null,
     method: 'online', chequeNo: null, letter: str(b.letter) || null, receipt: null,

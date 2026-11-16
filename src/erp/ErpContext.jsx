@@ -41,10 +41,14 @@ export function ErpProvider({ reloadKey, children }) {
   const branch = scope !== 'all' ? ownBranch : m && branchId != null && m.branches[branchId] ? branchId : null
   const scoped = useMemo(() => (!m ? null : scope === 'all' ? inBranch(m, branch) : visibleData(m.data, who, scope)), [m, branch, scope, who])
   const refusal = access?.refusal
+  // The viewer's own access switches (their staff record) open a few pages for agents (shared/access.js switchedOff).
+  const mySwitches = m && who?.staffId != null ? m.staff[who.staffId]?.access ?? null : null
+  const setSwitches = access?.setSwitches
+  useEffect(() => { setSwitches?.(mySwitches) }, [setSwitches, mySwitches])
 
   const value = useMemo(() => {
     const act = (fn, name) => async (...args) => {
-      const why = name && refusal ? refusal(name) : null
+      const why = name && refusal ? refusal(name, args, m?.data) : null
       if (why) throw new Error(why)
       const s = await fn(...args); setState(s); return s
     }

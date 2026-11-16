@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DEMO, uploadFile, previewLinks } from '../api.js'
+import { DEMO, uploadFile, previewLinks, fileUrl } from '../api.js'
 import { fileId } from '../../shared/files.js'
 
 // Listing photo previews. Every uploaded photo is shrunk in the browser to a
@@ -157,3 +157,41 @@ export function Photo({ src, alt = '', fallback = null, style }) {
   return <img key={url} src={url} alt={alt} loading="lazy" decoding="async" draggable={false} onError={onError}
     style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover', ...style }} />
 }
+
+// An album item at full size, to view or download: the file the server keeps (a signed link), a photo
+// from the old ERP at its old address, a file just picked, or (demo) the small preview this browser keeps.
+// Null when there is nothing to show (the demo keeps no videos).
+export async function mediaUrl(p) {
+  if (typeof Blob !== 'undefined' && p.file instanceof Blob) return URL.createObjectURL(p.file)
+  const ref = p.type === 'video' ? p.file : p.preview
+  if (!ref && p.url) return String(p.url).replace(/^http:/i, 'https:')
+  if (ref && fileId(ref) != null) return fileUrl(ref)
+  return p.type !== 'video' && ref ? previewUrl(ref) : null
+}
+
+// Opens one at full size in a new tab (opened first, while the tap still counts, so it isn't blocked).
+export async function viewMedia(p) {
+  const tab = window.open('', '_blank')
+  const url = await mediaUrl(p).catch(() => null)
+  if (!url) { tab?.close(); return false }
+  if (tab) tab.location = url
+  else window.open(url, '_blank', 'noopener')
+  return true
+}
+
+// Saves several, one after another (a browser lets a page start one download at a time). Returns how many.
+export async function downloadMedia(items) {
+  let n = 0
+  for (const p of items) {
+    const url = await mediaUrl(p).catch(() => null)
+    if (!url) continue
+    const a = Object.assign(document.createElement('a'), { href: url, download: p.name || `${p.type || 'photo'}-${p.id}`, target: '_blank', rel: 'noopener' })
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    n++
+    await new Promise(r => setTimeout(r, 350))
+  }
+  return n
+}
+

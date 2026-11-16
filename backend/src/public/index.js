@@ -33,7 +33,8 @@ const O = require('../appV1/old');
 const { searchOf, categoriesOnFile, ids, num, truthy } = require('../appV1/search');
 
 const router = express.Router();
-const SPEC = LISTS.listings;
+// The listings list, searched as the Whole agency is: never by address, which holds the unit.
+const SPEC = { ...LISTS.listings, search: LISTS.agency.search };
 const MAX_SIZE = 50;
 const wrap = fn => (req, res, next) => fn(req, res).catch(err => (err.status && err.status < 500 ? res.status(err.status).json({ error: err.message }) : next(err)));
 const refuse = (status, message) => Object.assign(new Error(message), { status });

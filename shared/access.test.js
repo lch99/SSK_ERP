@@ -109,3 +109,47 @@ describe('whose records', () => {
     expect(A.visibleData(data, { staffId: 2 }, 'all')).toBe(data)
   })
 })
+
+describe('who may take over whose account (links, new passwords)', () => {
+  it('a branch admin covers agents and marketing, not Accounting, Admin (Level 2), the technical team or the Superadmin', async () => {
+    const A = await import('./access.js')
+    const p = A.defaultPolicy()
+    for (const r of ['staff', 'sale-staff', 'sale-marketing', 'admin-staff2']) expect(A.covers(p, 'admin-staff2', r)).toBe(true)
+    for (const r of ['account', 'admin-staff', 'tech', 'superadmin']) expect(A.covers(p, 'admin-staff2', r)).toBe(false)
+    expect(A.covers(p, 'superadmin', 'admin-staff')).toBe(true)
+    expect(A.covers(p, 'admin-staff', 'superadmin')).toBe(false)
+  })
+  it('Edit cannot change a cleared payment or an approved request form; Full can', async () => {
+    const A = await import('./access.js')
+    const p = A.defaultPolicy()
+    const data = { moneyIn: [{ id: 1, status: 'cleared' }, { id: 2, status: 'pending' }], moneyOut: [{ id: 3, status: 'ready' }, { id: 4, status: 'new' }] }
+    expect(A.recordRefusal(p, 'staff', 'updateTransaction', [1], data)).toMatch(/cleared/)
+    expect(A.recordRefusal(p, 'staff', 'updateTransaction', [2], data)).toBe(null)
+    expect(A.recordRefusal(p, 'account', 'updateTransaction', [1], data)).toBe(null)
+    expect(A.recordRefusal(p, 'staff', 'updateMoneyOut', [3], data)).toMatch(/approved/)
+    expect(A.recordRefusal(p, 'staff', 'updateMoneyOut', [4], data)).toBe(null)
+    expect(A.recordRefusal(p, 'account', 'updateMoneyOut', [3], data)).toBe(null)
+  })
+})
+
+describe('an agent\'s own access switches', () => {
+  it('open owner requests and the landlord checks for agents only; the office follows Roles & access', async () => {
+    const A = await import('./access.js')
+    expect(A.switchedOff('staff', { vendorRequests: false }, 'vendor-requests')).toBe(true)
+    expect(A.switchedOff('staff', { vendorRequests: true }, 'vendor-requests')).toBe(false)
+    expect(A.switchedOff('staff', {}, 'listing-roles/vendor')).toBe(true)
+    expect(A.switchedOff('sale-staff', { landlordVerify: false }, 'reports/landlord')).toBe(true)
+    expect(A.switchedOff('staff', {}, 'reports/total')).toBe(false)
+    expect(A.switchedOff('admin-staff2', {}, 'vendor-requests')).toBe(false)
+  })
+  it('lets an agent delete only their own draft listing', async () => {
+    const A = await import('./access.js')
+    const p = A.defaultPolicy()
+    const data = { listings: [{ id: 1, draft: true, creatorId: 7 }, { id: 2, draft: false, creatorId: 7 }, { id: 3, draft: true, creatorId: 8 }] }
+    expect(A.refusal(p, 'staff', 'deleteListing')).toBe(null)
+    expect(A.recordRefusal(p, 'staff', 'deleteListing', [1], data, 7)).toBe(null)
+    expect(A.recordRefusal(p, 'staff', 'deleteListing', [2], data, 7)).toMatch(/own drafts/)
+    expect(A.recordRefusal(p, 'staff', 'deleteListing', [3], data, 7)).toMatch(/own drafts/)
+    expect(A.recordRefusal(p, 'admin-staff', 'deleteListing', [2], data, null)).toBe(null)
+  })
+})

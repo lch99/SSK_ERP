@@ -7,6 +7,8 @@ const { audit } = require('../db/audit');
 const { requireAuth, requirePerm } = require('../middleware/auth');
 const { downtimeGate } = require('../middleware/downtime');
 const R = require('../../../shared/roles.js');
+const AC = require('../../../shared/access.js');
+const { viewerOf } = require('../middleware/access');
 
 const router = express.Router();
 router.use(requireAuth, requirePerm('users.manage'), downtimeGate());
@@ -73,6 +75,12 @@ async function loadManaged(req, res) {
   if (!target) { fail(res, 404, 'Account not found.'); return null; }
   if (!R.canManage(req.user, { role: target.role, branchId: target.branch_id })) {
     fail(res, 403, "You can't change this account."); return null;
+  }
+  // An account tied to a staff record has that person's ERP role (their account type), whatever its sign-in role says.
+  const staff = target.staff_id ? await db('staff').where('id', target.staff_id).first('type') : null;
+  if (staff) {
+    const v = await viewerOf(req);
+    if (!AC.covers(v.policy, v.role, AC.roleForType(staff.type))) { fail(res, 403, "This person has more access than your role, so you can't change their account."); return null; }
   }
   return target;
 }

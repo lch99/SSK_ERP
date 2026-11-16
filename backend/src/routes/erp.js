@@ -20,6 +20,7 @@ const express = require('express');
 const db = require('../db/connection');
 const A = require('../../../shared/erpActions.js');
 const R = require('../../../shared/erpRules.js');
+const AC = require('../../../shared/access.js');
 const { requireAuth } = require('../middleware/auth');
 const { downtimeGate } = require('../middleware/downtime');
 const { viewerOf, needs } = require('../middleware/access');
@@ -205,7 +206,22 @@ const listOf = (req, res) => {
 // A list's own area may read it, and so may its `readers` (shared/lists.js).
 const areasOf = spec => [spec.area, ...Object.keys(spec.readers)];
 // Who may read a list: its areas, or everyone (area: null, each person's own).
-const gateOf = spec => (spec.area == null ? (req, res, next) => next() : needs(areasOf(spec)));
+// A list an agent's own access switch opens (shared/access.js LIST_SWITCH): owner requests need Vendor Requests on.
+const switchGate = spec => async (req, res, next) => {
+  const sw = AC.LIST_SWITCH[spec.key];
+  if (!sw) return next();
+  try {
+    const v = await viewerOf(req);
+    if (!AC.AGENT_ROLES.includes(v.role)) return next();
+    const s = v.staffId != null ? await db('staff').where('id', v.staffId).first('access') : null;
+    if (parseJson(s?.access)?.[sw] === true) return next();
+    res.status(403).json({ error: `${AC.SWITCH_LABEL[sw]} is switched off for you. Ask your branch office to switch it on.` });
+  } catch (err) { next(err); }
+};
+const gateOf = spec => {
+  const area = spec.area == null ? (req, res, next) => next() : needs(areasOf(spec));
+  return (req, res, next) => area(req, res, () => switchGate(spec)(req, res, next));
+};
 
 router.get('/:list', wrap(async (req, res, next) => {
   const spec = listOf(req, res);

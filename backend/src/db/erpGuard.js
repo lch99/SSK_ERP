@@ -30,6 +30,7 @@ const who = v => ({ staffId: v.staffId, branchId: v.branchId });
 
 // May this person see a listing's owner (shared/listings.js listingRoles, as the listing page decides)?
 function seesOwner(l, v, data) {
+  if (!sees(v, 'listings')) return false;
   if (v.scope === 'all') return true;
   if (v.staffId == null) return AC.allows(v.policy, v.role, 'listings', 'edit');
   const byId = new Map(data.staff.map(s => [s.id, s]));
@@ -66,6 +67,8 @@ function forViewer(data, v) {
     out.favourites = data.favourites?.[keyOf(v)] ? { [keyOf(v)]: data.favourites[keyOf(v)] } : {};
   }
   for (const kind of DROPPED_WITHOUT_ACCESS) if (!sees(v, AREA_OF[kind])) out[kind] = [];
+  // Listings stay (E-Forms and pickers name them) without the owner or the unit for a role with no listings access.
+  if (!sees(v, 'listings')) out.listings = out.listings.map(l => ({ ...l, ...L.HIDDEN_OWNER, address: L.hideAddress(l) }));
   if (!sees(v, 'deals')) {
     // The E-Forms stay (pages link to them) without the parties' details.
     out.deals = out.deals.map(SL.withoutParties);
@@ -144,6 +147,23 @@ async function checkBefore(q, name, args, data, v) {
     if (touched.includes('type') && !AC.allows(v.policy, v.role, 'staff', 'full')) throw refuse('Changing an account type needs Full on Agents & staff.');
   }
   if (name === 'deleteStaff' && args[0] === v.staffId) throw refuse('You cannot delete your own record.');
+  // Owner requests: an agent needs Vendor Requests switched on (shared/access.js switchedOff).
+  if (name === 'setVendorRequest' && AC.AGENT_ROLES.includes(v.role)) {
+    const s = v.staffId != null ? await q('staff').where('id', v.staffId).first('access') : null;
+    let on = false;
+    try { on = (typeof s?.access === 'string' ? JSON.parse(s.access) : s?.access)?.vendorRequests === true; } catch { on = false; }
+    if (!on) throw refuse('Vendor Requests is switched off for you. Ask your branch office to switch it on.');
+  }
+  if (Object.hasOwn(AC.RECORD_RULES, name)) {
+    const kind = AC.RECORD_RULES[name];
+    const row = await q(LISTS[kind].table).where('id', Number(args[0]) || 0).first(kind === 'listings' ? ['id', 'draft', 'creator_id'] : ['id', 'status']);
+    const rec = row && (kind === 'listings' ? { id: row.id, draft: !!Number(row.draft), creatorId: row.creator_id } : row);
+    const why = AC.recordRefusal(v.policy, v.role, name, args, { [kind]: rec ? [rec] : [] }, v.staffId ?? null);
+    if (why) throw refuse(why);
+  }
+  // A payment moved to another E-Form: that E-Form must be in reach too.
+  if (name === 'updateTransaction' && args[1]?.dealId != null && args[1].dealId !== '' && v.scope !== 'all'
+    && !(await inReach(q, 'deals', [args[1].dealId], v)).has(Number(args[1].dealId))) throw refuse(NOT_YOURS);
   if (v.scope === 'all' || !Object.hasOwn(TARGET, name)) return;
   const [kind, ids] = TARGET[name];
   const want = ids(args).filter(x => x != null && x !== '');

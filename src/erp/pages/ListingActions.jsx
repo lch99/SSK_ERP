@@ -9,9 +9,9 @@ import { rm } from '../format.js'
 import { Review, changedRows, missing, needText, markGaps } from '../review.jsx'
 import ListingPreview from './ListingPreview.jsx'
 import Icon from '../Icon.jsx'
-import { useGate } from '../access.jsx'
+import { useGate, useAccess } from '../access.jsx'
 import { UPLOADS } from '../../../shared/files.js'
-import { Photo, coverOf, savePreviews } from '../photos.jsx'
+import { Photo, coverOf, savePreviews, viewMedia, downloadMedia } from '../photos.jsx'
 import { useInReach } from '../listingLife.jsx'
 import { useRecordReader } from '../useList.js'
 import { fromReply, DEMO, uploadFile } from '../../api.js'
@@ -48,6 +48,9 @@ export default function ListingActions({ l, quiet, onBook }) {
   const gate = useGate()
   const inReach = useInReach()
   const { m } = erp
+  // A draft its own creator may throw away without Full on listings (shared/access.js recordRefusal).
+  const me = useAccess()?.who?.staffId ?? null
+  const ownDraft = !!l.draft && me != null && l.creatorId === me
   const fb = useFeedback()
   const [dialog, setDialog] = useState(null)
   const [f, setF] = useState({})
@@ -129,8 +132,8 @@ export default function ListingActions({ l, quiet, onBook }) {
         { label: 'Album', icon: 'image', sub: mediaCount(l) || 'No photos or videos yet', onClick: () => openWith('album', {
           media: [...photosOf(l).map(p => ({ ...p, type: 'photo' })), ...videosOf(l).map(v => ({ ...v, type: 'video' }))], picked: [] }) },
         '-',
-        { label: 'Delete listing', icon: 'trash', danger: true, disabled: !!l.dealId, why: 'It has an E-Form. Set it Not Valid instead.', onClick: remove },
-      ].map(i => (i?.label ? gate(i, 'listings', i.danger ? 'full' : 'edit') : i))} />
+        { label: ownDraft ? 'Delete draft' : 'Delete listing', icon: 'trash', danger: true, disabled: !!l.dealId, why: 'It has an E-Form. Set it Not Valid instead.', onClick: remove },
+      ].map(i => (i?.label ? gate(i, 'listings', i.danger && !ownDraft ? 'full' : 'edit') : i))} />
 
       <Modal open={dialog === 'edit'} onClose={close} title={step === 'review' ? `Review changes · ${l.code}` : `Edit ${l.code}`} width={step === 'review' ? 680 : 620}
         footer={step === 'review' ? <>
@@ -273,6 +276,10 @@ export default function ListingActions({ l, quiet, onBook }) {
           </label>
           <span style={{ flex: 1 }} />
           {f.picked?.length > 0 && <>
+            <button style={small} onClick={async () => {
+              const n = await downloadMedia(media.filter(p => f.picked.includes(keyOf(p))))
+              fb.toast(n ? `Downloading ${n} file${n > 1 ? 's' : ''}` : 'None of these has a file to download yet.')
+            }}>Download {f.picked.length}</button>
             <button style={small} onClick={() => setPicked({ published: true })}>Publish</button>
             <button style={small} onClick={() => setPicked({ published: false })}>Unpublish</button>
             <button style={{ ...small, color: C.err }} onClick={() => setF(x => ({ ...x, media: withCover(x.media.filter(p => !x.picked.includes(keyOf(p)))), picked: [] }))}>Delete {f.picked.length}</button>
@@ -295,6 +302,8 @@ export default function ListingActions({ l, quiet, onBook }) {
                   <div style={{ padding: '6px 8px', fontSize: 12 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }} title={p.name}>{p.name}</div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                      <button style={{ ...small, fontSize: 12, padding: '2px 6px' }} aria-label={`View ${p.name} full size`}
+                        onClick={async () => { if (!await viewMedia(p)) fb.toast('There is no file to show for this one yet.') }}>View</button>
                       <button style={{ ...small, fontSize: 12, padding: '2px 6px' }} onClick={() => setOne(key, { published: !p.published })}>{p.published ? 'Unpublish' : 'Publish'}</button>
                       {!video && !p.cover && <button style={{ ...small, fontSize: 12, padding: '2px 6px' }} onClick={() => setF(x => ({ ...x, media: x.media.map(y => (y.type === 'photo' ? { ...y, cover: keyOf(y) === key } : y)) }))}>Set cover</button>}
                     </div>

@@ -132,6 +132,15 @@ router.use(async (req, res, next) => {
 // Bodies are small, except photos sent inside the request (their own route reads up to 60 MB).
 const smallJson = express.json({ limit: '1mb' });
 router.use((req, res, next) => (/\/images\/upload$/.test(req.path) ? next() : smallJson(req, res, next)));
+// The property pages need the role's listings access, as the ERP's own listing lists do (Accounting and the
+// technical team have none).
+router.use('/property', async (req, res, next) => {
+  try {
+    const v = await viewerOf(req);
+    if (!AC.allows(v.policy, v.role, 'listings', 'view')) return fail(res, 403, 'INSUFFICIENT_PRIVILEGES', 'Your role has no access to listings.');
+    next();
+  } catch (err) { next(err); }
+});
 
 // ── The person ──────────────────────────────────────────────────────────────
 router.get(['/user', '/user/', '/user/profile'], wrap(async (req, res) => ok(res, await profileOf(req.account || {}))));
