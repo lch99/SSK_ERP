@@ -50,7 +50,10 @@ export function ErpProvider({ reloadKey, children }) {
     const act = (fn, name) => async (...args) => {
       const why = name && refusal ? refusal(name, args, m?.data) : null
       if (why) throw new Error(why)
-      const s = await fn(...args); setState(s); return s
+      const s = await fn(...args)
+      // A save's reply leaves out the start-up kinds it didn't change (`kept`, on the server): keep ours.
+      setState(prev => (s?.kept?.length && prev?.data ? { ...s, data: { ...s.data, ...Object.fromEntries(s.kept.map(k => [k, prev.data[k]])) } } : s))
+      return s
     }
     return {
       m, scoped, setup: state?.setup, blockers: state?.blockers || [], loading: !state && !error, error,

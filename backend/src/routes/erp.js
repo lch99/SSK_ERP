@@ -80,6 +80,8 @@ router.get('/start', wrap(async (req, res) => {
 
 const refused = (res, status, err) => res.status(status).json({ error: err.message, errors: err.errors || [err.message] });
 
+// The big start-up kinds a save's reply may leave out when it didn't change them.
+const KEEPABLE = new Set(['staff', 'titles', 'areas', 'propertyTypes']);
 router.post('/actions/:name', wrap(async (req, res) => {
   const v = await viewerOf(req);
   let out;
@@ -94,7 +96,12 @@ router.post('/actions/:name', wrap(async (req, res) => {
   const small = req.body?.small === true;
   const state = await loadState(db, small ? { only: G.START_KINDS } : {});
   const data = state.data && G.forViewer(state.data, v);
-  res.json({ ...state, setup: forPages(state.setup), data: small && data ? G.startUp(data) : data, added: out.added, ...(out.forProjects ? { result: out.result } : {}) });
+  // kept: the start-up kinds this save didn't change are left out (on the real data they are megabytes);
+  // the page keeps its own copy of them (src/erp/ErpContext.jsx).
+  const kept = small && data ? G.START_KINDS.filter(k => KEEPABLE.has(k) && !out.changed?.[k]) : [];
+  const sent = small && data ? G.startUp(data) : data;
+  for (const k of kept) sent[k] = [];
+  res.json({ ...state, setup: forPages(state.setup), data: sent, kept, added: out.added, ...(out.forProjects ? { result: out.result } : {}) });
 }));
 
 router.get('/meta', wrap(async (req, res) => {

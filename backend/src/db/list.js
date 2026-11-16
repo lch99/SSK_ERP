@@ -174,16 +174,17 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
 
   const size = Math.min(MAX_SIZE, Math.max(1, Number.parseInt(params.size, 10) || DEFAULT_SIZE));
   const page = Math.max(1, Number.parseInt(params.page, 10) || 1);
-  const { n } = await where(q(spec.table)).count({ n: '*' }).first();
-  const rows = await ordered(where(q(spec.table)).select(`${spec.table}.*`), await prepareOrder(q, spec, parseSort(params.sort, spec))).limit(size).offset((page - 1) * size);
 
   // counts=0: a later page (the first one had the counts).
-  const counts = {};
-  for (const [key, c] of countsWanted(spec, params)) {
+  // Each count is its own query; they run side by side with the total and the rows
+  // (on 100,000 listings each takes 0.1–0.5 s, so one after another a page took seconds).
+  // `q` is the pool here, never one transaction (listAll is the one that is).
+  const countOf = async ([key, c]) => {
     if (c.col) {
       const got = await where(q(spec.table), [key]).select({ v: c.col }).count({ n: '*' }).groupBy(c.col);
-      counts[key] = Object.fromEntries(got.map(r => [r.v ?? '', Number(r.n)]));
-    } else if (c.only || c.found) {
+      return [key, Object.fromEntries(got.map(r => [r.v ?? '', Number(r.n)]))];
+    }
+    if (c.only || c.found) {
       const b = q(spec.table);
       // found: the page's own search and filters.
       if (c.found) where(b);
@@ -193,26 +194,30 @@ async function listPage(q, spec, params = {}, scope = () => {}, given = {}) {
         const kept = Object.fromEntries(active.filter(([k]) => c.keep.includes(k)).map(([k]) => [k, params[k]]));
         for (const [k, [v, p]] of Object.entries(await prepareSet({ ...kept, ...c.only(ctx) }))) spec.filters[k].apply(b, v, p);
       }
-      if (c.custom) { counts[key] = await c.custom(q, b, ctx); continue; }
+      if (c.custom) return [key, await c.custom(q, b, ctx)];
       if (c.by) {
         // month: a date by its 'YYYY-MM'; with a sum, { n, sum } for each value.
         const v = c.month ? q.raw('left(??, 7)', [c.by]) : c.by;
         if (c.sum) b.sum({ s: c.sum });
         const got = await b.select({ v }).count({ n: '*' }).groupBy(c.month ? q.raw('left(??, 7)', [c.by]) : c.by);
-        counts[key] = Object.fromEntries(got.map(r => [r.v ?? '', c.sum ? { n: Number(r.n), sum: r2(Number(r.s) || 0) } : Number(r.n)]));
-        continue;
+        return [key, Object.fromEntries(got.map(r => [r.v ?? '', c.sum ? { n: Number(r.n), sum: r2(Number(r.s) || 0) } : Number(r.n)]))];
       }
       if (c.distinct) b.countDistinct({ d: c.distinct });
       if (c.range) b.min({ lo: c.range.col }).max({ hi: c.range.col });
       if (c.sum) b.sum({ s: c.sum });
       const r = await b.count({ n: '*' }).first();
-      counts[key] = { n: Number(r.n), ...(c.sum && { sum: r2(Number(r.s) || 0) }), ...(c.distinct && { distinct: Number(r.d) }),
-        ...(c.range && { range: { min: c.range.read(r.lo) ?? null, max: c.range.read(r.hi) ?? null } }) };
-    } else {
-      const set = await prepareSet(typeof c.set === 'function' ? c.set(ctx) : c.set);
-      counts[key] = Number((await where(q(spec.table), c.ignores || [], set).count({ n: '*' }).first()).n);
+      return [key, { n: Number(r.n), ...(c.sum && { sum: r2(Number(r.s) || 0) }), ...(c.distinct && { distinct: Number(r.d) }),
+        ...(c.range && { range: { min: c.range.read(r.lo) ?? null, max: c.range.read(r.hi) ?? null } }) }];
     }
-  }
+    const set = await prepareSet(typeof c.set === 'function' ? c.set(ctx) : c.set);
+    return [key, Number((await where(q(spec.table), c.ignores || [], set).count({ n: '*' }).first()).n)];
+  };
+  const [{ n }, rows, found] = await Promise.all([
+    where(q(spec.table)).count({ n: '*' }).first(),
+    (async () => ordered(where(q(spec.table)).select(`${spec.table}.*`), await prepareOrder(q, spec, parseSort(params.sort, spec))).limit(size).offset((page - 1) * size))(),
+    Promise.all(countsWanted(spec, params).map(countOf)),
+  ]);
+  const counts = Object.fromEntries(found);
 
   const records = await toRecords(q, spec.model, rows);
   if (spec.extras) {

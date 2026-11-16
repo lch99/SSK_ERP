@@ -240,6 +240,14 @@ test('the start-up read sends the small kinds only; an action asked for a small 
   assert.equal(r.status, 200, r.body?.error);
   assert.deepEqual(r.body.data.customers, []);
   assert.equal((await db('customers').where({ id: r.body.added.customers[0] }).first()).name, 'Start Read');
+  // The big start-up kinds it didn't change are left out: the page keeps its copy (megabytes on the real data).
+  assert.deepEqual(r.body.kept, ['staff', 'titles', 'areas', 'propertyTypes']);
+  assert.deepEqual(r.body.data.staff, []);
+  // A save that changes people sends the directory again.
+  const s = await api.call('POST', '/erp/actions/addStaff', { args: [{ username: 'startread', name: 'Start Read Agent', branchId: sample.staff[0].branchId, phone: '012-000 2222', accountName: 'Start Read Agent' }], small: true });
+  assert.equal(s.status, 200, s.body?.error);
+  assert.ok(!s.body.kept.includes('staff'));
+  assert.ok(s.body.data.staff.some(x => x.id === s.body.added.staff[0]));
 });
 
 test('opening the ERP no longer runs the time rules; the scheduled run does', async () => {

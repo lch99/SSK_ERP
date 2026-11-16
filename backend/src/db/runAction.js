@@ -40,7 +40,7 @@ async function runAction(req, name, rawArgs) {
   const why = AC.refusal(v.policy, v.role, name);
   if (why) throw refusal(403, why);
   const args = G.actorArgs(name, Array.isArray(rawArgs) ? rawArgs : [], v);
-  let result, added = {};
+  let result, added = {}, changed = {};
   try {
     // Only the kinds the action reads are loaded (db/erpRun.js act); the checks and the log come after its last run.
     const done = await act(async (s, trx) => {
@@ -56,7 +56,8 @@ async function runAction(req, name, rawArgs) {
       await G.checkAfter(trx, added, v);
       // Uploads the saved records now use belong to them (files/files.js).
       await FILES.linkFiles(trx, before, s.data, req.user);
-      await audit(req, { action: name, entity: 'erp', detail: { changed: G.changedIds(before, s.data) } }, trx);
+      changed = G.changedIds(before, s.data);
+      await audit(req, { action: name, entity: 'erp', detail: { changed } }, trx);
     }, { by: req.user.username, name, args });
     // ERP_TRACE_READS=1: which kinds each action read (to see which still read a big one).
     if (process.env.ERP_TRACE_READS) console.log(`action ${name} read: ${done.read.join(', ')}`);
@@ -67,7 +68,7 @@ async function runAction(req, name, rawArgs) {
     if (isInUse(err)) throw refusal(400, 'Other records still use this, so it cannot be removed. Set it Inactive instead.');
     throw err;
   }
-  return { added, result, forProjects };
+  return { added, changed, result, forProjects };
 }
 
 module.exports = { runAction };
