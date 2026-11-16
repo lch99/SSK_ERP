@@ -909,7 +909,8 @@ export const CUSTOM_COUNTS = {
       return m
     })
     const short = hits.filter(d => r2(got.get(d.id) || 0) < Number(d.money?.billed || 0))
-    return { n: short.length, first: short.length ? Math.min(...short.map(d => d.id)) : null }
+    // reduce, not Math.min(...): tens of thousands of E-Forms would overflow the arguments
+    return { n: short.length, first: short.length ? short.reduce((m, d) => Math.min(m, d.id), Infinity) : null }
   },
   paidByDealBranch: (hits, ctx) => byDealBranch(hits, ctx, 'amount'),
   tierCounts: (hits, ctx) => {

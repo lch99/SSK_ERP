@@ -17,7 +17,8 @@ export const makeXlsx = sheets => zip(xlsxParts(sheets))
 // them first (a big list shrinks about tenfold).
 export function xlsxParts(sheets) {
   const sheetXml = s => {
-    const width = Math.max(...s.rows.map(r => r.length), 1)
+    // reduce, not Math.max(...): a download can have 50,000 rows, too many arguments for one call
+    const width = s.rows.reduce((m, r) => Math.max(m, r.length), 1)
     const cols = Array.from({ length: width }, (_, i) => `<col min="${i + 1}" max="${i + 1}" width="${s.widths?.[i] || 14}" style="1" customWidth="1"/>`).join('')
     const rows = s.rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => (v === '' || v == null ? ''
       : typeof v === 'number' && ri > 0 && Number.isFinite(v) ? `<c r="${colName(ci)}${ri + 1}" s="0"><v>${v}</v></c>`

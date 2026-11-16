@@ -27,9 +27,13 @@ const now = () => { const d = new Date(); return `${String(d.getHours()).padStar
 export const ID_KINDS = ['staff', 'listings', 'customers', 'deals', 'moneyIn', 'closes', 'payouts', 'requests', 'archives', 'moneyOut',
   'vendorRequests', 'enquiries', 'titles', 'areas', 'videos', 'propertyTypes', 'viewings', 'notices', 'downtime']
 export const RAW = Symbol.for('ssk.raw')
+// A loop, not Math.max(...ids): on the real data (100,000+ listings and payout lines) that
+// many arguments overflow the stack, and every save that made a record failed.
 const newId = data => {
   const all = data[RAW] || data
-  return Math.max(all.idFloor || 0, ...ID_KINDS.flatMap(k => (all[k] || []).map(x => x.id))) + 1
+  let max = all.idFloor || 0
+  for (const k of ID_KINDS) for (const x of all[k] || []) if (x.id > max) max = x.id
+  return max + 1
 }
 const log = (data, today, dealId, field, before, after, by = 'admin') => data.audit.unshift({ at: `${today} ${now()}`, by, dealId, field, before, after })
 
@@ -320,7 +324,7 @@ export const addCustomer = body => change((data, setup, today) => {
   if (!['Sale', 'Rent'].includes(body?.type)) errors.push('Pick Sale or Rent.')
   if (errors.length) return errors.join(' ')
   const owner = data.staff.find(s => s.id === Number(body.ownerId)) || data.staff[0]
-  data.customers.push({ id: newId(data), code: String(Math.max(...data.customers.map(c => Number(c.code) || 0)) + 1), date: body.date || today,
+  data.customers.push({ id: newId(data), code: String(data.customers.reduce((m, c) => Math.max(m, Number(c.code) || 0), -Infinity) + 1), date: body.date || today,
     name: str(body.name), phone: str(body.phone), type: body.type, area: str(body.area), from: body.from || 'others',
     budgetMin: Number(body.budgetMin) || 0, budgetMax: Number(body.budgetMax) || 0, action: 0, track: 0, remarks: str(body.remarks),
     ownerId: owner.id, branchId: owner.branchId, dealId: null, followUps: [] })
@@ -655,11 +659,12 @@ export const rerunClose = closeId => change((data, setup, today) => {
   const staffById = Object.fromEntries(data.staff.map(s => [s.id, s]))
   const { sides, lines } = payoutForClose(setup, staffById, deal, close.net, creditWithout(data, closeId, today), undefined, projectFor(data, deal))
   close.sides = sides
-  const codes = old.map(l => l.code)
+  // A line that keeps its CASE- code keeps its id too: it is the same line worked out again
+  // (the server saves it as a change; a new row with an old code would clash with the old row).
   let last = data.payouts.reduce((m, p) => Math.max(m, Number(p.code.slice(5)) || 0), 110400)
-  data.payouts = data.payouts.filter(p => p.closeId !== closeId)
   let nextId = newId(data)
-  lines.forEach((l, i) => data.payouts.push({ id: nextId++, code: codes[i] || `CASE-${++last}`, closeId, dealId: deal.id, date: close.date, time: now(),
+  data.payouts = data.payouts.filter(p => p.closeId !== closeId)
+  lines.forEach((l, i) => data.payouts.push({ id: old[i]?.id ?? nextId++, code: old[i]?.code || `CASE-${++last}`, closeId, dealId: deal.id, date: close.date, time: now(),
     staffId: l.staffId, side: l.side, role: l.role, pct: l.pct, base: l.base, amount: l.amount, tierId: l.tierId,
     status: 'new', query: null, approvedOn: null, approvedBy: null, requestOn: null, requestId: null, archiveId: null, paidOn: null }))
   log(data, today, deal.id, 'Case lines', `${old.length} lines`, `Re-run: ${lines.length} lines`)

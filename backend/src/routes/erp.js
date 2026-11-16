@@ -55,19 +55,27 @@ const placeholders = ids => ids.map(() => '?').join(', ');
 // (db/erpRun.js: one change at a time, on every record, after the time rules.)
 
 // Everything this person may see, after the time rules (the tests compare it with the demo).
+// Setup as the ERP's pages get it: without its list of every agent (with their IC and bank account
+// numbers), which no page reads; only the Setup page does, through /api/setup (Setup access only).
+const forPages = setup => {
+  if (!setup) return setup;
+  const { agents, ...rest } = setup; // eslint-disable-line no-unused-vars
+  return rest;
+};
+
 router.get('/state', wrap(async (req, res) => {
   const v = await viewerOf(req);
   await pruneNotices(db, localToday());
   let state = await loadState(db);
   // Something the time rules change (a viewing expired…) is saved once, here.
   if (state.data && A.runClock(state.data, state.setup)) state = await changeState(() => {});
-  res.json({ ...state, data: G.forViewer(state.data, v) });
+  res.json({ ...state, setup: forPages(state.setup), data: G.forViewer(state.data, v) });
 }));
 // The start-up read: only its own small kinds are read (the time rules run on a schedule: src/index.js).
 router.get('/start', wrap(async (req, res) => {
   const v = await viewerOf(req);
   const state = await loadState(db, { only: G.START_KINDS });
-  res.json({ ...state, data: state.data && G.startUp(G.forViewer(state.data, v)) });
+  res.json({ ...state, setup: forPages(state.setup), data: state.data && G.startUp(G.forViewer(state.data, v)) });
 }));
 
 const refused = (res, status, err) => res.status(status).json({ error: err.message, errors: err.errors || [err.message] });
@@ -86,12 +94,12 @@ router.post('/actions/:name', wrap(async (req, res) => {
   const small = req.body?.small === true;
   const state = await loadState(db, small ? { only: G.START_KINDS } : {});
   const data = state.data && G.forViewer(state.data, v);
-  res.json({ ...state, data: small && data ? G.startUp(data) : data, added: out.added, ...(out.forProjects ? { result: out.result } : {}) });
+  res.json({ ...state, setup: forPages(state.setup), data: small && data ? G.startUp(data) : data, added: out.added, ...(out.forProjects ? { result: out.result } : {}) });
 }));
 
 router.get('/meta', wrap(async (req, res) => {
   const v = await viewerOf(req);
-  res.json({ setup: await loadSetup(), viewer: { role: v.role, scope: v.scope, staffId: v.staffId, branchId: v.branchId } });
+  res.json({ setup: forPages(await loadSetup()), viewer: { role: v.role, scope: v.scope, staffId: v.staffId, branchId: v.branchId } });
 }));
 
 // ── Org chart ───────────────────────────────────────────────────────────────

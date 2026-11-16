@@ -363,3 +363,22 @@ test('an agent deletes their own draft listing, but no one else\'s and nothing p
   assert.equal(own.status, 200, own.body.error);
   assert.equal(await db('listings').where('id', mine.id).first(), undefined);
 });
+
+test('no ERP reply carries Setup\'s list of every agent (their IC and bank account numbers)', async () => {
+  const taken = new Set(await db('users').whereNotNull('staff_id').pluck('staff_id'));
+  const me = data.staff.find(s => s.type === 'staff' && s.status === 'active' && !taken.has(s.id));
+  // Active today, so the idle-account clock doesn't lock them (the sample is dated 2026-10-28).
+  await db('staff').where('id', me.id).update({ status: 'active', last_active_on: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }) });
+  const call = await signInAs('plainagent1', me.id);
+  for (const p of ['/erp/start', '/erp/meta', '/erp/state']) {
+    const r = await call('GET', p);
+    assert.equal(r.status, 200, p);
+    assert.ok(r.body.setup.tiers?.length, `${p}: the rest of Setup is there`);
+    assert.equal(r.body.setup.agents, undefined, p);
+  }
+  const r = await call('POST', '/erp/actions/toggleFavourite', { args: ['listings', data.listings[0].id, me.id], small: true });
+  assert.equal(r.status, 200, r.body?.error);
+  assert.equal(r.body.setup.agents, undefined, 'a save\'s reply');
+  // Setup itself (with the list) stays closed to an agent.
+  assert.equal((await call('GET', '/setup')).status, 403);
+});
