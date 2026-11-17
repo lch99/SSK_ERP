@@ -12,13 +12,13 @@ const { localToday } = require('./days');
 const { erpBlockers } = require('../../../shared/erpRules.js');
 
 // Parents before children, so every row a record points at is already there.
-const KINDS = ['propertyTypes', 'staff', 'titles', 'areas', 'projects', 'listings', 'enquiries', 'vendorRequests', 'deals', 'customers',
+const KINDS = ['propertyTypes', 'staff', 'titles', 'areas', 'projects', 'listings', 'enquiries', 'vendorRequests', 'agentRequests', 'deals', 'customers',
   'moneyIn', 'archives', 'closes', 'requests', 'payouts', 'moneyOut', 'videos', 'viewings', 'notices', 'downtime'];
 const RUNS_KEY = 'erp:runs';
 // The order the demo store keeps them in (a few pages show them as they come); the rest by id.
 const newest = col => [{ column: col, order: 'desc' }, 'id'];
 const ORDER_BY = {
-  enquiries: newest('date'), vendorRequests: newest('date'),
+  enquiries: newest('date'), vendorRequests: newest('date'), agentRequests: newest('date'),
   // Newest first; of two at the same minute, the later one first (as a new notice goes on top).
   notices: [{ column: 'at', order: 'desc' }, { column: 'id', order: 'desc' }],
   customers: ['date', 'id'], moneyIn: ['date', 'id'], closes: ['date', 'id'], requests: ['date', 'id'], moneyOut: ['date', 'id'], viewings: ['code'],

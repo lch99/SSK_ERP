@@ -350,7 +350,9 @@ const TABLES = {
         photo_count: int(r.images_count) || 0, video_count: 0, photos_on: null,
         owner_name: text(r.property_contact_name), owner_ic: '', owner_phone: text(r.property_contact), share: null,
         marketing_remarks: textOrNull(r.property_marketing_remarks), remarks_private: flag(r.property_marketing_remarks_privacy),
-        description: textOrNull(r.property_desc), remarks: textOrNull(r.property_remarks), draft: [1, 2].includes(draftCode),
+        // property_draft 1 is a draft. 2 is a listing saved from the draft form (most listings since 2017, and
+        // nine in ten new ones): a published listing, which the website shows as any other.
+        description: textOrNull(r.property_desc), remarks: textOrNull(r.property_remarks), draft: draftCode === 1,
         photo_set: null, video_set: null,
         more: JSON.stringify(Object.fromEntries(Object.entries({
           unit: unit || null, restriction: textOrNull(r.property_restriction), placement: textOrNull(r.property_placement),

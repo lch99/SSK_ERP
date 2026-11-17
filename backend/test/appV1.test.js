@@ -112,6 +112,11 @@ test('search: every active listing, the owner and unit only where the viewer is 
   assert.ok(found.body.data.some(x => x.property_run_id === code));
   const commercial = await mine('POST', '/property/search?per_page=50', { property_category: 'type-2' });
   assert.ok(commercial.body.data.every(x => x.cate_id === 3));
+  // Trip incentive: the person in charge's switch, for sales (as the app's own trip incentive search).
+  const onTrip = new Set(data.staff.filter(s => s.access?.tripIncentive).map(s => s.id));
+  assert.ok(r.body.data.every(x => x.is_trip_incentive_listing === (x.property_type === 'sales' && onTrip.has(x.project_handler_id) ? 1 : 0)));
+  const trips = await mine('POST', '/property/search?per_page=50', { is_trip_incentive_listings: 1 });
+  assert.ok(trips.body.data.every(x => x.is_trip_incentive_listing === 1));
 });
 
 test('details: the owner for the handler; a leader sees it on opening, logged once a day; photos, follow-ups, counts', async () => {

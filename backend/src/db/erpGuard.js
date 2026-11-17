@@ -13,11 +13,11 @@ const { AGENT_TYPES } = SL;
 // Kinds of record limited by reach (visibleData), and the access area each belongs to.
 const AREA_OF = {
   customers: 'customers', listings: 'listings', deals: 'deals', projects: 'projects', moneyIn: 'moneyIn', moneyOut: 'moneyOut',
-  closes: 'payouts', payouts: 'payouts', archives: 'payouts', requests: 'salary', vendorRequests: 'listings', enquiries: 'listings',
+  closes: 'payouts', payouts: 'payouts', archives: 'payouts', requests: 'salary', vendorRequests: 'listings', agentRequests: 'staff', enquiries: 'listings',
   viewings: 'listings', titles: 'listings', areas: 'listings', videos: 'videos',
 };
 // Kinds emptied for a role with no access to their area (nothing on the pages it opens needs them).
-const DROPPED_WITHOUT_ACCESS = ['customers', 'projects', 'moneyIn', 'moneyOut', 'closes', 'payouts', 'archives', 'requests', 'videos'];
+const DROPPED_WITHOUT_ACCESS = ['customers', 'projects', 'moneyIn', 'moneyOut', 'closes', 'payouts', 'archives', 'requests', 'videos', 'agentRequests'];
 // What everyone may see about colleagues outside their reach (the staff directory).
 const DIRECTORY = ['id', 'code', 'name', 'short', 'sex', 'branchId', 'role', 'uplineId', 'status', 'type', 'joined', 'leftOn', 'tierFloorId',
   'openingLifetime', 'renNo', 'regType', 'regNo', 'phone', 'email', 'socials', 'awards', 'bio', 'lastActive', 'expiresOn'];
@@ -80,7 +80,8 @@ function forViewer(data, v) {
 // ── Actions ──────────────────────────────────────────────────────────────────
 // Arguments that name who is acting: always the signed-in person (0: an office account).
 const ACTOR_ARG = { claimPay: 0, stackPay: 0, readNotices: 1, toggleFavourite: 2, confirmViewing: 1, cancelViewing: 2, addViewingRemark: 2, revealOwner: 1 };
-const ACTOR_FIELD = { addListingFollowUp: [1, 'by'], saveTitle: [0, 'requestedBy'], rescheduleViewing: [1, 'by'], scheduleDowntime: [0, 'by'], addListing: [0, 'createdBy'] };
+const ACTOR_FIELD = { addListingFollowUp: [1, 'by'], saveTitle: [0, 'requestedBy'], rescheduleViewing: [1, 'by'], scheduleDowntime: [0, 'by'], addListing: [0, 'createdBy'],
+  setAgentRequest: [2, 'by'] };
 
 const one = i => a => [a[i]];
 const each = i => a => [].concat(a[i] ?? []);
@@ -96,7 +97,7 @@ const TARGET = {
   updateCustomer: ['customers', one(0)], addCustomerFollowUp: ['customers', one(0)],
   updateListing: ['listings', one(0)], addListingFollowUp: ['listings', one(0)], deleteListing: ['listings', one(0)],
   updateStaff: ['staff', one(0)], setStaffStatus: ['staff', one(0)], setMarketingStaffs: ['staff', one(0)], deleteStaff: ['staff', one(0)], returnListings: ['staff', one(0)],
-  setVendorRequest: ['vendorRequests', one(0)], updateEnquiry: ['enquiries', one(0)],
+  setVendorRequest: ['vendorRequests', one(0)], setAgentRequest: ['agentRequests', one(0)], updateEnquiry: ['enquiries', one(0)],
   setTitleStatus: ['titles', each(0)], deleteTitle: ['titles', one(0)], saveTitle: ['titles', idIn(0, 'id')],
   setAreaStatus: ['areas', one(0)], deleteArea: ['areas', one(0)], saveArea: ['areas', idIn(0, 'id')],
   confirmViewing: ['viewings', one(0)], rescheduleViewing: ['viewings', one(0)], cancelViewing: ['viewings', one(0)],

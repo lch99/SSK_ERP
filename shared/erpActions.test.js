@@ -39,3 +39,17 @@ describe('a customer\'s phone', () => {
     expect(A.updateCustomer(5, { phone: 'call me' })(data(), setup, '2026-11-17')).toMatch(/does not look right/)
   })
 })
+
+describe('a Co-Agent request', () => {
+  const data = () => ({ agentRequests: [{ id: 3, ticket: 'ABCDEFGH23', status: 0, handledBy: null }], notices: [], favourites: {} })
+  it('follows the five statuses, kept with who set it; anything else is refused', () => {
+    const d = data()
+    expect(A.setAgentRequest(3, 1, { by: 12 })(d, {}, '2026-11-17')).toBeUndefined()
+    expect(d.agentRequests[0]).toMatchObject({ status: 1, handledBy: 12 })
+    expect(A.setAgentRequest(3, '-1')(d, {}, '2026-11-17')).toBeUndefined()
+    expect(d.agentRequests[0]).toMatchObject({ status: -1, handledBy: 12 })
+    for (const s of [9, 'joined', '', null, {}, [2]]) expect(A.setAgentRequest(3, s, null)(data(), {}, '2026-11-17')).toBe('Unknown status.')
+    expect(A.setAgentRequest(99, 1)(data(), {}, '2026-11-17')).toMatch(/no longer exists/)
+    expect(A.setAgentRequest(3, 2, 'not an object')({ agentRequests: [] }, {}, '2026-11-17')).toMatch(/no longer exists/)
+  })
+})

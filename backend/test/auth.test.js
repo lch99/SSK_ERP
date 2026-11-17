@@ -348,6 +348,31 @@ test('an agent sees owner requests only with Vendor Requests switched on, as in 
   assert.equal((await call('GET', '/erp/vendorRequests')).status, 200);
 });
 
+test('Co-Agent requests: the office follows them up, stamped with who did it; an agent sees and changes none', async () => {
+  const sent = await fetch(`${api.base}/public/agent-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Farah Co-Agent', phone: '013-222 3333', email: 'farah@example.com', registered: 'on' }) }).then(r => r.json());
+  assert.match(sent.ticket, /^[A-Z0-9]{10}$/);
+  // (What they may do comes from the sign-in's role: Admin Level 1, the whole company.)
+  const person = await free(s => s.type !== 'staff' && s.type !== 'sale-staff') || await free(() => true);
+  const office = await signInAs('coagentoffice', person.id, 'admin');
+  const list = await office('GET', `/erp/agentRequests?q=${sent.ticket}`);
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  const r = list.body.rows[0];
+  assert.deepEqual([r.name, r.email, r.registered, r.status, r.handledBy ?? null], ['Farah Co-Agent', 'farah@example.com', true, 0, null]);
+  const set = await office('POST', '/erp/actions/setAgentRequest', { args: [r.id, 1, { by: 1 }] });
+  assert.equal(set.status, 200, JSON.stringify(set.body));
+  const row = await db('agent_requests').where('id', r.id).first();
+  assert.deepEqual([row.status, row.handled_by], [1, person.id], 'the server names who did it, whatever the page sent');
+  assert.equal((await office('POST', '/erp/actions/setAgentRequest', { args: [r.id, 9] })).status, 400);
+  assert.ok((await office('POST', '/erp/actions/setAgentRequest', { args: [999999999, 1] })).status < 500);
+  const agent = await free(s => s.type === 'staff');
+  const call = await signInAs('coagentagent', agent.id);
+  const theirs = await call('GET', '/erp/agentRequests');
+  assert.ok(theirs.status === 403 || theirs.body.total === 0, 'an agent sees none');
+  assert.equal((await call('POST', '/erp/actions/setAgentRequest', { args: [r.id, 2] })).status, 403);
+  assert.equal((await db('agent_requests').where('id', r.id).first()).status, 1);
+});
+
 test('an agent deletes their own draft listing, but no one else\'s and nothing published', async () => {
   const agent = await free(s => s.type === 'staff' && s.status === 'active');
   const [mine, other] = data.listings.filter(l => !l.dealId && !data.deals.some(d => d.listingId === l.id)).slice(-2);

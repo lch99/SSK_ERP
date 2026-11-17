@@ -11,7 +11,7 @@ const { replaceState } = require('./setupStore');
 const { localToday } = require('./days');
 
 // Parents before children, so every row a record points at is already there.
-const ORDER = ['propertyTypes', 'staff', 'titles', 'areas', 'projects', 'listings', 'enquiries', 'vendorRequests', 'deals', 'customers',
+const ORDER = ['propertyTypes', 'staff', 'titles', 'areas', 'projects', 'listings', 'enquiries', 'vendorRequests', 'agentRequests', 'deals', 'customers',
   'moneyIn', 'archives', 'closes', 'requests', 'payouts', 'moneyOut', 'videos', 'v1Eforms', 'v1Overrides', 'viewings', 'notices', 'downtime'];
 const CHILD_TABLES = ['listing_follow_ups', 'customer_follow_ups', 'staff_marketing'];
 

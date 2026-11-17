@@ -22,6 +22,7 @@ import Customers from './pages/Customers.jsx'
 import Listings from './pages/Listings.jsx'
 import ListingNew from './pages/ListingNew.jsx'
 import { VendorRequests, Enquiries, Titles, Areas } from './pages/Property.jsx'
+import { AgentRequests } from './pages/AgentRequests.jsx'
 import Viewings from './pages/Viewings.jsx'
 import Rules from './pages/Rules.jsx'
 import { NoticeBell, Notifications } from './notices.jsx'
@@ -52,7 +53,7 @@ const System = ({ parts }) => (parts[1] === 'rules' ? <Rules /> : <SystemSetting
 
 const PAGES = {
   dashboard: Dashboard, customers: Customers, listings: Listings, 'listing-new': ListingNew, 'listing-roles': Listings,
-  'vendor-requests': VendorRequests, appointments: Viewings, enquiries: Enquiries, notifications: Notifications, 'whats-new': WhatsNew, technical: Technical, titles: Titles, areas: Areas,
+  'vendor-requests': VendorRequests, 'agent-requests': AgentRequests, appointments: Viewings, enquiries: Enquiries, notifications: Notifications, 'whats-new': WhatsNew, technical: Technical, titles: Titles, areas: Areas,
   deals: Deals, projects: Projects, commission: Commission, reports: Reports, 'money-in': MoneyIn, payouts: Payouts, 'money-out': MoneyOut,
   staff: Staff, invoices: Invoices, salary: Salary, 'my-pay': MyPay, videos: Videos, settings: Profile, system: System, 'org-chart': OrgChart, 'old-records': OldRecords, access: Access,
 }

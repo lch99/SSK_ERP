@@ -87,6 +87,53 @@ test('the site\'s filters and sorts', async () => {
   assert.ok(theirs.body.total < (await get('/listings?size=1')).body.total);
 });
 
+test('what the live site shows: car parks, trip incentive, viewing labels, the map\'s address and the banners', async () => {
+  const pub = data.listings.filter(l => l.status === 'active' && isPublic(l));
+  // Car parks: exactly 1, or 2 and more (the site's Carpark filter).
+  const [a, b, c] = pub;
+  for (const [l, n] of [[a, 1], [b, 2], [c, 5]]) await db.raw("update listings set more = json_set(coalesce(more, json_object()), '$.carpark', ?) where id = ?", [n, l.id]);
+  const parks = await db('listings').where({ status: 'active', draft: false }).whereRaw("json_extract(more, '$.carpark') is not null").select('id', db.raw("json_extract(more, '$.carpark') as n"));
+  const publicIds = new Set(pub.map(l => l.id));
+  const count = test => parks.filter(r => publicIds.has(r.id) && test(Number(r.n))).length;
+  const one = await get('/listings?carparks=1&size=50');
+  assert.ok(one.body.rows.some(x => x.id === a.id) && one.body.rows.every(x => x.carParks === 1));
+  assert.equal(one.body.total, count(n => n === 1));
+  const twoUp = await get('/listings?carparks=2%2B&size=50');
+  assert.ok([b.id, c.id].every(id => twoUp.body.rows.some(x => x.id === id)) && twoUp.body.rows.every(x => x.carParks >= 2));
+  assert.equal(twoUp.body.total, count(n => n >= 2));
+  assert.equal((await get('/listings?carparks=lots&size=1')).body.total, (await get('/listings?size=1')).body.total, 'nonsense is no filter');
+  // Trip incentive: the person in charge's switch, for sale and rent alike.
+  const held = pub.find(l => l.holderId != null);
+  const holder = held.holderId;
+  const access = JSON.parse((await db('staff').where('id', holder).first('access')).access || '{}');
+  await db('staff').where('id', holder).update({ access: JSON.stringify({ ...access, tripIncentive: true }) });
+  const theirs = (await get(`/listings?role=person-in-charge&staff=${holder}&size=50`)).body.rows;
+  assert.ok(theirs.length && theirs.every(x => x.tripIncentive === true));
+  assert.equal((await get(`/listings/${held.id}`)).body.tripIncentive, true);
+  const other = pub.find(l => l.holderId !== holder && l.holderId != null);
+  if (other && !JSON.parse((await db('staff').where('id', other.holderId).first('access')).access || '{}').tripIncentive) assert.equal((await get(`/listings/${other.id}`)).body.tripIncentive, false);
+  await db('staff').where('id', holder).update({ access: JSON.stringify(access) });
+  // Labels: Fast View and Easy View when the key is with the agent; Easy View when vacant; Exclusive.
+  await db('listings').where('id', a.id).update({ flags: JSON.stringify([L.KEY_FLAG, 'Exclusive']) });
+  await db('listings').where('id', b.id).update({ flags: JSON.stringify(['Vacant']) });
+  await db('listings').where('id', c.id).update({ flags: JSON.stringify(['Tenanted']) });
+  assert.deepEqual((await get(`/listings/${a.id}`)).body.labels, ['Fast View', 'Easy View', 'Exclusive']);
+  assert.deepEqual((await get(`/listings/${b.id}`)).body.labels, ['Easy View']);
+  assert.deepEqual((await get(`/listings/${c.id}`)).body.labels, []);
+  for (const l of [a, b, c]) await db('listings').where('id', l.id).update({ flags: JSON.stringify(l.flags || []) });
+  // The map: the building's address when it has one.
+  const titled = pub.find(l => l.titleId != null);
+  const t = await db('titles').where('id', titled.titleId).first('more');
+  await db.raw("update titles set more = json_set(coalesce(more, json_object()), '$.searchAddress', ?) where id = ?", ['Jalan Mulia 1/2, Taman Mulia Jaya, Ampang Jaya, Selangor, Malaysia', titled.titleId]);
+  assert.equal((await get(`/listings/${titled.id}`)).body.title.address, 'Jalan Mulia 1/2, Taman Mulia Jaya, Ampang Jaya, Selangor, Malaysia');
+  await db('titles').where('id', titled.titleId).update({ more: t.more });
+  assert.equal((await get(`/listings/${titled.id}`)).body.title.address, (JSON.parse(t.more || '{}').searchAddress || '').trim() || null);
+  // A banner shows only its buildings; a banner without a rule shows everything, as the site does.
+  const kepong = (await get('/listings?catalog=best-lifestyle-kepong&size=50')).body;
+  assert.ok(kepong.rows.every(x => [2397, 3987].includes(x.title.id)));
+  assert.equal((await get('/listings?catalog=high-end-wangsa-maju&size=1')).body.total, (await get('/listings?size=1')).body.total);
+});
+
 test('details with photos served without signing in; looks counted per day', async () => {
   const l = data.listings.find(x => x.status === 'active' && isPublic(x));
   const png = await sharp({ create: { width: 800, height: 600, channels: 3, background: '#2266cc' } }).png().toBuffer();
@@ -125,6 +172,19 @@ test('an owner\'s enquiry becomes an Owner request with a ticket', async () => {
   const v = await db('vendor_requests').where('ticket', r.body.ticket).first();
   assert.deepEqual([v.name, v.category, v.for_type, Number(v.price), v.status], ['Mdm Tan', 'Condominium', 'Sale', 550000, 0]);
   assert.equal((await post('/owner-requests', { name: 'x', phone: '12' })).status, 400);
+});
+
+test('the Co-Agent form becomes a Co-Agent request with a ticket: a name and a phone we can call; the BOVAEA tick kept', async () => {
+  assert.match((await post('/agent-requests', { phone: '0123456789' })).body.error, /name/);
+  assert.match((await post('/agent-requests', { name: 'X', phone: '12' })).body.error, /phone/);
+  assert.match((await post('/agent-requests', { name: 'X', phone: '0123456789', email: 'nope' })).body.error, /e-mail/);
+  const r = await post('/agent-requests', { name: '  Nadia Lee  ', phone: '012-345 6789', email: 'nadia@example.com', registered: true });
+  assert.equal(r.status, 200);
+  assert.match(r.body.ticket, /^[A-Z0-9]{10}$/);
+  const row = await db('agent_requests').where('ticket', r.body.ticket).first();
+  assert.deepEqual([row.name, row.phone, row.email, !!row.registered, row.status, row.handled_by], ['Nadia Lee', '012-345 6789', 'nadia@example.com', true, 0, null]);
+  const unticked = await post('/agent-requests', { name: 'Raj', phone: '0198765432' });
+  assert.equal((await db('agent_requests').where('ticket', unticked.body.ticket).first()).registered, 0);
 });
 
 test('agents\' profiles only when switched on, with public parts only', async () => {

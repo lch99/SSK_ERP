@@ -210,6 +210,12 @@ const MODELS = {
     area: 'area:text', forType: 'for_type:text', price: 'price:num', status: 'status', listingId: 'listing_id', handledBy: 'handled_by',
   }),
 
+  // Agents who asked through the website to partner with us (Agents › Co-Agent requests).
+  agentRequests: model('agentRequests', 'agent_requests', {
+    id: 'id', ticket: 'ticket', date: 'date:date', name: 'name:text', phone: 'phone:text', email: 'email', registered: 'registered:bool',
+    status: 'status', handledBy: 'handled_by',
+  }),
+
   enquiries: model('enquiries', 'enquiries', {
     id: 'id', date: 'date:date', listingId: 'listing_id', name: 'name:text', phone: 'phone:text', via: 'via:text', message: 'message',
     starred: 'starred:bool', trashed: 'trashed:bool',

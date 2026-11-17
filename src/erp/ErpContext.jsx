@@ -70,7 +70,7 @@ export function ErpProvider({ reloadKey, children }) {
       reset: act(api.resetErp),
       ...Object.fromEntries(['approvePayouts', 'queryPayouts', 'archiveCases', 'verifyLandlord', 'createRequests', 'claimPay', 'stackPay', 'setRequestStatus', 'closeDeal', 'payIncentive',
         'setMoneyInStatus', 'addTransaction', 'setMoneyOutStatus', 'addCustomer', 'updateCustomer', 'addListing', 'addStaff', 'setStaffStatus',
-        'setVendorRequest', 'updateEnquiry', 'raiseRequest',
+        'setVendorRequest', 'setAgentRequest', 'updateEnquiry', 'raiseRequest',
         'addDeal', 'updateDeal', 'deleteDeal', 'setDealDoc', 'requestInvoice', 'rerunClose', 'deleteClose', 'unarchive',
         'updateTransaction', 'deleteTransaction', 'updateMoneyOut', 'deleteMoneyOut', 'deleteSalaryRequest',
         'updateListing', 'addListingFollowUp', 'deleteListing', 'saveTitle', 'setTitleStatus', 'deleteTitle', 'saveArea', 'setAreaStatus', 'deleteArea',

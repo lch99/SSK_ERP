@@ -12,7 +12,7 @@
 // Badges read the waiting summary (src/erp/waiting.jsx: counts the server adds up).
 const todo = {
   toClose: w => w.toClose, moneyIn: w => w.moneyIn, cases: w => w.lines, requests: w => w.moneyOut,
-  salary: w => w.newRequests, vendor: w => w.vendor, viewings: w => w.viewings,
+  salary: w => w.newRequests, vendor: w => w.vendor, viewings: w => w.viewings, coAgents: w => w.coAgents,
 }
 
 export const MODULES = [
@@ -95,6 +95,7 @@ export const MODULES = [
     { section: 'Agents', was: 'H.R Portal / HR / People' },
     { label: 'All agents', was: 'All Agent/Staff / Agents & staff', path: 'staff' },
     { label: 'Org chart', was: 'View Org. Chart', path: 'org-chart' },
+    { label: 'Co-Agent requests', was: 'SubSaleKing Co-Agent (website)', path: 'agent-requests', badge: todo.coAgents },
     { section: 'Training', was: 'Video Gallery' },
     { label: 'Training videos', path: 'videos/training' },
     { label: 'Meeting recordings', path: 'videos/meeting' },

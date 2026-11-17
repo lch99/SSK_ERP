@@ -22,6 +22,7 @@ export function WaitingProvider({ children }) {
   const requests = useCounts('requests', 'status', off('salary'))
   const moneyOut = useCounts('moneyOut', 'toApprove', off('moneyOut'))
   const vendor = useCounts('vendorRequests', 'status', off('listings') || !access?.opens('vendor-requests'))
+  const coAgents = useCounts('agentRequests', 'status', off('staff') || !access?.opens('agent-requests'))
   const viewings = useCounts('viewings', 'status', off('listings'))
   const value = {
     drafts: deals.status?.draft || 0, toClose: deals.readyToClose?.n || 0,
@@ -29,7 +30,7 @@ export function WaitingProvider({ children }) {
     lines: payouts.waiting?.n || 0, closes: payouts.waiting?.distinct || 0,
     people: payouts.readyToRequest?.distinct || 0, salaryReady: payouts.salaryToRequest?.n || 0,
     newRequests: requests.status?.new || 0, toPay: (requests.status?.new || 0) + (requests.status?.ready || 0),
-    moneyOut: moneyOut.toApprove?.n || 0, vendor: vendor.status?.['0'] || 0,
+    moneyOut: moneyOut.toApprove?.n || 0, vendor: vendor.status?.['0'] || 0, coAgents: coAgents.status?.['0'] || 0,
     viewings: (viewings.status?.new || 0) + (viewings.status?.rescheduled || 0),
   }
   return <Waiting.Provider value={value}>{children}</Waiting.Provider>

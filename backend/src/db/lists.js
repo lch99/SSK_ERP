@@ -418,6 +418,8 @@ const SERVER = {
   archives: { table: 'archives' },
   moneyOut: { table: 'money_out', scope: { branch: viaDeal, team: viaDeal }, columns: { 'payee.name': 'payee_name' } },
   vendorRequests: { table: 'vendor_requests', scope: { branch: inBranch, team: viaListing } },
+  // Co-Agent requests belong to no branch: the office sees them all, an agent's own reach none.
+  agentRequests: { table: 'agent_requests', scope: { branch: () => {} } },
   enquiries: { table: 'enquiries', scope: { branch: viaListing, team: viaListing } },
   titles: {
     table: 'titles', scope: { branch: inBranch, team: inBranch },

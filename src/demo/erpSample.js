@@ -12,7 +12,7 @@ import { addDays, daysBetween, localToday, nextPayDate, payoutApprovers, erpBloc
 // The rules the actions use too live in shared/erpRules.js; pages still import them from here.
 export { addDays, daysBetween, localToday, nextPayDate, payoutApprovers, erpBlockers, docNames, payoutForClose }
 
-export const ERP_VERSION = 10
+export const ERP_VERSION = 11
 const SEED = 20261021
 const r2 = n => Math.round(n * 100) / 100
 
@@ -915,7 +915,24 @@ export function makeErpSample(setup, asOf = localToday()) {
     })
   }
 
-  const records = { staff, listings, customers, deals, moneyIn, closes, payouts, requests, archives, moneyOut, vendorRequests, enquiries, titles, areas, videos, audit, propertyTypes, v1 }
+  // ── Co-Agent requests from the public site (agents asking to partner with us) ──
+  // Their own random sequence and ids, so every other sample record stays as it was.
+  const AR = makeRng(SEED + 23)
+  const callers = staff.filter(s => s.status === 'active')
+  const agentRequests = Array.from({ length: 8 }, (_, i) => {
+    const date = addDays(asOf, -AR.int(0, 90))
+    const status = daysBetween(date, asOf) < 5 ? 0 : AR.weighted([0, 1, 2, -1, -2], x => ({ 0: 1, 1: 2, 2: 2, '-1': 1, '-2': 0.5 })[x])
+    const first = AR.pick(['Aiman', 'Mei Ling', 'Raj', 'Siti', 'Jason', 'Priya', 'Hafiz', 'Wei Jie'])
+    const last = AR.pick(['Tan', 'Lim', 'Abdullah', 'Kumar', 'Wong', 'Ismail'])
+    return {
+      id: i + 1, ticket: Array.from({ length: 10 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[AR.int(0, 31)]).join(''), date,
+      name: `${first} ${last}`, phone: `01${AR.int(0, 9)}-${AR.digits(7)}`,
+      email: AR.chance(0.8) ? `${first.toLowerCase().replace(/\s/g, '')}.${last.toLowerCase()}@example.com` : null,
+      registered: AR.chance(0.6), status, handledBy: status === 0 || !callers.length ? null : AR.pick(callers).id,
+    }
+  }).sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+
+  const records = { staff, listings, customers, deals, moneyIn, closes, payouts, requests, archives, moneyOut, vendorRequests, agentRequests, enquiries, titles, areas, videos, audit, propertyTypes, v1 }
   const life = addListingLife(records, { R: makeRng(SEED + 11), asOf, id })
   return { version: ERP_VERSION, sig: setupSignature(setup), asOf, start, ...records, ...life }
 }

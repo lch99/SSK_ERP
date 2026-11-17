@@ -7,13 +7,19 @@
 // not a draft and not marked Process Deal, Process L&L or On Hold (the old site's rule).
 //
 //   GET  /listings?q&type&category&categoryIds&subCategoryIds&areaIds&stateIds&titleIds&minPrice&maxPrice&bedrooms(3 | 3+)
-//                 &bathrooms&renovated&furnish&label&description&catalog&tracking&staff&role&exclude&hasImages&sort&page&size
+//                 &bathrooms&carparks&renovated&furnish&label&description&catalog&tracking&staff&role&exclude&hasImages&sort&page&size
 //                                              → { rows, total, page, size }
+//                 catalog: hot-sales, super-hot, rent-king, or a home-page banner (best-lifestyle-kepong,
+//                 best-lifestyle-bukit-jalil, hot-demand-kota-damansara; any other banner shows every listing, as the site does)
 //   GET  /listings/:id                         → one listing, with its photos
+//        Each listing has what the site's cards and page show: tripIncentive (its person in charge is on the trip
+//        incentive: the green ticket and "Trip Incentive Listing"), labels (Fast View, Easy View, Exclusive), and
+//        title.address, the building's address for the map (when blank, the map searches "title, area, state").
 //   POST /listings/:id/look { kind: view | click, via: web | app }   counts for the day (db/listingDaily.js)
 //   GET  /photos/:fileId[/preview]             a public listing's published photo (the small preview for lists)
 //   GET  /categories, /areas, /titles?areaId, /keywords?q          what the search picks from, with counts
 //   POST /owner-requests { name, email, phone, propertyName, subCategoryId, price, type }   → { ticket }
+//   POST /agent-requests { name, email, phone, registered (BOVAEA) }   → { ticket }   the Co-Agent form
 //   GET  /agents/:username                     an agent's public profile (only if their profile page is on)
 //   GET  /agents/:username/photo               their profile photo, if they set one in My profile
 //   GET  /saved, POST /saved/:listingId        a signed-in staff member's saved listings (toggle) — needs the ERP's sign-in
@@ -57,16 +63,26 @@ const photoUrl = (req, p, part = 'preview') => {
   return id ? `${origin(req)}/api/public/photos/${id}${part === 'preview' ? '/preview' : ''}` : p.url || null;
 };
 const PUBLIC_FLAGS = [L.KEY_FLAG, 'Vacant', 'Exclusive', 'Owner Occupied', 'Tenanted', 'Friendly Tenant'];
+// The tags the site's cards show for viewing: Fast View (the key is with the agent), Easy View (the key is with
+// the agent, it is vacant, or the tenant is friendly), and Exclusive.
+const labelsOf = flags => [
+  flags.includes(L.KEY_FLAG) && 'Fast View',
+  [L.KEY_FLAG, 'Vacant', 'Friendly Tenant'].some(f => flags.includes(f)) && 'Easy View',
+  flags.includes('Exclusive') && 'Exclusive',
+].filter(Boolean);
 
 async function contextFor(rows) {
   const people = [...new Set(rows.map(l => l.holderId).filter(x => x != null))];
   const staff = people.length ? await db('staff').whereIn('id', people).select('id', 'code', 'username', 'short_name', 'name', 'phone', 'email', 'access', 'status') : [];
   const areas = [...new Set(rows.map(l => l.area).filter(Boolean))];
   const titleIds = [...new Set(rows.map(l => l.titleId).filter(x => x != null))];
+  const titles = titleIds.length ? await db('titles').whereIn('id', titleIds).select('id', 'name', 'more') : [];
   return {
     people: new Map(staff.map(s => [s.id, s])),
+    // (The person in charge's trip incentive switch, whatever they are on the staff list.)
+    trips: new Set(staff.filter(s => parseJson(s.access)?.tripIncentive === true).map(s => s.id)),
     areaIds: new Map((areas.length ? await db('areas').whereIn('name', areas).select('id', 'name') : []).map(a => [a.name, a.id])),
-    titles: new Map((titleIds.length ? await db('titles').whereIn('id', titleIds).select('id', 'name') : []).map(t => [t.id, t.name])),
+    titles: new Map(titles.map(t => [t.id, { name: t.name, address: String(parseJson(t.more)?.searchAddress || '').trim() || null }])),
   };
 }
 
@@ -80,9 +96,10 @@ function listingOf(req, l, ctx, { details = false } = {}) {
   const photos = (l.photoSet || []).filter(p => p.published !== false);
   const cover = photos.find(p => p.cover) || photos[0] || null;
   const band = L.priceRating(l)?.band || null;
+  const title = ctx.titles.get(l.titleId);
   return {
     id: l.id, code: l.code, type: l.type === 'rental' ? 'rent' : 'sale', status: l.status,
-    title: { id: l.titleId ?? null, name: ctx.titles.get(l.titleId) || l.title }, area: l.area ? { id: ctx.areaIds.get(l.area) ?? null, name: l.area } : null,
+    title: { id: l.titleId ?? null, name: title?.name || l.title, address: title?.address || null }, area: l.area ? { id: ctx.areaIds.get(l.area) ?? null, name: l.area } : null,
     state: l.state ? { id: O.stateId(l.state) || null, name: l.state } : null,
     category: { id: cat.cateId, name: O.cateName(cat.cateId) }, subCategory: { id: cat.id || null, name: cat.name || l.category || null },
     description: l.description || null, bestPrice: l.bestPrice ?? null, askingPrice: l.askPrice ?? null, marketValue: l.marketValue ?? null,
@@ -93,7 +110,8 @@ function listingOf(req, l, ctx, { details = false } = {}) {
     placement: L.choiceLabel('placement', l.placement), specs: L.choiceLabel('specs', l.specs), renovation: L.choiceLabel('renovation', l.renovation),
     pricing: L.choiceLabel('pricing', l.pricing), shortDescription: l.shortDescription || null,
     marketingRemarks: l.remarksPrivate ? null : l.marketingRemarks || null,
-    flags: (l.flags || []).filter(f => PUBLIC_FLAGS.includes(f)), hotLists: L.hotLists(l),
+    flags: (l.flags || []).filter(f => PUBLIC_FLAGS.includes(f)), labels: labelsOf(l.flags || []), hotLists: L.hotLists(l),
+    tripIncentive: l.holderId != null && ctx.trips.has(l.holderId),
     photoCount: photos.length || l.photos || 0, coverUrl: cover ? photoUrl(req, cover) : null,
     contact: contactOf(ctx.people.get(l.holderId)),
     createdOn: l.created || null, updatedOn: l.updated || null,
@@ -103,7 +121,9 @@ function listingOf(req, l, ctx, { details = false } = {}) {
 
 // ── Search ──────────────────────────────────────────────────────────────────
 const SORT = { 'recent-update': 'updated', 'recent-photo': 'photo', 'price-asc': 'lowest', 'price-desc': 'highest', hot: 'hot', newest: 'newest' };
-const CATALOG = { 'hot-sales': 'shortcut-hot-sales-listing', 'super-hot': 'shortcut-super-hot-listing', 'rent-king': 'shortcut-rent-king-product' };
+const CATALOG = { 'hot-sales': 'shortcut-hot-sales-listing', 'super-hot': 'shortcut-super-hot-listing', 'rent-king': 'shortcut-rent-king-product',
+  // The home page's "Handpicked Area" banners, by the rules the app's banners follow (appV1/search.js).
+  ...Object.fromEntries(['best-lifestyle-kepong', 'best-lifestyle-bukit-jalil', 'hot-demand-kota-damansara'].map(b => [b, `banner-${b}`])) };
 const CATEGORY = { residential: 'type-1', 'residential-landed': null, commercial: 'type-2', industrial: 'type-3', land: 'type-4' };
 const FURNISH = { furnished: 'furnitured', 'non-furnish': 'non-furnish', 'partial-furnish': 'partial_furnished' };
 const ROLES = new Set(['product-handler', 'person-in-charge', 'main-product-handler', 'co-product-handler', 'project-handler', 'project-manager', 'branch-manager']);
@@ -134,6 +154,9 @@ async function searchFor(query) {
   params.status = TRACKING[p.tracking] || (lookingUp ? TRACKING.all : TRACKING.active);
   if (role === 'creator' && staff != null) params.creatorId = String(staff);
   const more = [atLeast(p.bedrooms, 'listings.beds'), atLeast(p.bathrooms, 'listings.baths')].filter(Boolean);
+  // Car parks (the site's Carpark: 1 … 4, 5+), kept with the listing's other details.
+  const parks = /^(\d{1,2})(\+?)$/.exec(String(p.carparks ?? '').trim());
+  if (parks) more.push(b => b.whereRaw(`coalesce(json_extract(listings.more, '$.carpark'), 0) ${parks[2] ? '>=' : '='} ?`, [Number(parks[1])]));
   const exclude = ids(p.exclude);
   if (exclude.length) more.push(b => b.whereNotIn('listings.id', exclude));
   if (p.hasImages != null && p.hasImages !== '' && !truthy(p.hasImages)) more.push(b => b.where(w => w.whereNull('listings.photo_count').orWhere('listings.photo_count', 0)));
@@ -232,22 +255,45 @@ router.get('/keywords', wrap(async (req, res) => {
 
 // ── An owner's enquiry ("Advertise as owner"): an Owner request for the office ──
 const enquiries = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many enquiries. Try again later.' } });
-router.post('/owner-requests', enquiries, wrap(async (req, res) => {
-  const b = req.body || {};
+// A ticket the person can quote: ten letters and digits that can't be misread, unused in `table`.
+async function newTicket(table) {
+  let ticket;
+  do ticket = Array.from({ length: 10 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
+  while (await db(table).where('ticket', ticket).first('id'));
+  return ticket;
+}
+// Name, phone and e-mail as both forms send them: a name, a phone with at least 7 digits, an e-mail if any.
+function contactFrom(b) {
   const name = String(b.name || '').trim().slice(0, 100);
   const phone = String(b.phone || '').trim().slice(0, 30);
   const email = String(b.email || '').trim().slice(0, 120);
   if (!name) throw refuse(400, 'Enter your name.');
-  if (String(phone).replace(/\D/g, '').length < 7) throw refuse(400, 'Enter a phone number we can reach you on.');
+  if (phone.replace(/\D/g, '').length < 7) throw refuse(400, 'Enter a phone number we can reach you on.');
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw refuse(400, 'This does not look like an e-mail address.');
-  const sub = O.CATEGORIES.flatMap(c => c.subs).find(([id]) => id === num(b.subCategoryId));
-  let ticket;
-  do ticket = Array.from({ length: 10 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
-  while (await db('vendor_requests').where('ticket', ticket).first('id'));
+  return { name, phone, email };
+}
+router.post('/owner-requests', enquiries, wrap(async (req, res) => {
+  const b = req.body || {};
+  const { name, phone, email } = contactFrom(b);
+  const sub =O.CATEGORIES.flatMap(c => c.subs).find(([id]) => id === num(b.subCategoryId));
+  const ticket = await newTicket('vendor_requests');
   await db('vendor_requests').insert({
     ticket, date: localToday(), name, phone, branch_id: null, category: sub ? sub[1] : '', area: '',
     for_type: b.type === 'rent' ? 'Rent' : 'Sale', price: num(b.price), status: 0, listing_id: null, handled_by: null,
     more: JSON.stringify({ email: email || null, property: String(b.propertyName || '').trim().slice(0, 200) || null, via: 'website' }),
+  });
+  res.json({ ticket });
+}));
+
+// ── An agent asking to partner with us ("SubSaleKing Co-Agent"): a Co-Agent request for the office ──
+router.post('/agent-requests', enquiries, wrap(async (req, res) => {
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  const { name, phone, email } = contactFrom(b);
+  const ticket = await newTicket('agent_requests');
+  await db('agent_requests').insert({
+    ticket, date: localToday(), name, phone, email: email || null, status: 0, handled_by: null,
+    registered: truthy(b.registered) || ['on', 'yes'].includes(String(b.registered ?? '').trim().toLowerCase()),
+    more: JSON.stringify({ via: 'website' }),
   });
   res.json({ ticket });
 }));

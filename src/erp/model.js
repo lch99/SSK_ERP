@@ -54,6 +54,14 @@ export const VENDOR_STATUS = {
   '-1': { label: 'Cancelled', tone: 'gray', help: 'The owner changed their mind.' },
   '-2': { label: 'Invalid', tone: 'red', help: 'Spam or a wrong number.' },
 }
+// Co-Agent requests (agents asking through the website to partner with us), as shared/erpActions.js setAgentRequest keeps them.
+export const AGENT_REQUEST_STATUS = {
+  0: { label: 'New', tone: 'amber', help: 'New from the website. Nobody has called yet.' },
+  1: { label: 'Contacted', tone: 'blue', help: 'Someone is talking to them.' },
+  2: { label: 'Joined', tone: 'green', help: 'They joined us as a co-agent.' },
+  '-1': { label: 'Not joining', tone: 'gray', help: 'They decided not to, or we did.' },
+  '-2': { label: 'Invalid', tone: 'red', help: 'Spam or a wrong number.' },
+}
 export const LANDLORD_STATUS = {
   '-1': { label: 'Pending Verification', tone: 'amber', help: 'Nobody has confirmed this landlord yet.' },
   0: { label: 'Unable to Verify', tone: 'red', help: 'Tried, but the landlord could not be confirmed.' },

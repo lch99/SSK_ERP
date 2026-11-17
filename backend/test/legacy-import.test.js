@@ -76,6 +76,8 @@ before(async () => {
     { property_id: 102, property_run_id: 'LIST-000102', property_type: 'sales', property_stat: '3', staff_id: 12 },
     { property_id: 103, property_run_id: 'LIST-000100', property_type: 'sales', staff_id: 14, property_tracking: 5, property_draft: 1 },
     { property_id: 104, property_run_id: 'LIST-000104', property_type: 'sales', staff_id: 12, property_land_built: '18446744073709551216', property_room: '40000', property_bath: '2' },
+    // Saved from the draft form (property_draft 2): published, as most listings are.
+    { property_id: 105, property_run_id: 'LIST-000105', property_type: 'sales', area_id: 5, staff_id: 12, project_handler_id: 11, property_tracking: 0, property_draft: 2, property_on_hold: 0 },
   ]);
   await rows('db_property_followup', [{ follow_id: 1, property_id: 100, follow_date: '2025-02-02', follow_up_action: 1, staff_id: 12, property_appointment_date: '2025-02-05', property_appointment_time: '3:30 PM' },
     { follow_id: 2, property_id: 102, follow_date: '2025-02-02' }]);
@@ -190,7 +192,7 @@ test('everything matches except the E-Form with no date, which the report points
 
 test('every old row is kept in history, except the logs, sign-in secrets, old notifications and the held-back contact list', async () => {
   const kept = Object.fromEntries((await db('legacy_rows').select('source_table').count({ n: '*' }).groupBy('source_table')).map(r => [r.source_table, Number(r.n)]));
-  assert.equal(kept.db_property, 5);
+  assert.equal(kept.db_property, 6);
   assert.equal(kept.db_case_list, 8);
   assert.equal(kept.some_new_table, 1);
   assert.equal(kept.db_user_notification, 5);                  // not the one from before the last 90 days
@@ -327,6 +329,8 @@ test('listings: codes, prices, flags, the people on them and their open E-Form',
   const dup = await one('listings', 103);
   assert.equal(dup.code, 'LIST-000103');                        // repeated code: made from the id
   assert.equal(dup.draft, 1);
+  assert.equal((await one('listings', 105)).draft, 0, 'saved from the draft form: published, not a draft');
+  for (const label of ['listings · drafts', 'listings · on the website']) assert.ok(result.checks.find(c => c.label === label)?.ok, label);
   assert.equal((await db('vendor_requests').first()).listing_id, 101);
   const fu = await db('listing_follow_ups').first();
   assert.deepEqual([fu.appt_date, fu.appt_time], ['2025-02-05', '03:30']);
@@ -406,7 +410,7 @@ test('the report shows counts only, never anyone\'s details', () => {
 test('new codes continue after the highest old number, deleted and first-system rows included', async () => {
   const c = Object.fromEntries((await db('counters').select()).map(r => [r.key, Number(r.value)]));
   // case 905 is a first-system line (not imported), 72 a request form; 777 the "Unknown" stand-in.
-  assert.deepEqual([c.staff, c.listing, c.transaction, c.case, c.salary, c.archive, c.request], [777, 104, 6, 905, 60, 40, 72]);
+  assert.deepEqual([c.staff, c.listing, c.transaction, c.case, c.salary, c.archive, c.request], [777, 105, 6, 905, 60, 40, 72]);
 });
 
 test('importing again needs --replace, and replaces instead of adding; sign-in accounts keep their person', async () => {
@@ -423,7 +427,7 @@ test('importing again needs --replace, and replaces instead of adding; sign-in a
   assert.equal(again.passwords.keptNewErp, 1);
   assert.equal(again.accountsUnlinked, 0);
   assert.equal(Number((await db('deals').count({ n: '*' }).first()).n), 3);
-  assert.equal(Number((await db('legacy_rows').where('source_table', 'db_property').count({ n: '*' }).first()).n), 5);
+  assert.equal(Number((await db('legacy_rows').where('source_table', 'db_property').count({ n: '*' }).first()).n), 6);
   assert.equal(Number((await db('notices').count({ n: '*' }).first()).n), 3);
 });
 

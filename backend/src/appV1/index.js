@@ -270,6 +270,7 @@ async function contextFor(req, v, rows) {
   return {
     titles, favourites: (await favouritesOf(v)).listings, areaIds: new Map(areas.map(a => [a.name, a.id])),
     names: new Map(staff.map(s => [s.id, s.short_name || s.name])), phones: new Map(staff.map(s => [s.id, s.phone])),
+    trips: new Set(staff.filter(s => parseJson(s.access)?.tripIncentive === true).map(s => s.id)),
     rolesOf: l => L.listingRoles(l, v.staffId, { title: titles.get(l.titleId), leaders: leadersOf(l.holderId) }),
     // What of the owner the viewer sees (the page's useOwnerSight): the handler and creator in full; others tied
     // to it and the office's listing editors on asking (logged); everyone else, nothing.

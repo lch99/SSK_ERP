@@ -234,3 +234,31 @@ From its tables, it keeps per person:
 | Registration: REN / REA / PEA and number | ✅ |
 | Feature switches: agent features, profile page, profile document, add listings, landlord verification, vendor requests, trip incentive | ✅ |
 | Profile photos | ⚠️ still on the panel's storage until copied |
+
+## The website (www.subsaleking.com)
+
+Checked page by page in a real browser on 17 Nov 2026, read-only. Today's site is an ASP.NET Blazor app that
+reads the old database on its own server; the new system serves it through `/api/public`. How each part maps,
+and what to settle with the site's maintainer, is in [LAUNCH.md](LAUNCH.md) under **The website**.
+
+| On the site | New system |
+|---|---|
+| SubSales, Rent, Bungalow, Commercial, Landed, the 15 states, search and its suggestions | ✅ |
+| Filters: category, areas, tracking (All / Active / Outdated), titles, renovation, furnishing, bedrooms, bathrooms, price | ✅ |
+| Filter: car parks (1 … 4, 5+) | ✅ added |
+| Sorts: Newest, Hot, Lowest / Highest Price, Recent Update, Recent Photo | ✅ |
+| Cards: Fast View, Easy View, Exclusive; NEW; photo count | ✅ (`labels` added) |
+| Trip Incentive Listing (green ticket on cards; on the listing page), sale and rent | ✅ added; the phone app now shows it too |
+| A listing's map: the building's address | ✅ added (`title.address`) |
+| Handpicked Area banners | ✅ the one with a rule today (Best Lifestyle Kepong); the other four show every listing on the site |
+| Super Hot, Rent King | ⚠️ the site shows a smaller, partly different selection (LAUNCH.md) |
+| Vendor Request Form | ✅ Listings › Owner requests |
+| Co-Agent Request Form (name, e-mail, phone, registered with BOVAEA) | ✅ added: Agents › Co-Agent requests |
+| Staff sign-in, My Saved Listings (`/account/saved-listings`) | ✅ |
+| /panel and /panel/dashboard (behind sign-in) | ✅ data imported (above); the pages themselves not walked through |
+| Agent profile pages | Not on the site today; the new system serves them for agents who switch them on |
+| About, Advertise, Download App, Coming Soon, FAQ and the footer's "Popular area…" lists | The site's own pages; FAQ and the footer lists say "Coming soon" |
+
+Found on the way: the import treated listings saved through the old draft form (`property_draft` 2, most
+listings) as drafts, which would have hidden 9,170 of the 16,039 the site shows. Fixed, and the import's check
+now compares the website's listings old and new.

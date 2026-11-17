@@ -450,6 +450,18 @@ export const setVendorRequest = (id, status, listingId) => change(data => {
   if (listingId) v.listingId = Number(listingId)
 })
 
+// A Co-Agent request's follow-up: 0 new, 1 contacted, 2 joined, -1 not joining, -2 invalid. `by` is who set it
+// (the server names the signed-in person), kept as the one handling it.
+export const AGENT_REQUEST_STATUSES = [0, 1, 2, -1, -2]
+export const setAgentRequest = (id, status, opts) => change(data => {
+  const r = (data.agentRequests || []).find(x => x.id === id)
+  if (!r) return 'That request no longer exists.'
+  if (status === '' || status == null || typeof status === 'object' || !AGENT_REQUEST_STATUSES.includes(Number(status))) return 'Unknown status.'
+  r.status = Number(status)
+  const by = Number(opts && typeof opts === 'object' ? opts.by : null)
+  if (Number.isSafeInteger(by) && by > 0) r.handledBy = by
+})
+
 export const updateEnquiry = (id, fields) => change(data => {
   const e = data.enquiries.find(x => x.id === id)
   if (!e) return 'That enquiry no longer exists.'

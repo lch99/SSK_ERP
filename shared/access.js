@@ -125,6 +125,7 @@ export const ACTIONS = {
   addCustomer: need('customers', 'edit'), updateCustomer: need('customers', 'edit'), addCustomerFollowUp: need('customers', 'edit'),
   addListing: need('listings', 'edit'), updateListing: need('listings', 'edit'), addListingFollowUp: need('listings', 'edit'), updateEnquiry: need('listings', 'edit'),
   setVendorRequest: need('listings', 'edit'), deleteListing: need('listings', 'edit'), // Full, or one's own draft (recordRefusal)
+  setAgentRequest: need('staff', 'edit'),
   saveTitle: need('listings', 'full'), setTitleStatus: need('listings', 'full'), deleteTitle: need('listings', 'full'),
   saveArea: need('listings', 'full'), setAreaStatus: need('listings', 'full'), deleteArea: need('listings', 'full'),
   addDeal: need('deals', 'edit'), updateDeal: need('deals', 'edit'), setDealDoc: need('deals', 'edit'), requestInvoice: need('invoices', 'edit'),
@@ -200,7 +201,7 @@ const PATHS = [
   ['money-out', 'moneyOut'],
   ['salary', 'salary'], ['my-pay', 'salary'], ['salary/request', 'salary', 'edit'], ['salary/incentives', 'salary', 'edit'], ['salary/creator', 'salary', 'edit'],
   ['invoices', 'invoices'],
-  ['staff', 'staff'], ['staff/new', 'staff', 'edit'], ['org-chart', 'staff'],
+  ['staff', 'staff'], ['staff/new', 'staff', 'edit'], ['org-chart', 'staff'], ['agent-requests', 'staff', 'edit'],
   ['videos', 'videos'], ['reports', 'reports'], ['system', 'system'], ['system/rules', 'listings'], ['technical', 'technical'],
 ]
 export function pathNeeds(path) {
@@ -274,6 +275,8 @@ export function visibleData(data, who, scope) {
     payouts: data.payouts.filter(x => (scope === 'branch' ? dealIds.has(x.dealId) : mine.has(x.staffId))),
     requests: data.requests.filter(x => mine.has(x.staffId)),
     vendorRequests: data.vendorRequests.filter(x => (scope === 'branch' ? inBranch(x) : listingIds.has(x.listingId))),
+    // Co-Agent requests belong to no branch: a branch's office sees them all, an agent's own reach none.
+    agentRequests: scope === 'branch' ? data.agentRequests || [] : [],
     enquiries: data.enquiries.filter(x => listingIds.has(x.listingId)),
     // Viewings they booked or host (as the listing's product handler).
     viewings: (data.viewings || []).filter(x => mine.has(x.requestedBy) || mine.has(x.handlerId)),

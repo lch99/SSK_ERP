@@ -7,7 +7,8 @@ everything people entered up to that moment is in the new ERP.
 
 Measured on the 4 Nov 2026 copy (7 GB dump, 123,529 listings, 25,132 E-Forms, 2,589 staff):
 loading the copy took **about 1 minute** (without the two search logs), the import **about 5½ minutes**
-(two of them making everyone's password hash), and its check found **all 139 counts and money totals matching**.
+(two of them making everyone's password hash), and its check found **all 141 counts and money totals matching**,
+including the 16,039 listings the website shows.
 
 ## What carries over
 
@@ -16,6 +17,9 @@ loading the copy took **about 1 minute** (without the two search logs), the impo
   lines, salary requests, request forms, archives, favourites, saved listings, the last 90 days of
   notifications, the old data log, and first-system (V1) records for history.
 - Every old row, imported or not, is kept as it was in `legacy_rows`; nothing is lost.
+- Listings saved through the old ERP's draft form (`property_draft` 2: most listings, nine in ten new ones)
+  arrive **published**, as the website shows them; only the 53 real drafts (code 1) stay drafts. The check
+  compares the website's listings old and new, so a mistake here shows as a mismatch.
 - **Passwords**: everyone signs in with the username and password they use today. The old ERP keeps them
   in plain text; the import stores only a one-way hash of each (the text is never copied), and signing in
   makes it full strength. Each re-import brings a password changed in the old ERP; one set in the new ERP
@@ -68,12 +72,42 @@ Clients test on staging, never on the production database.
    checks match**. Then `legacy:panel`, and `legacy:copy-files` once more for the last new files.
 4. Turn on what was off for staging: `TIME_RULES_MINUTES` (blank = every 15 minutes), `MAIL_URL`,
    `FIREBASE_SERVICE_ACCOUNT`.
-5. Point the addresses at the new server: `erp.subsaleking.com` (the ERP), `api.subsaleking.com` (the phone
-   app's `/v1`), and the website's reads (`/api/public`).
+5. Point the addresses at the new server: `erp.subsaleking.com` (the ERP) and `api.subsaleking.com` (the phone
+   app's `/v1`). Switch the website to its new version that reads `/api/public` (see **The website** below):
+   it reads the old database directly, so pointing an address is not enough.
 6. Smoke test: `npm run e2e` against production with a test account.
 7. People sign in as before. Keep the old ERP read-only for a few weeks, and keep the final copy somewhere safe.
 
 The downtime is the freeze to the switch: about **30 minutes** at today's size.
+
+## The website (www.subsaleking.com)
+
+The website is a separate app (ASP.NET Blazor, "SubSaleKing.Web") that reads the **old database on its own
+server**. It calls no API, so changing an address does not move it: whoever maintains it must change it to read
+the new system's `/api/public` (described at the top of `backend/src/public/index.js`), try it against staging,
+and switch on launch day. Until then it keeps showing the old database, frozen at the launch copy.
+
+| On the site | In the new system |
+|---|---|
+| Results pages, the home sections and the 15 states; search box and its suggestions | `GET /listings` (type, category, states, areas, titles, price, bedrooms, bathrooms, car parks, furnishing, renovation, tracking, sort, page), `GET /keywords` |
+| Filters panel pickers, with counts | `GET /categories`, `/areas`, `/titles` |
+| Super Hot, Rent King; the Handpicked Area banners | `catalog=super-hot`, `rent-king`; `catalog=best-lifestyle-kepong` (the only banner with a rule on the site today) |
+| Cards: photo count, NEW, Fast View / Easy View / Exclusive, the green Trip Incentive ticket | each listing's `photoCount`, `createdOn`, `labels`, `tripIncentive` |
+| A listing's page: photos, summary, About Property, map, mortgage, You may also like | `GET /listings/:id` (`photos`, `description`, `title.address` for the map), `areaIds` + `exclude` |
+| Old links `/listings/<name>-for-sale-<number>` and `?areas=<number>` | Listing, area and building numbers are the old ones, so old links keep working |
+| Vendor Request Form | `POST /owner-requests` → ERP Listings › Owner requests |
+| Co-Agent Request Form | `POST /agent-requests` → ERP Agents › Co-Agent requests (those the site already received stay in its own database) |
+| Staff sign-in, My Saved Listings | `POST /api/auth/login`, `GET /saved`, `POST /saved/:listingId` |
+| /panel (bio, socials, awards, registration, feature switches) | The ERP's agent page; `legacy:panel` brings the panel's values across |
+
+To settle with the website's maintainer before launch:
+- **Super Hot and Rent King**: the site shows 178 and 11; the new system's rules (the phone app's) give 477
+  and 19 on the same data, and only part overlaps. The site's lists look hand-picked ("Featured", "Best
+  pick") or follow a rule kept in its own database. Decide which rule the website uses.
+- **Four of the five banners** (Wangsa Maju, Kepong hot demand, Bukit Jalil, Kota Damansara) show every
+  listing on the site today; the phone app has rules for two of them.
+- **Agent contact**: each listing from `/api/public` carries its person in charge's name, phone and e-mail.
+  The site shows no agent today; drop it if it should stay that way.
 
 ## The old database holds everyone's password in plain text
 

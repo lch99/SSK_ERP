@@ -87,6 +87,19 @@ async function verify({ legacy, db, report = null }) {
       await grouped(legacy('db_property').whereRaw(...alive('property_stat')).select({ k: legacy.raw('coalesce(property_tracking, 0)') }).count({ n: '*' }).groupByRaw('coalesce(property_tracking, 0)'), 'k'),
       await grouped(db('listings').select({ k: 'status' }).count({ n: '*' }).groupBy('status'), 'k'),
       k => M.CODES.listingStatus[k] || `old code ${k}`);
+    // Drafts (old code 1 only), and what the website shows: on the market, not a draft, and not marked Process
+    // Deal, Process L&L or On Hold. A miss here empties the website, so it is checked on its own.
+    // (An old check box is set as the import reads it: a number above 0, or on / yes / true.)
+    const set = col => `((coalesce(${col}, '') regexp '^ *[0-9.]+ *$' and ${col} + 0 > 0) or lower(trim(coalesce(${col}, ''))) in ('on', 'yes', 'true'))`;
+    const oldListings = () => legacy('db_property').whereRaw(...alive('property_stat'));
+    const [drafts] = await one(oldListings().where('property_draft', 1).count({ n: '*' }));
+    add('Listings', 'listings · drafts', drafts, (await one(db('listings').where('draft', true).count({ n: '*' })))[0]);
+    const [onSite] = await one(oldListings().whereRaw('coalesce(property_tracking, 0) = 0').whereRaw('coalesce(property_draft, 0) <> 1')
+      .whereRaw(['property_slobber', 'property_hot_list', 'property_on_hold'].map(c => `not ${set(c)}`).join(' and ')).count({ n: '*' }));
+    const hidden = ['Process Deal', 'Process L&L', 'On Hold'];
+    const [onSiteNew] = await one(db('listings').where({ status: 'active', draft: false })
+      .whereRaw(hidden.map(() => 'not json_contains(coalesce(flags, json_array()), json_quote(?))').join(' and '), hidden).count({ n: '*' }));
+    add('Listings', 'listings · on the website', onSite, onSiteNew);
   }
   if (has('db_eforms')) {
     compareGroups('E-Forms', 'E-Forms',

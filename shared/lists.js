@@ -543,6 +543,15 @@ export const LISTS = {
     extras: { listingCode: { field: 'code', of: 'listings', from: 'listingId' } },
   },
 
+  // Co-Agent requests: agents who asked through the website to partner with us.
+  agentRequests: {
+    area: 'staff',
+    search: ['ticket', 'name', 'phone', 'email', { digits: 'phone' }],
+    filters: { status: { eq: 'status' }, registered: { yes: 'registered' } },
+    sorts: { date: 'date' }, sort: '-date',
+    counts: { status: 'status' },
+  },
+
   // Enquiries on listings from the website and app: the inbox, starred and trash.
   enquiries: {
     area: 'listings',

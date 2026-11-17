@@ -121,7 +121,9 @@ function listingOf(l, ctx) {
     ...Object.fromEntries(Object.entries(FLAG).map(([k, f]) => [k, yes(flags.includes(f))])),
     property_images_count: l.photos || photos.length || 0, property_follow_up_remarks_count: (l.followUps || []).length,
     user_favourite_count: 0, my_listing: tied, is_user_favourite: yes(ctx.favourites?.has(l.id)),
-    is_hot_sales_listing: yes(hot.includes('hotSale')), is_super_hot_listing: yes(hot.includes('superHot')), is_trip_incentive_listing: 0,
+    is_hot_sales_listing: yes(hot.includes('hotSale')), is_super_hot_listing: yes(hot.includes('superHot')),
+    // Its person in charge is on the trip incentive (sales, as the app's trip incentive search).
+    is_trip_incentive_listing: yes(l.type === 'sale' && ctx.trips?.has(l.holderId)),
     property_date: at(l.created), property_mdate: at(l.updated), last_modified_at: at(l.updated),
     last_follow_up_at: tied ? at(last?.date) : null,
     staff_id: l.creatorId ?? null, staff_name: name(l.creatorId),
