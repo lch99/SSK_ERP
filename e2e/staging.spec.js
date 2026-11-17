@@ -13,7 +13,7 @@ test('the first account is made with the setup key (a new server only)', async (
   expect(status.needsSetupKey, 'the server asks for its ADMIN_TOKEN').toBe(true)
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Welcome to SubSaleKing ERP' })).toBeVisible()
-  await page.getByLabel('Your name').fill('E2E Admin')
+  await page.getByLabel('Your name').fill('Superadmin')
   await page.getByLabel('Username').fill(ADMIN.username)
   await page.getByLabel(/^Password \(at least/).fill(ADMIN.password)
   await page.getByLabel('Password again', { exact: true }).fill(ADMIN.password)
@@ -43,7 +43,7 @@ test('signing in: a wrong password is refused, the right one opens the ERP, and 
 
 // The agent the link test gives an account to (their username), for the tests after it.
 let agentName = null
-const AGENT_PASSWORD = 'agent correct horse'
+const AGENT_PASSWORD = 'agent1234'
 
 test('an agent gets a one-time link, chooses a password and signs in with it', async ({ page, browser }) => {
   await signInScreen(page)

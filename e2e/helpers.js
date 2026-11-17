@@ -12,7 +12,7 @@ export function watchErrors(page) {
 }
 
 // On a server (E2E_URL): the superadmin the tests sign in as (staging.spec.js makes it on a new server).
-export const ADMIN = { username: process.env.E2E_USER || 'e2eadmin', password: process.env.E2E_PASSWORD || 'e2e correct horse battery' }
+export const ADMIN = { username: process.env.E2E_USER || 'superadmin', password: process.env.E2E_PASSWORD || 'admin1234' }
 
 // Where staging.spec.js keeps the superadmin's signed-in session for the other files (never in git).
 export const SESSION = 'e2e/.auth/admin.json'
