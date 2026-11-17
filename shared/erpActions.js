@@ -324,6 +324,7 @@ export const addCustomer = body => change((data, setup, today) => {
   const errors = []
   if (!str(body?.name)) errors.push('Name is required.')
   if (!str(body?.phone)) errors.push('Phone is required.')
+  else if (!phoneLike(body.phone)) errors.push('That phone number does not look right: 7 to 15 digits, e.g. 012-345 6789 or +65 9123 4567.')
   if (!['Sale', 'Rent'].includes(body?.type)) errors.push('Pick Sale or Rent.')
   if (errors.length) return errors.join(' ')
   const owner = data.staff.find(s => s.id === Number(body.ownerId)) || data.staff[0]
@@ -342,6 +343,8 @@ export const updateCustomer = (id, fields) => change(data => {
   // Edit entry: the same fields as Add.
   if ('name' in fields && !str(fields.name)) return 'Name is required.'
   if ('phone' in fields && !str(fields.phone)) return 'Phone is required.'
+  // A changed phone is checked as a new one is (an imported odd one can stay as it was).
+  if ('phone' in fields && str(fields.phone) !== c.phone && !phoneLike(fields.phone)) return 'That phone number does not look right: 7 to 15 digits, e.g. 012-345 6789 or +65 9123 4567.'
   for (const k of ['name', 'phone', 'area', 'type', 'from', 'date']) if (k in fields) c[k] = str(fields[k])
   for (const k of ['budgetMin', 'budgetMax']) if (k in fields) c[k] = Number(fields[k]) || 0
   if ('ownerId' in fields && data.staff.some(s => s.id === Number(fields.ownerId))) c.ownerId = Number(fields.ownerId)
@@ -777,6 +780,8 @@ export const deleteSalaryRequest = id => change(data => {
 // ── Listings: edit, follow-up, share, delete ──
 const PHONE = /^(01)[02-46-9]-*[0-9]{7}$|^(01)[1]-*[0-9]{8}$/
 export const validPhone = p => PHONE.test(String(p || '').replace(/\s/g, ''))
+// Any phone a customer may give (a landline, abroad): 7 to 15 digits, written with + - ( ) and spaces only.
+export const phoneLike = p => /^[+\d\s()-]+$/.test(String(p || '').trim()) && /^\d{7,15}$/.test(String(p).replace(/\D/g, ''))
 const EMOJI = /\p{Extended_Pictographic}/u
 // unit and renovation: kept apart from the address by the old ERP's records (the phone app edits them).
 const LISTING_EDIT = ['askPrice', 'bestPrice', 'marketValue', 'flags', 'status', 'trackingPrice', 'holderId', 'portals', 'marketingRemarks', 'remarksPrivate',

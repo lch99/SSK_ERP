@@ -94,7 +94,7 @@ async function profileOf(u) {
 }
 
 // As the ERP's own sign-in: 30 failed tries per 15 minutes from one address (a signed-in phone doesn't count).
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true,
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: Number(process.env.LOGIN_ATTEMPTS) || 30, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true,
   handler: (req, res) => fail(res, 429, 'TOO_MANY_ATTEMPTS', 'Too many sign-in attempts. Try again in a few minutes.') });
 
 router.all('/login', loginLimiter, express.json(), wrap(async (req, res) => {

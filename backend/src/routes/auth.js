@@ -17,7 +17,8 @@ const router = express.Router();
 
 // 30 failed tries per 15 minutes from one address. Only failures count: a whole office signs in from one
 // address, and its people signing in (or opening their links) must never lock each other out.
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true,
+// (LOGIN_ATTEMPTS changes the 30, e.g. on a test server whose tests try wrong passwords on purpose.)
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: Number(process.env.LOGIN_ATTEMPTS) || 30, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true,
   message: { error: 'Too many sign-in attempts. Try again in a few minutes.' } });
 // Forgot password answers the same whether or not the account exists, so every ask counts (else it could
 // flood an office with link requests).

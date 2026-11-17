@@ -51,9 +51,16 @@ test('an agent gets a one-time link, chooses a password and signs in with it', a
   await page.getByLabel('Password', { exact: true }).fill(ADMIN.password)
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.locator('.ssk-page').first()).toBeVisible({ timeout: 30_000 })
-  // An active agent from the list.
-  await page.goto('/#/staff')
-  await page.locator('.ssk-row').filter({ hasText: 'Active' }).first().click({ position: { x: 8, y: 8 } })
+  // A test agent of its own (never a real person: on real data that would reset their password), added and
+  // set Active as the office does, then their page.
+  const token = await page.evaluate(() => localStorage.getItem('ssk-token'))
+  const call = (name, ...args) => page.request.post(`/api/erp/actions/${name}`, { headers: { Authorization: `Bearer ${token}` }, data: { args, small: true } }).then(r => r.json())
+  const branches = await (await page.request.get('/api/branches', { headers: { Authorization: `Bearer ${token}` } })).json()
+  const stamp = Date.now().toString(36).slice(-5)
+  const made = await call('addStaff', { username: `e2elink${stamp}`, name: `E2E Link Agent ${stamp}`, branchId: (branches.branches || branches)[0].id, type: 'staff' })
+  const id = made.added.staff[0]
+  await call('setStaffStatus', id, 'active')
+  await page.goto(`/#/staff/${id}`)
   await expect(page).toHaveURL(/#\/staff\/\d+/)
   await page.getByRole('button', { name: /Send a (new password link|link to set the password)/ }).click()
   const url = await page.getByRole('textbox', { name: 'Password link' }).inputValue()

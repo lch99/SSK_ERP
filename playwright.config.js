@@ -23,10 +23,16 @@ export default defineConfig({
   projects: [
     // On a server, the sign-in journey first: it makes the account the rest sign in with.
     ...(process.env.E2E_URL ? [{ name: 'staging sign-in', testMatch: 'staging.spec.js', use: { ...devices['Desktop Chrome'] } }] : []),
-    { name: 'desktop', testIgnore: ['signin.spec.js', 'staging.spec.js'], dependencies: process.env.E2E_URL ? ['staging sign-in'] : [],
+    // On a server: the functional tests (journeys, negative and unexpected input), with a test agent of their own.
+    ...(process.env.E2E_URL ? [
+      { name: 'functional setup', testMatch: 'functional/setup.spec.js', dependencies: ['staging sign-in'], use: { ...devices['Desktop Chrome'], ...signedIn } },
+      { name: 'functional', testMatch: 'functional/*.spec.js', testIgnore: 'functional/setup.spec.js', dependencies: ['functional setup'],
+        use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 900 }, ...signedIn } },
+    ] : []),
+    { name: 'desktop', testIgnore: ['signin.spec.js', 'staging.spec.js', 'functional/**'], dependencies: process.env.E2E_URL ? ['staging sign-in'] : [],
       use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 900 }, ...signedIn } },
     // A small phone: every page must fit without scrolling sideways.
-    { name: 'phone', testIgnore: ['signin.spec.js', 'staging.spec.js'], dependencies: process.env.E2E_URL ? ['staging sign-in'] : [],
+    { name: 'phone', testIgnore: ['signin.spec.js', 'staging.spec.js', 'functional/**'], dependencies: process.env.E2E_URL ? ['staging sign-in'] : [],
       use: { ...devices['Pixel 5'], viewport: { width: 360, height: 740 }, ...signedIn } },
     // The sign-in screens of the server build, the server's answers stood in (no database needed).
     ...(process.env.E2E_URL ? [] : [
