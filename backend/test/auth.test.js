@@ -427,3 +427,26 @@ test('in production, only the Superadmin may read every record at once', async (
     process.env.NODE_ENV = 'test';
   }
 });
+
+test('a list with a "date" that is none is a 400 the person can read, and the server stays up', async () => {
+  const boss = await signInAs('dateboss', null, 'superadmin');
+  for (const [path, v] of [['/erp/listings', 'createdFrom=abc'], ['/erp/deals', 'from=2026-02-30'], ['/erp/staff', 'joinedFrom=5'], ['/erp/viewings', 'from=null']]) {
+    const r = await boss('GET', `${path}?${v}&counts=0&size=5`);
+    assert.equal(r.status, 400, `${path}?${v}`);
+    assert.match(r.body.error, /is not a date/);
+  }
+  assert.equal((await boss('GET', '/erp/deals?from=2026-11-01&to=2026-11-30&counts=0&size=5')).status, 200);
+  assert.equal((await boss('GET', '/erp/staff/download?joinedFrom=abc')).status, 400);
+  assert.equal((await api.call('GET', '/health')).status, 200, 'still up');
+});
+
+test('text or numbers too big for the database are refused as the person\'s mistake, not a server error', async () => {
+  const boss = await signInAs('bigboss', null, 'superadmin');
+  const long = await boss('POST', '/erp/actions/addPropertyType', { args: ['x'.repeat(500)], small: true });
+  assert.equal(long.status, 400, JSON.stringify(long.body));
+  assert.match(long.body.error, /too long for name/);
+  const listing = data.listings.find(l => l.status === 'active');
+  const huge = await boss('POST', '/erp/actions/updateListing', { args: [listing.id, { askPrice: 1e30 }], small: true });
+  assert.equal(huge.status, 400, JSON.stringify(huge.body));
+  assert.equal((await api.call('GET', '/health')).status, 200);
+});

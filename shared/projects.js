@@ -216,7 +216,9 @@ const projectOf = (s, id) => s.projects.find(x => x.id === id) || fail(['That pr
 
 // The changes, on a store { nextId, projects }: the demo's (src/demo/projectsApi.js),
 // or the server's, made from the records it read (backend/src/routes/erp.js).
-export function saveProjectIn(s, project, tiers = []) {
+const asForm = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {})
+export function saveProjectIn(s, sent, tiers = []) {
+  const project = asForm(sent)
   // A project's incentives change only through their own saves (and paying one out), never with the project.
   const { incentives: _ignored, ...fields } = project // eslint-disable-line no-unused-vars
   const p = {
@@ -238,7 +240,8 @@ export function saveProjectIn(s, project, tiers = []) {
   return structuredClone(p)
 }
 
-export function saveIncentiveIn(s, projectId, incentive) {
+export function saveIncentiveIn(s, projectId, sentIncentive) {
+  const incentive = asForm(sentIncentive)
   // `paid` is set only by paying it out: never taken from a form, and a paid incentive no longer changes
   // (else its marker could go, and it would be paid twice).
   const { paid: _sent, ...sent } = incentive // eslint-disable-line no-unused-vars

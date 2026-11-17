@@ -19,8 +19,11 @@ async function clockListings(q, [today]) {
   return [...ended.map(r => r.id), ...held];
 }
 
-const dealListings = async (q, ids) => (await q('deals').whereIn('id', ids.filter(x => x != null).map(Number)).select('listing_id')).map(r => r.listing_id);
-const viewingListings = async (q, id) => parseIds((await q('viewings').where('id', Number(id)).first('listing_ids'))?.listing_ids);
+// Only whole-number ids reach a query ("abc" became NaN, which MySQL refused as a column: a server error).
+const intOf = v => (Number.isSafeInteger(Number(v)) && String(v).trim() !== '' ? Number(v) : null);
+const intsOf = vs => [].concat(vs ?? []).map(intOf).filter(x => x != null);
+const dealListings = async (q, ids) => (intsOf(ids).length ? (await q('deals').whereIn('id', intsOf(ids)).select('listing_id')).map(r => r.listing_id) : []);
+const viewingListings = async (q, id) => (intOf(id) == null ? [] : parseIds((await q('viewings').where('id', intOf(id)).first('listing_ids'))?.listing_ids));
 
 const LISTING_SCOPE = {
   updateListing: (q, [id]) => [id], addListingFollowUp: (q, [id]) => [id], deleteListing: (q, [id]) => [id], revealOwner: (q, [id]) => [id],
@@ -30,7 +33,7 @@ const LISTING_SCOPE = {
   addDeal: (q, [b]) => [b?.listingId],
   closeDeal: (q, [id]) => dealListings(q, [id]), deleteDeal: (q, [id]) => dealListings(q, [id]), raiseRequest: (q, [id]) => dealListings(q, [id]),
   updateDeal: async (q, [id, b]) => [...await dealListings(q, [id]), b?.listingId],
-  deleteClose: async (q, [closeId]) => dealListings(q, (await q('closes').where('id', Number(closeId)).select('deal_id')).map(r => r.deal_id)),
+  deleteClose: async (q, [closeId]) => (intOf(closeId) == null ? [] : dealListings(q, (await q('closes').where('id', intOf(closeId)).select('deal_id')).map(r => r.deal_id))),
   // By its code or id (the follow-up names the listing it was about).
   addCustomerFollowUp: async (q, [, b]) => (b?.listingId ? (await q('listings').where('code', String(b.listingId).trim().toUpperCase())
     .orWhere('id', Number(b.listingId) || 0).select('id')).map(r => r.id) : []),

@@ -235,7 +235,7 @@ const SERVER = {
   staff: {
     table: 'staff', scope: STAFF_SCOPE,
     custom: {
-      expiringBefore: { apply: (b, v) => b.whereNot('staff.status', 'inactive').whereNotNull('staff.expires_on').where('staff.expires_on', '<', v) },
+      expiringBefore: { apply: (b, v) => { if (!isDay(v)) throw notADate(v); b.whereNot('staff.status', 'inactive').whereNotNull('staff.expires_on').where('staff.expires_on', '<', v); } },
       tierIs: {
         prepare: async (q, v) => [...(await tiersNow(q))].filter(([, t]) => t.tier === v).map(([id]) => id),
         apply: (b, v, ids) => (ids.length ? b.whereIn('staff.id', ids) : b.whereRaw('1 = 0')),
@@ -475,6 +475,7 @@ const SERVER = {
       reviewDue: {
         apply: (b, v) => {
           const ended = "concat(viewings.date, ' ', coalesce(viewings.ends, viewings.time))";
+          if (!isDay(v)) throw notADate(v);
           return b.where('viewings.status', 'review').whereRaw(`${ended} <= ?`, [LR.reviewDueBy(String(v))]);
         },
       },
@@ -530,19 +531,37 @@ function columnOf(m, path, overrides = {}, table = m.table) {
   return `${table}.${col}`;
 }
 
-function filterOf(rule, col, server) {
+// A date range's end must be a date: MySQL refuses to compare a DATE column with anything else (a server
+// error before). Refused as the person's mistake (400) instead.
+const DATED = new Set([KINDS.date, KINDS.at]);
+function isDay(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::\d{2})?)?$/.exec(String(v));
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3] && (m[4] == null || (+m[4] < 24 && +m[5] < 60));
+}
+const notADate = v => Object.assign(new Error(`"${String(v).slice(0, 40)}" is not a date: use YYYY-MM-DD.`), { status: 400 });
+
+function filterOf(rule, col, server, kindOf = () => null) {
+  const ranged = path => v => {
+    const x = valueOf(v) ?? v;
+    if (DATED.has(kindOf(path)) && !isDay(x)) throw notADate(v);
+    return x;
+  };
   if (rule.eq) {
     const cols = [].concat(rule.eq).map(col);
+    const dated = [].concat(rule.eq).some(path => DATED.has(kindOf(path)));
     return {
       apply: (b, v) => {
         const vals = many(v).map(valueOf);
+        if (dated) for (const x of vals) if (x !== null && !isDay(x)) throw notADate(x);
         const set = vals.filter(x => x !== null);
         b.where(x => { for (const c of cols) { if (set.length) x.orWhereIn(c, set); if (set.length < vals.length) x.orWhereNull(c); } });
       },
     };
   }
-  if (rule.from) return { apply: (b, v) => b.where(col(rule.from), '>=', valueOf(v) ?? v) };
-  if (rule.to) return { apply: (b, v) => b.where(col(rule.to), '<=', valueOf(v) ?? v) };
+  if (rule.from) return { apply: (b, v) => b.where(col(rule.from), '>=', ranged(rule.from)(v)) };
+  if (rule.to) return { apply: (b, v) => b.where(col(rule.to), '<=', ranged(rule.to)(v)) };
   if (rule.yes) return { apply: (b, v) => b.where(col(rule.yes), truthy(v) ? 1 : 0) };
   if (rule.notNull) return { apply: (b, v) => (truthy(v) ? b.whereNotNull(col(rule.notNull)) : b.whereNull(col(rule.notNull))) };
   if (rule.oneOf) {
@@ -573,7 +592,7 @@ function filterOf(rule, col, server) {
   if (rule.via) {
     // The rule on the record this one points at, as a subquery on its table.
     const m = MODELS[rule.of];
-    const inner = filterOf(rule.rule, path => columnOf(m, path), server);
+    const inner = filterOf(rule.rule, path => columnOf(m, path), server, path => fieldOf(m, path)?.kind);
     return {
       prepare: inner.prepare,
       apply: (b, v, p) => b.whereIn(col(rule.via), sub => { sub.select(`${m.table}.id`).from(m.table); inner.apply(sub, v, p); }),
@@ -616,7 +635,7 @@ function serverSpec(key) {
     // Filters the server fills with the viewer's own key (their favourites, their unread).
     viewerFilters: Object.keys(shared.filters || {}).filter(k => shared.filters[k].viewer), table: server.table, model, scope: server.scope, download: shared.download,
     search: (shared.search || []).map(searchOf),
-    filters: Object.fromEntries(Object.entries(shared.filters || {}).map(([k, rule]) => [k, filterOf(rule, col, server)])),
+    filters: Object.fromEntries(Object.entries(shared.filters || {}).map(([k, rule]) => [k, filterOf(rule, col, server, path => fieldOf(model, path)?.kind)])),
     sorts: Object.fromEntries(Object.entries(shared.sorts || {}).map(([k, f]) => [k, typeof f === 'string' ? col(f)
       // How many records of that kind point at this one, as a subquery.
       : f.count ? { count: MODELS[f.count].table, by: columnOf(MODELS[f.count], f.by), on: col(f.on || 'id') }

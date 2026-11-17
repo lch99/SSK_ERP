@@ -62,8 +62,10 @@ export const payIncentive = (projectId, incentiveId) => change((data, setup, tod
 
 // ── Closed Case: line status New / Pending Queries / Ready ──
 // Ready means approved by whoever Setup names; it then waits for a salary request.
+// Ids sent as a list, or one alone (anything else is no id at all).
+const idList = v => (Array.isArray(v) ? v : v == null || typeof v === 'object' ? [] : [v])
 export const approvePayouts = ids => change((data, setup, today) => {
-  const pick = new Set(ids)
+  const pick = new Set(idList(ids))
   const lines = data.payouts.filter(p => pick.has(p.id) && (p.status === 'new' || p.status === 'queried'))
   if (!lines.length) return 'Nothing to approve: those lines are already Ready.'
   const byClose = {}
@@ -77,7 +79,7 @@ export const approvePayouts = ids => change((data, setup, today) => {
 export const queryPayouts = (ids, reason) => change(data => {
   const text = str(reason)
   if (!text) return 'Say what needs checking.'
-  const pick = new Set(ids)
+  const pick = new Set(idList(ids))
   const lines = data.payouts.filter(p => pick.has(p.id) && p.status !== 'paid' && !p.requestId)
   if (!lines.length) return 'Lines already requested for salary cannot be queried.'
   for (const l of lines) Object.assign(l, { status: 'queried', query: text, approvedOn: null, approvedBy: null })
@@ -123,7 +125,7 @@ function nextVoucher(data, setup, branch, branchId) {
 
 // ── Salary / Incentives: requests per person ──
 export const createRequests = (staffIds, kind) => change((data, setup, today) => {
-  const pick = new Set(staffIds)
+  const pick = new Set(idList(staffIds))
   // Lines an agent stacked wait for that agent to claim them.
   const lines = data.payouts.filter(p => pick.has(p.staffId) && p.status === 'approved' && !p.requestId && !p.stacked && (kind === 'incentives' ? p.role : !p.role))
   if (!lines.length) return 'Nobody picked has Ready lines to request.'
@@ -145,7 +147,7 @@ export const createRequests = (staffIds, kind) => change((data, setup, today) =>
 // (stackPay): stacked lines stay Ready and unrequested, adding up, until the
 // agent claims them. The server must also check the lines are the viewer's.
 function ownReady(data, staffId, lineIds) {
-  const ids = new Set(lineIds)
+  const ids = new Set(idList(lineIds))
   const lines = data.payouts.filter(p => ids.has(p.id))
   if (!ids.size || lines.length !== ids.size) return 'Those payout lines no longer exist.'
   if (lines.some(p => p.staffId !== staffId)) return 'Only your own commission can be claimed or stacked.'
@@ -367,6 +369,7 @@ export const addListing = body => change((data, setup, today) => {
     ? body.videoSet.map(v => ({ id: Number(v.id), name: str(v.name), published: v.published !== false, ...(typeof v.file === 'string' && { file: str(v.file) }) }))
     : null
   if (videoSet?.length > UPLOADS.listingVideo.maxFiles) errors.push(`A listing holds up to ${UPLOADS.listingVideo.maxFiles} videos.`)
+  if (Array.isArray(body?.photoSet) && body.photoSet.length > UPLOADS.photo.maxFiles) errors.push(`A listing holds up to ${UPLOADS.photo.maxFiles} photos.`)
   // The same unit, owner phone, title and type is one listing (the current ERP's duplicate check).
   const digits = p => String(p || '').replace(/\D/g, '')
   const dup = data.listings.find(l => l.type === body?.type && same(l.title, body?.title) && digits(l.owner.phone) === digits(body?.ownerPhone) && same(l.address.split(',')[0], body?.unit))
@@ -803,8 +806,9 @@ export const updateListing = (id, fields) => change((data, setup, today) => {
   const details = L.listingDetails(f, l)
   if (details.error) return details.error
   Object.assign(f, details.fields)
-  const maxVideos = UPLOADS.listingVideo.maxFiles
+  const maxVideos = UPLOADS.listingVideo.maxFiles, maxPhotos = UPLOADS.photo.maxFiles
   if (f.videoSet?.length > maxVideos) return `A listing holds up to ${maxVideos} videos. Delete one before adding another.`
+  if (f.photoSet?.length > maxPhotos) return `A listing holds up to ${maxPhotos} photos. Delete some before adding more.`
   if (f.share) {
     const sh = f.share
     const coPh = (sh.coPh || []).filter(c => c.staffId).map(c => ({ staffId: Number(c.staffId), until: c.locked ? null : c.until || null, locked: !!c.locked, from: c.from || today }))
@@ -951,7 +955,7 @@ const STAFF_EDIT = ['name', 'short', 'ic', 'phone', 'phone2', 'email', 'sex', 'b
 export const updateStaff = (id, fields) => change(data => {
   const s = data.staff.find(x => x.id === id)
   if (!s) return 'That person no longer exists.'
-  const f = fields || {}
+  const f = fields && typeof fields === 'object' ? fields : {}
   if ('username' in f) {
     if (!str(f.username)) return 'User name is required.'
     if (data.staff.some(x => x.id !== id && x.username === str(f.username))) return 'That user name is taken.'

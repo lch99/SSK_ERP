@@ -46,7 +46,11 @@ const router = express.Router();
 // While planned downtime closes the ERP, only the technical team and the Superadmin get past the start-up read.
 router.use(requireAuth, downtimeGate({ open: ['/start'] }));
 
-const wrap = fn => (req, res, next) => fn(req, res).catch(next);
+// next goes to the handler too: the list routes pass on errors from their gate's callback with it (without it,
+// such an error threw outside any request and stopped the server).
+const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
+// A filter the person got wrong (a "date" that is none): told, as a 400; anything else goes on to the server's handler.
+const refusedOr = (res, err, next) => (err.status >= 400 && err.status < 500 ? res.status(err.status).json({ error: err.message }) : next(err));
 const notFound = res => res.status(404).json({ error: 'Not found, or not yours to see.' });
 const idOf = v => (/^\d+$/.test(String(v)) ? Number(v) : null);
 const placeholders = ids => ids.map(() => '?').join(', ');
@@ -249,7 +253,7 @@ router.get('/:list', wrap(async (req, res, next) => {
       const v = await viewerOf(req);
       const page = await listPage(db, spec, paramsOf(spec, v, req.query), scopeFor(spec, v));
       res.json({ ...page, rows: await shown(spec, v, page.rows) });
-    } catch (err) { next(err); }
+    } catch (err) { refusedOr(res, err, next); }
   });
 }));
 

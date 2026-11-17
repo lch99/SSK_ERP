@@ -66,6 +66,11 @@ async function runAction(req, name, rawArgs) {
   } catch (err) {
     if (err.status === 400 || err.status === 403) throw Object.assign(err, { errors: err.errors || [err.message] });
     if (isInUse(err)) throw refusal(400, 'Other records still use this, so it cannot be removed. Set it Inactive instead.');
+    // What the database cannot hold, from whatever was typed: the person's to fix, not a server fault.
+    const field = /column '([^']+)'/.exec(err.sqlMessage || '')?.[1]?.replace(/_/g, ' ');
+    if (err.code === 'ER_DATA_TOO_LONG') throw refusal(400, `That is too long${field ? ` for ${field}` : ''}. Shorten it and save again.`);
+    if (err.code === 'ER_WARN_DATA_OUT_OF_RANGE') throw refusal(400, `That number is too big${field ? ` for ${field}` : ''}.`);
+    if (['ER_TRUNCATED_WRONG_VALUE', 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD', 'WARN_DATA_TRUNCATED'].includes(err.code)) throw refusal(400, `That value does not fit${field ? ` ${field}` : ''}.`);
     throw err;
   }
   return { added, changed, result, forProjects };

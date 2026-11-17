@@ -129,7 +129,10 @@ function actorArgs(name, args, v) {
 // (db/lists.js, kept the same as visibleData by a test), so a check never reads every record.
 async function inReach(q, kind, ids, v) {
   const spec = LISTS[kind];
-  const b = q(spec.table).whereIn(`${spec.table}.id`, ids.map(Number));
+  // Only whole numbers can be in reach ("abc" is in nobody's, and must not reach the query).
+  const whole = ids.map(Number).filter(Number.isSafeInteger);
+  if (!whole.length) return new Set();
+  const b = q(spec.table).whereIn(`${spec.table}.id`, whole);
   scopeFor(spec, v)(b);
   return new Set((await b.select(`${spec.table}.id`)).map(r => r.id));
 }
@@ -152,7 +155,7 @@ async function checkBefore(q, name, args, data, v) {
     throw refuse(`Your role cannot add someone as ${AC.roleOf(AC.roleForType(args[0]?.type || 'staff'))?.label || 'that account type'}: it has more access than yours.`);
   }
   if (name === 'updateStaff' || name === 'setStaffStatus') {
-    const fields = name === 'setStaffStatus' ? { status: args[1] } : args[1] || {};
+    const fields = name === 'setStaffStatus' ? { status: args[1] } : args[1] && typeof args[1] === 'object' ? args[1] : {};
     const s = data.staff.find(x => x.id === args[0]);
     const touched = OWN_LOCKED.filter(k => k in fields && s && JSON.stringify(fields[k]) !== JSON.stringify(s[k]));
     if (touched.length && args[0] === v.staffId) throw refuse('You cannot change your own account type, status, branch or access switches.');

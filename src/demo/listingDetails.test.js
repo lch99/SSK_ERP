@@ -66,3 +66,15 @@ describe('landlord checks', () => {
     expect(check.history).toEqual([{ status: 0, on: expect.any(String), remarks: 'No answer' }])
   })
 })
+
+describe('an album', () => {
+  it('holds at most 50 photos, added or edited', async () => {
+    await loadSample()
+    let { data } = await erp.getErp()
+    const many = Array.from({ length: 51 }, (_, i) => ({ id: i + 1, name: `p${i}.jpg`, published: true, cover: i === 0 }))
+    const l = data.listings.find(x => x.status === 'active')
+    await expect(erp.updateListing(l.id, { photoSet: many })).rejects.toThrow(/up to 50 photos/)
+    await expect(erp.addListing({ type: 'sale', title: 'Big Album', area: 'Kepong', askPrice: 1, unit: 'B-1', ownerName: 'O', ownerPhone: '012-3456789',
+      holderId: data.staff.find(s => s.status === 'active').id, photoSet: many })).rejects.toThrow(/up to 50 photos/)
+  })
+})
