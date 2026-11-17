@@ -433,6 +433,21 @@ test('it refuses to replace records made in the new system', async () => {
   await db('deals').where('id', 9999).del();
 });
 
+test('a viewing made in the new system counts as such; --force removes it, and uploads of records gone are released', async () => {
+  await db('viewings').insert({ code: 'VIEW-90001', listing_id: 100, listing_ids: JSON.stringify([100]), customer_name: 'Trial', date: '2026-11-20', time: '10:00', status: 'new' });
+  await assert.rejects(importLegacy({ legacy, db, replace: true }), /did not come from the old ERP \(1 viewings\)/);
+  // A trial E-Form with its slip, then a forced re-import (a trial run).
+  await db('deals').insert({ id: 9998, code: 'NEW-2', type: 'sale', branch_id: (await db('branches').first()).id, date: '2026-11-01', agent_id: 12 });
+  const [fileId] = await db('files').insert({ kind: 'document', name: 'slip.pdf', mime: 'application/pdf', size: 10, storage_key: 'trial/slip.pdf', entity: 'deals', entity_id: '9998', uploaded_by: 1 });
+  const forced = await importLegacy({ legacy, db, replace: true, force: true });
+  assert.equal(Number((await db('viewings').count({ n: '*' }).first()).n), 0);
+  assert.equal(await db('deals').where('id', 9998).first(), undefined);
+  const f = await db('files').where('id', fileId).first();
+  assert.deepEqual([f.entity, f.entity_id, f.uploaded_by], [null, null, null], 'released, for the unused-upload clean-up');
+  assert.ok(forced.filesReleased >= 1);
+  await db('files').where('id', fileId).del();
+});
+
 test('a copy missing a column the import reads stops before anything is written', async () => {
   await legacy.schema.alterTable('db_trans', t => { t.dropColumn('tran_purpose'); });
   const before = Number((await db('legacy_rows').count({ n: '*' }).first()).n);

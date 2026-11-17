@@ -30,7 +30,9 @@ failed sign-ins, notifications older than 90 days, and a bought-in contact list 
 
 **Nothing is made in the production database before the last import except Setup and sign-in accounts.**
 A re-import replaces every record, so the import refuses to run over records made in the new ERP
-(listings, E-Forms…). Clients test on staging, never on the production database.
+(listings, E-Forms, viewings…). On staging, re-importing a newer copy after clients have tested needs
+`--force`, which removes what they made there; their uploads are released and cleaned up the next day.
+Clients test on staging, never on the production database.
 
 ## Rehearsal (repeat on staging whenever there is a newer copy)
 

@@ -22,16 +22,18 @@ const { verify } = require('./verify');
 const { localToday } = require('../db/days');
 const bcrypt = require('bcryptjs');
 const { freeUsername } = require('../auth/accounts');
+const { LISTS } = require('../db/lists');
 
 const PAGE = 1000;
 const BATCH = 200;
 const NUMERIC = /int|decimal|numeric|float|double|real/i;
 
 // Records the import writes, children before parents (the order they are emptied in).
-const RECORD_TABLES = ['legacy_activity', 'notices', 'favourites', 'saved_listings', 'staff_marketing', 'listing_follow_ups', 'customer_follow_ups', 'payout_lines', 'closes', 'pay_requests', 'archives', 'money_out',
+const RECORD_TABLES = ['viewings', 'legacy_activity', 'notices', 'favourites', 'saved_listings', 'staff_marketing', 'listing_follow_ups', 'customer_follow_ups', 'payout_lines', 'closes', 'pay_requests', 'archives', 'money_out',
   'money_in', 'customers', 'enquiries', 'vendor_requests', 'deals', 'listings', 'titles', 'areas', 'property_types', 'videos', 'v1_eforms', 'v1_overrides', 'staff'];
 // Business records checked for "made in the new system" before an import replaces them.
-const GUARDED = ['staff', 'listings', 'deals', 'money_in', 'payout_lines', 'customers', 'money_out', 'pay_requests'];
+// (Viewings: the current ERP has none, so every one was made in the new system.)
+const GUARDED = ['staff', 'listings', 'deals', 'money_in', 'payout_lines', 'customers', 'money_out', 'pay_requests', 'viewings'];
 const HQ_NAME = 'Head office';
 
 // ── Reading the copy ─────────────────────────────────────────────────────────
@@ -199,6 +201,21 @@ async function relinkAccounts(db, links) {
     else lost++;
   }
   return lost;
+}
+
+// ── Uploads whose record is gone ───────────────────────────────────────────────
+// A re-import removes the records made in the new system (a trial's listings, E-Forms…); their uploads would
+// still name them, and a new record given the same id would inherit them. Released instead: no longer in a
+// record, so the unused-upload clean-up deletes them (stored files too) a day later.
+async function releaseOrphanFiles(db) {
+  let n = 0;
+  for (const { entity } of await db('files').whereNotNull('entity').distinct('entity')) {
+    const table = LISTS[entity]?.table;
+    if (!table) continue;
+    n += await db('files').where('entity', entity).whereNotExists(q => q.select(db.raw(1)).from(table).whereRaw(`\`${table}\`.id = files.entity_id`))
+      .update({ entity: null, entity_id: null, uploaded_by: null, created_at: db.raw("'2000-01-01'") });
+  }
+  return n;
 }
 
 // ── Passwords: everyone keeps the one they sign in to the current ERP with ────
@@ -764,6 +781,7 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
   }
 
   report.accountsUnlinked = await relinkAccounts(db, links);
+  report.filesReleased = await releaseOrphanFiles(db);
   log('passwords (one-way hashes of the current ERP\'s)');
   report.passwords = await carryPasswords(db, legacy, log);
   report.seconds = Math.round((Date.now() - started) / 1000);
