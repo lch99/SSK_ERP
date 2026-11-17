@@ -12,6 +12,8 @@ const { verify } = require('../src/legacy/verify');
 // The made-up copy, in a test database of its own (it has tables named like ours).
 let legacy;
 
+// Photos an album holds (shared/files.js).
+const ALBUM = require('../../shared/files.js').UPLOADS.photo.maxFiles;
 // Columns the live copy keeps as text although their names look like numbers.
 const TEXT = new Set(['payout_calc_ver', 'ticket_id', 'property_price', 'property_run_id']);
 // PHP's serialize() of a flat array, as the old ERP stores a notification's details.
@@ -91,10 +93,10 @@ before(async () => {
     { form_id: 500, form_code: '2025-06-SALE-00500', form_type: 'sales', form_date: '2025-06-01', form_status: 3, property_id: 100, staff_id: 12, cobro_id: 11, branch_manager_id: 10,
       rent_price: 600000, vp_fees: 10800, pintro_fees: 0, intro_fees: 0, cobro_fees: 0, gst_pay_by: 'Agent', gst_amount: 800, form_total: 10800, net_total: 10000,
       tenant_name: 'Buyer X', tenant_nric: '880101-10-1111', landlord_name: 'Owner One', form_loc_file: 'docs/500-loc.pdf' },
-    { form_id: 501, form_code: '2025-07-RENT-00501', form_type: 'rental', form_date: '2025-07-01', form_status: 1, property_id: 101, staff_id: 21, cobro_id: 21,
+    { form_id: 501, form_code: '2025-07-RENT-00501', form_type: 'eform_rental', form_date: '2025-07-01', form_status: 1, property_id: 101, staff_id: 21, cobro_id: 21,
       rent_price: 2200, vp_fees: 2000, gst_pay_by: 'Owner', gst_amount: 0, form_total: 2000, net_total: 2000, tenency_fees: 400 },
     { form_id: 502, form_code: '2025-08-SALE-00502', form_type: 'sales', form_date: '2025-08-01', form_status: 0, property_id: 100, staff_id: 777, rent_price: 590000, vp_fees: 0, net_total: 0 },
-    { form_id: 503, form_code: '2025-08-SALE-00503', form_type: 'sales', form_date: '2025-08-02', form_status: 1, property_id: 100, staff_id: 12, form_stat: '3' },
+    { form_id: 503, form_code: '2025-08-SALE-00503', form_type: 'eform_sales', form_date: '2025-08-02', form_status: 1, property_id: 100, staff_id: 12, form_stat: '3' },
     { form_id: 504, form_code: '2019-03-SALE-00504', form_type: 'sales', form_date: '2019-03-01', form_status: 3, property_id: 0, staff_id: 11, rent_price: 400000, form_total: 8000, net_total: 7547 },
     { form_id: 505, form_code: '2025-09-SALE-00505', form_type: 'sales', form_date: '0000-00-00', form_status: 1, property_id: 100, staff_id: 12, rent_price: 0, net_total: 0 },
     { form_id: 506, form_code: '0007-03-SALE-00506', form_type: 'sales', form_date: '0007-03-01', form_status: 3, property_id: 0, staff_id: 11, rent_price: 1000, form_total: 10, net_total: 10 },
@@ -161,14 +163,14 @@ before(async () => {
     { id: 6, user_id: 12, type: 'property.price_updated', category: 'bad_news', reference_id: 102, unread: '1', created_at: '2026-10-03 09:00:00', params: php(kepong) },
   ]);
   // Photos: two shown on listing 100 (the second its cover, one on the old http address), one deleted, one on a
-  // listing that isn't imported, and 21 on listing 101, one over what an album holds.
+  // listing that isn't imported, and one more on listing 101 than an album holds.
   await rows('db_property_images', [
     { image_id: 1, property_id: 100, image_url: 'property-images/100/a.jpg', image_stat: '', image_display: 1, image_cover: 0, image_date: '2026-01-02' },
     { image_id: 2, property_id: 100, image_url: 'http://storage.subsaleking.com/property-images/100/b%20front.jpg', image_stat: '', image_display: 1, image_cover: 1, image_date: '2026-01-03' },
     { image_id: 3, property_id: 100, image_url: 'property-images/100/c.jpg', image_stat: '3', image_display: 1, image_cover: 0, image_date: '2026-01-04' },
     { image_id: 4, property_id: 999, image_url: 'property-images/999/x.jpg', image_stat: '', image_display: 1, image_cover: 0, image_date: '2026-01-04' },
-    ...Array.from({ length: 21 }, (_, i) => ({ image_id: 10 + i, property_id: 101, image_url: `https://storage.subsaleking.com/property-images/101/${i}.jpg`,
-      image_stat: '', image_display: 1, image_cover: 0, image_date: `2026-02-${String(i + 1).padStart(2, '0')}` })),
+    ...Array.from({ length: ALBUM + 1 }, (_, i) => ({ image_id: 10 + i, property_id: 101, image_url: `https://storage.subsaleking.com/property-images/101/${i}.jpg`,
+      image_stat: '', image_display: 1, image_cover: 0, image_date: new Date(Date.UTC(2026, 1, 1 + i)).toISOString().slice(0, 10) })),
   ]);
   await rows('some_new_table', [{ id: 1, label: 'x' }]);
 
@@ -200,8 +202,25 @@ test('every old row is kept in history, except the logs, sign-in secrets, old no
 });
 
 test('passwords and sign-in tokens are never copied', async () => {
-  const all = JSON.stringify(await db('legacy_rows').select('data')) + JSON.stringify(await db('staff').select()) + JSON.stringify(await db('legacy_activity').select());
+  const all = JSON.stringify(await db('legacy_rows').select('data')) + JSON.stringify(await db('staff').select()) + JSON.stringify(await db('legacy_activity').select())
+    + JSON.stringify(await db('users').select());
   for (const secret of ['secret-pw-1', 'tok-uuid-12', 'salty', 'hunter2', 'hunter3', 'typed-wrong-pw', 'sess-hash', 'argon-hash-1']) assert.ok(!all.includes(secret), secret);
+});
+
+test('people sign in with the password they use now, kept only as a one-way hash; those who left get no account', async () => {
+  const bcrypt = require('bcryptjs');
+  const bob = await db('users').where('staff_id', 12).first();
+  assert.equal(bob.username, 'bob');
+  assert.ok(await bcrypt.compare('secret-pw-1', bob.password_hash));
+  assert.equal(bcrypt.getRounds(bob.password_hash), 10, 'lighter at import');
+  assert.equal(report.passwords.made, 1);
+  assert.equal(await db('users').where('staff_id', 13).first(), undefined, 'Carol (deleted in the old ERP) has none');
+  // Signing in works, and makes the hash full strength.
+  const { checkSignIn } = require('../src/auth/signIn');
+  await checkSignIn(db, 'BOB', 'secret-pw-1');
+  const after = await db('users').where('staff_id', 12).first();
+  assert.equal(bcrypt.getRounds(after.password_hash), 12);
+  assert.ok(await bcrypt.compare('secret-pw-1', after.password_hash));
 });
 
 test('the data log is kept for good in a table of its own, passwords removed', async () => {
@@ -321,12 +340,12 @@ test('listing photos join the album at their old address, up to what an album ho
   ]);
   assert.deepEqual([l.photo_count, l.photos_on], [2, '2026-01-03']);
   const many = json((await one('listings', 101)).photo_set);
-  assert.equal(many.length, 20);
-  assert.ok(!many.some(p => p.id === 10), 'the oldest of the 21 stays in history');
+  assert.equal(many.length, ALBUM);
+  assert.ok(!many.some(p => p.id === 10), 'the oldest, one over what an album holds, stays in history');
   assert.equal(many.filter(p => p.cover).length, 1);
   const fate = async id => (await db('legacy_rows').where({ source_table: 'db_property_images', source_id: String(id) }).first());
   assert.equal((await fate(2)).target_table, 'listings');
-  assert.match((await fate(10)).note, /more than 20 photos/);
+  assert.match((await fate(10)).note, new RegExp(`more than ${ALBUM} photos`));
   assert.match((await fate(3)).note, /deleted/);
 });
 
@@ -344,6 +363,9 @@ test('E-Forms keep the old money exactly, their parties, documents and checks', 
   assert.equal(json(d.docs)['Letter of offer'], true);
   assert.equal(json(d.files)['Letter of offer'], 'docs/500-loc.pdf');
   const rental = await one('deals', 501);
+  // The live database writes eform_rental / eform_sales: a rental stays a rental.
+  assert.equal(rental.type, 'rental');
+  assert.equal((await one('deals', 500)).type, 'sale');
   assert.deepEqual([rental.sst_pct, Number(rental.net)], [0, 2000]);
   assert.equal(json(rental.rental).taFee, 400);
   // The agent on 502 is gone from the staff list: an "Unknown" record keeps the E-Form.
@@ -389,9 +411,16 @@ test('new codes continue after the highest old number, deleted and first-system 
 
 test('importing again needs --replace, and replaces instead of adding; sign-in accounts keep their person', async () => {
   await assert.rejects(importLegacy({ legacy, db }), /already has .* records/);
-  await db('users').insert({ username: 'bob', name: 'Bob', role: 'staff', staff_id: 12, password_hash: 'x' });
+  // Bob set a password in the new ERP; the old ERP changed Eve's since the last import.
+  await db('users').where('staff_id', 12).update({ password_hash: 'set-in-new-erp', password_changed_at: db.fn.now() });
+  await legacy('new_staff').where('user_id', 21).update({ user_password: 'eve-new-pw' });
   const again = await importLegacy({ legacy, db, replace: true });
-  assert.equal((await db('users').where('username', 'bob').first()).staff_id, 12, 'the account is linked to Bob again');
+  const bob = await db('users').where('username', 'bob').first();
+  assert.equal(bob.staff_id, 12, 'the account is linked to Bob again');
+  assert.equal(bob.password_hash, 'set-in-new-erp', 'a password set in the new ERP is kept');
+  const eve = await db('users').where('staff_id', 21).first();
+  assert.ok(!eve || await require('bcryptjs').compare('eve-new-pw', eve.password_hash), 'the current ERP\'s latest password comes across');
+  assert.equal(again.passwords.keptNewErp, 1);
   assert.equal(again.accountsUnlinked, 0);
   assert.equal(Number((await db('deals').count({ n: '*' }).first()).n), 3);
   assert.equal(Number((await db('legacy_rows').where('source_table', 'db_property').count({ n: '*' }).first()).n), 5);

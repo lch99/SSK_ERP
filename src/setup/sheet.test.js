@@ -10,6 +10,13 @@ describe('spreadsheets', () => {
     // Empty cells aren't written, so a row ends at its last filled cell.
     expect(await readXlsx(bytes)).toEqual([rows[0], rows[1], ['', 'Cheras']])
   })
+  it('leaves out characters XML cannot hold (pasted into old records), so Excel opens the file', async () => {
+    const bytes = makeXlsx([{ name: 'Listings', rows: [['Remarks'], ['Corner\u000Bunit\u0001, tab\there']] }])
+    const xml = new TextDecoder().decode(bytes)
+    expect(xml).toContain('Cornerunit, tab')
+    expect(xml).not.toContain('Corner\u000B')
+    expect(await readXlsx(bytes)).toEqual([['Remarks'], ['Cornerunit, tab\there']])
+  })
   it('writes numbers as numbers, so Excel can add them up', async () => {
     const bytes = makeXlsx([{ name: 'Pay', rows: [['Name', 'RM'], ['Mei', 1234.5]] }])
     expect(new TextDecoder().decode(bytes)).toContain('<v>1234.5</v>')

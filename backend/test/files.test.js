@@ -122,6 +122,12 @@ test('an upload belongs to who sent it, then to the record that uses it, and ope
   assert.equal((await mine.call('GET', `/files/${up.body.id}/link`)).status, 200);
   assert.equal((await boss.call('GET', `/files/${up.body.id}/link`)).status, 200);
   assert.equal((await other.call('GET', `/files/${up.body.id}/link`)).status, 404, 'an E-Form outside their team');
+  // Nor may they point their own listing's photos at it (the phone app would hand out a link to it).
+  const theirs = data.listings.find(l => l.holderId === outsider.id && l.creatorId === outsider.id && !l.dealId);
+  assert.ok(theirs, 'the outsider holds a listing');
+  const planted = await other.call('POST', '/erp/actions/updateListing', { args: [theirs.id, { photoSet: [{ id: 1, name: 'x.jpg', published: true, cover: true, preview: up.body.ref }] }] });
+  assert.equal(planted.status, 403, JSON.stringify(planted.body));
+  assert.match(planted.body.error, /cannot open/);
   assert.equal((await mine.call('POST', '/erp/actions/setDealDoc', { args: [deal.id, 'SPA', 'files/999999/x.pdf'] })).status, 400, 'a file that is not there');
 
   // A list page's links in one read: the same answer as one by one.

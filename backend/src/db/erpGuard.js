@@ -80,7 +80,7 @@ function forViewer(data, v) {
 // ── Actions ──────────────────────────────────────────────────────────────────
 // Arguments that name who is acting: always the signed-in person (0: an office account).
 const ACTOR_ARG = { claimPay: 0, stackPay: 0, readNotices: 1, toggleFavourite: 2, confirmViewing: 1, cancelViewing: 2, addViewingRemark: 2, revealOwner: 1 };
-const ACTOR_FIELD = { addListingFollowUp: [1, 'by'], saveTitle: [0, 'requestedBy'], rescheduleViewing: [1, 'by'], scheduleDowntime: [0, 'by'] };
+const ACTOR_FIELD = { addListingFollowUp: [1, 'by'], saveTitle: [0, 'requestedBy'], rescheduleViewing: [1, 'by'], scheduleDowntime: [0, 'by'], addListing: [0, 'createdBy'] };
 
 const one = i => a => [a[i]];
 const each = i => a => [].concat(a[i] ?? []);
@@ -138,6 +138,18 @@ async function checkBefore(q, name, args, data, v) {
   if (name === 'revealOwner') {
     const l = data.listings.find(x => x.id === args[0]);
     if (l && !seesOwner(l, v, data)) throw refuse('Only the people tied to this listing may see its owner.');
+  }
+  // Someone whose access is wider than the maker's (Accounting, Admin Level 2…) is changed only by someone with at
+  // least as much, as their sign-in link is (routes/accounts.js): else an e-mail changed here and "Forgot password"
+  // would hand their account over, or a changed bank account their pay.
+  if (name === 'updateStaff' || name === 'setStaffStatus' || name === 'deleteStaff') {
+    const s = data.staff.find(x => x.id === args[0]);
+    if (s && !AC.covers(v.policy, v.role, AC.roleForType(s.type))) {
+      throw refuse(`${AC.roleOf(AC.roleForType(s.type))?.label || 'This person'} has more access than your role, so their record is changed by someone with at least as much (e.g. the Superadmin).`);
+    }
+  }
+  if (name === 'addStaff' && !AC.covers(v.policy, v.role, AC.roleForType(args[0]?.type || 'staff'))) {
+    throw refuse(`Your role cannot add someone as ${AC.roleOf(AC.roleForType(args[0]?.type || 'staff'))?.label || 'that account type'}: it has more access than yours.`);
   }
   if (name === 'updateStaff' || name === 'setStaffStatus') {
     const fields = name === 'setStaffStatus' ? { status: args[1] } : args[1] || {};

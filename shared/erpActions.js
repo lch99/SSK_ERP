@@ -370,6 +370,8 @@ export const addListing = body => change((data, setup, today) => {
   if (dup) errors.push(`This unit is already listed as ${dup.code}.`)
   if (errors.length) return errors.join(' ')
   const holder = data.staff.find(s => s.id === Number(body.holderId)) || data.staff[0]
+  // The creator is who added it (the server names the signed-in person: createdBy), else its product handler.
+  const creator = data.staff.find(s => s.id === Number(body.createdBy)) || holder
   const branch = setup.branches.find(b => b.id === holder.branchId)
   // The server loads only this building's listings and gives the highest code (codeFloor).
   const last = data.listings.reduce((m, l) => Math.max(m, Number(l.code.slice(5)) || 0), Math.max(122300, (data[RAW] || data).codeFloor?.listing || 0))
@@ -382,7 +384,7 @@ export const addListing = body => change((data, setup, today) => {
     city: '', state: body.state || 'Selangor', postcode: '', address: str(body.address) || `${str(body.title)}, ${str(body.area)}`,
     beds: Number(body.beds) || 0, baths: Number(body.baths) || 0, builtUp: Number(body.builtUp) || 0, land: null, tenure: body.tenure || 'Freehold',
     furnishing: body.furnishing || 'Partly furnished', askPrice: ask, bestPrice: Number(body.bestPrice) || ask, marketValue: Number(body.marketValue) || null, status: 'active', closedOn: null,
-    branchId: branch?.id ?? holder.branchId, holderId: holder.id, creatorId: holder.id, flags: body.flags || [], portals: [], created: today, updated: today,
+    branchId: branch?.id ?? holder.branchId, holderId: holder.id, creatorId: creator.id, flags: body.flags || [], portals: [], created: today, updated: today,
     views: 0, viewsApp: 0, enquiries: 0, photos: photoSet ? photoSet.length : Number(body.photos) || 0, ...(photoSet && { photoSet }), videos: videoSet ? videoSet.length : Number(body.videos) || 0, ...(videoSet && { videoSet }), owner: { name: str(body.ownerName), ic: '', phone: str(body.ownerPhone) }, dealId: null, priceUpdated: today, photosOn: today,
     followUps: [], titleId: data.titles.find(t => same(t.name, body.title) && same(t.area, body.area))?.id ?? null,
     share: { users: [], pmId: null, coPh: [] }, marketingRemarks: '', remarksPrivate: true, description: str(body.desc), remarks: str(body.remarks), draft: !!body.draft,

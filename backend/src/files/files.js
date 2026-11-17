@@ -138,16 +138,23 @@ async function keep(q, user, { kind, name, tmp, size, head }) {
   }
 }
 
-// Files an action's arguments point at: each must exist, and one not yet in a record must be the signed-in person's own.
-async function checkRefs(q, args, user) {
+// Files an action's arguments point at: each must exist; one not yet in a record must be the signed-in
+// person's own; and one already in a record, one they may open. (Else a listing's photo list could point
+// at someone's IC scan, and the phone app would hand out a link to it.)
+async function checkRefs(q, args, req) {
+  const user = req.user;
   const ids = [...refsIn(args)];
   if (!ids.length) return;
-  const rows = new Map((await q('files').whereIn('id', ids).select('id', 'entity', 'uploaded_by')).map(r => [r.id, r]));
+  const rows = new Map((await q('files').whereIn('id', ids).select('id', 'entity', 'entity_id', 'uploaded_by')).map(r => [r.id, r]));
   for (const id of ids) {
     const f = rows.get(id);
     if (!f) throw refused(400, 'One of the files is no longer there. Upload it again.');
     if (f.entity == null && (f.uploaded_by ?? null) !== (user.id ?? null)) throw refused(403, 'One of the files was uploaded by someone else.');
   }
+  const attached = [...rows.values()].filter(f => f.entity != null);
+  if (!attached.length) return;
+  const ok = await mayReadMany(q, attached, req);
+  if (attached.some(f => !ok.has(f.id))) throw refused(403, 'One of the files belongs to a record you cannot open.');
 }
 
 // After an action: every new or changed record that points at an upload not yet in a record takes it.

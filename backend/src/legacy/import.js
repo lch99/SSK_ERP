@@ -20,6 +20,8 @@ const { loadState } = require('../db/setupStore');
 const { parseJson } = require('../db/records');
 const { verify } = require('./verify');
 const { localToday } = require('../db/days');
+const bcrypt = require('bcryptjs');
+const { freeUsername } = require('../auth/accounts');
 
 const PAGE = 1000;
 const BATCH = 200;
@@ -197,6 +199,39 @@ async function relinkAccounts(db, links) {
     else lost++;
   }
   return lost;
+}
+
+// ── Passwords: everyone keeps the one they sign in to the current ERP with ────
+// The current ERP keeps them in plain text (new_staff.user_password): that text is never copied anywhere,
+// only a one-way hash of it, as the new ERP keeps every password. Lighter than the ERP's own (cost 10, not 12),
+// so 2,400 people take two minutes on launch day instead of eight; signing in makes it full strength
+// (auth/signIn.js). A password set in the new ERP (a link, the office, a change: password_changed_at) is kept;
+// every other account takes the current ERP's on each import, so a password changed there before launch day
+// comes across too. People who left (Inactive) get no account.
+const IMPORT_ROUNDS = 10;
+async function carryPasswords(db, legacy, log = () => {}) {
+  const out = { made: 0, updated: 0, keptNewErp: 0, noPassword: 0 };
+  const staff = new Map((await db('staff').whereNot('status', 'inactive').select('id', 'username', 'code', 'name', 'branch_id')).map(s => [Number(s.id), s]));
+  const accounts = new Map((await db('users').whereNotNull('staff_id').select('id', 'staff_id', 'password_changed_at')).map(u => [Number(u.staff_id), u]));
+  const old = (await legacy('new_staff').select('user_id', 'user_password')).filter(r => staff.has(M.int(r.user_id)));
+  for (const [i, r] of old.entries()) {
+    if (i && i % 500 === 0) log(`passwords: ${i.toLocaleString('en-US')} of ${old.length.toLocaleString('en-US')}`);
+    const s = staff.get(M.int(r.user_id));
+    const password = r.user_password == null ? '' : String(r.user_password);
+    if (!password) { out.noPassword++; continue; }
+    const had = accounts.get(s.id);
+    if (had?.password_changed_at) { out.keptNewErp++; continue; }
+    const hash = await bcrypt.hash(password, IMPORT_ROUNDS);
+    if (had) {
+      await db('users').where('id', had.id).update({ password_hash: hash });
+      out.updated++;
+    } else {
+      await db('users').insert({ username: await freeUsername(db, s), name: String(s.name || s.username || s.code).slice(0, 100), role: 'staff',
+        branch_id: s.branch_id ?? null, staff_id: s.id, password_hash: hash });
+      out.made++;
+    }
+  }
+  return out;
 }
 
 // ── Branches: the old ERP's "B.M (…)" accounts (account type sale-staff) ─────
@@ -729,6 +764,8 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
   }
 
   report.accountsUnlinked = await relinkAccounts(db, links);
+  log('passwords (one-way hashes of the current ERP\'s)');
+  report.passwords = await carryPasswords(db, legacy, log);
   report.seconds = Math.round((Date.now() - started) / 1000);
   report.notCopied = M.NOT_COPIED;
   report.heldBack = Object.fromEntries(Object.entries(M.HELD_BACK).filter(([t]) => present.includes(t) && !include.includes(t)));

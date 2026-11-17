@@ -213,6 +213,10 @@ async function writeReport({ db, report, checks, present }) {
     const big = Object.entries(report.outOfRange || {});
     if (big.length) out.push('', '## Numbers the column cannot hold, left blank', '', 'Typing mistakes in the old ERP (a negative area, 40,000 rooms); the old value is in `legacy_rows`.', '', '| Column | Rows |', '|---|--:|', ...big.map(([c, n]) => `| \`${c}\` | ${fmt(n)} |`));
     if (report.placeholders) out.push('', `**${fmt(report.placeholders)} "Unknown" staff records** stand in for people the old records name but the staff list no longer has, so their E-Forms and payouts keep their money.`);
+    if (report.passwords) {
+      const p = report.passwords;
+      out.push('', `**Sign-in:** ${fmt(p.made + p.updated)} people sign in with the password they use in the current ERP (kept only as a one-way hash; ${fmt(p.made)} accounts made, ${fmt(p.updated)} brought up to date), ${fmt(p.keptNewErp)} keep a password they set in the new ERP, and ${fmt(p.noPassword)} have none in the current ERP (they get a link). People who left get no account.`);
+    }
 
     const branches = await db('branches').whereIn('id', report.branchesMade).select('id', 'name', 'code');
     if (branches.length) {
@@ -232,7 +236,7 @@ async function writeReport({ db, report, checks, present }) {
     out.push('', '## Not in this database: copy before the old system is switched off', '',
       '- **Files**: listing photos, E-Form documents, payment slips and HR uploads are on the old file server and S3; the records keep their old paths (`legacy_rows`, E-Form files).',
       '- **The new panel\'s PostgreSQL** (www.subsaleking.com/panel): awards, bios, social links, profile photos and feature switches it keeps only there.',
-      '- **Sign-in**: passwords are not copied. Accounts are made separately (or people keep signing in at www.subsaleking.com).');
+      '- **Sign-in**: each person\'s current password comes across only as a one-way hash (see Sign-in above); the plain text the old ERP keeps is never copied. Delete copies of the old database once the move is done.');
   }
   return `${out.join('\n')}\n`;
 }

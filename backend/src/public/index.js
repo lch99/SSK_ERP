@@ -122,7 +122,8 @@ async function searchFor(query) {
     min_price: p.minPrice, max_price: p.maxPrice, bedrooms: atLeast(p.bedrooms) ? '' : p.bedrooms, bathrooms: atLeast(p.bathrooms) ? '' : p.bathrooms,
     property_renovation: p.renovated == null || p.renovated === '' ? '' : truthy(p.renovated) ? 'renovated' : 'not_renovated',
     property_furnish: FURNISH[p.furnish] || '', property_status_label: p.label, property_desc: p.description, s_tag: CATALOG[p.catalog] || '',
-    is_not_empty_property_images: truthy(p.hasImages) ? 1 : '', property_staff_role: staff != null && ROLES.has(role) ? role : '',
+    // (The old app's search spells it person-incharge.)
+    is_not_empty_property_images: truthy(p.hasImages) ? 1 : '', property_staff_role: staff != null && ROLES.has(role) ? (role === 'person-in-charge' ? 'person-incharge' : role) : '',
   };
   const categories = app.property_category || app.property_category_id_list ? await categoriesOnFile(db) : [];
   const areaNames = new Map((ids(p.areaIds).length ? await db('areas').whereIn('id', ids(p.areaIds)).select('id', 'name') : []).map(a => [a.id, a.name]));

@@ -63,8 +63,11 @@ const forPages = setup => {
   return rest;
 };
 
+// Every record at once (the tests compare it with the demo's). No page reads it: in production only the
+// Superadmin may, since one call reads the whole database.
 router.get('/state', wrap(async (req, res) => {
   const v = await viewerOf(req);
+  if (process.env.NODE_ENV === 'production' && !AC.managesAccess(v.role)) return res.status(403).json({ error: 'Not available.' });
   await pruneNotices(db, localToday());
   let state = await loadState(db);
   // Something the time rules change (a viewing expired…) is saved once, here.

@@ -217,8 +217,10 @@ const projectOf = (s, id) => s.projects.find(x => x.id === id) || fail(['That pr
 // The changes, on a store { nextId, projects }: the demo's (src/demo/projectsApi.js),
 // or the server's, made from the records it read (backend/src/routes/erp.js).
 export function saveProjectIn(s, project, tiers = []) {
+  // A project's incentives change only through their own saves (and paying one out), never with the project.
+  const { incentives: _ignored, ...fields } = project // eslint-disable-line no-unused-vars
   const p = {
-    ...project,
+    ...fields,
     name: String(project.name || '').trim(), developer: String(project.developer || '').trim(),
     location: String(project.location || '').trim(),
     units: project.units === '' || project.units == null ? '' : Number(project.units),
@@ -237,7 +239,12 @@ export function saveProjectIn(s, project, tiers = []) {
 }
 
 export function saveIncentiveIn(s, projectId, incentive) {
-  const inc = { ...incentive, name: String(incentive.name || '').trim(),
+  // `paid` is set only by paying it out: never taken from a form, and a paid incentive no longer changes
+  // (else its marker could go, and it would be paid twice).
+  const { paid: _sent, ...sent } = incentive // eslint-disable-line no-unused-vars
+  const was = incentive.id != null ? projectOf(s, projectId).incentives.find(x => x.id === incentive.id) : null
+  if (was?.paid) fail([`This incentive was paid out on ${was.paid.on}, so it can no longer be changed.`])
+  const inc = { ...sent, name: String(incentive.name || '').trim(),
     steps: (incentive.steps || []).filter(x => x.units !== '' || x.amount !== '').map(x => ({ units: Number(x.units), amount: Number(x.amount) })) }
   const errors = validateIncentive(inc)
   if (errors.length) fail(errors)
@@ -248,5 +255,7 @@ export function saveIncentiveIn(s, projectId, incentive) {
 
 export function deleteIncentiveIn(s, projectId, incentiveId) {
   const p = projectOf(s, projectId)
+  const was = p.incentives.find(x => x.id === incentiveId)
+  if (was?.paid) fail([`This incentive was paid out on ${was.paid.on}, so it stays on file.`])
   p.incentives = p.incentives.filter(x => x.id !== incentiveId)
 }

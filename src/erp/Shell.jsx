@@ -14,6 +14,7 @@ import { WaitingProvider, useWaiting } from './waiting.jsx'
 import { isAgent } from './model.js'
 import { FeedbackProvider, useFeedback } from './feedback.jsx'
 import Icon from './Icon.jsx'
+import PageError from './PageError.jsx'
 import { Avatar, Card, Modal, Select, go, small, isTyping } from './ui.jsx'
 import { date } from './format.js'
 import Dashboard from './pages/Dashboard.jsx'
@@ -216,7 +217,7 @@ function Layout({ me, authDisabled, onSignOut, parts }) {
               <main id="ssk-main" tabIndex={-1} style={{ padding: wide ? '22px 28px 40px' : '16px 16px 32px', width: '100%', maxWidth: railOn ? 1480 : 1320, margin: '0 auto', boxSizing: 'border-box', flex: '1 0 auto' }}>
                 <ViewAsBar m={erp.m} />
                 {phone && key === 'dashboard' && <InstallCard />}
-                {blocked ? <NoAccess text={access.switchWhy?.(route.join('/'))} /> : <ErpGate erp={erp} wide={wide}><Page key={access.who.role + access.who.staffId} parts={route} me={me} /></ErpGate>}
+                {blocked ? <NoAccess text={access.switchWhy?.(route.join('/'))} /> : <PageError key={route.join('/')}><ErpGate erp={erp} wide={wide}><Page key={access.who.role + access.who.staffId} parts={route} me={me} /></ErpGate></PageError>}
               </main>
             )}
         {key && (

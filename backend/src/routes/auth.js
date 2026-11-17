@@ -15,8 +15,14 @@ const MAIL = require('../mail/mailer');
 
 const router = express.Router();
 
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
+// 30 failed tries per 15 minutes from one address. Only failures count: a whole office signs in from one
+// address, and its people signing in (or opening their links) must never lock each other out.
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true,
   message: { error: 'Too many sign-in attempts. Try again in a few minutes.' } });
+// Forgot password answers the same whether or not the account exists, so every ask counts (else it could
+// flood an office with link requests).
+const forgotLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many asks for a new link. Try again in a few minutes.' } });
 
 // The first account on a server anyone can reach: ADMIN_TOKEN (backend/.env) is the setup key the
 // person creating it must type, so a stranger who opens the new site first cannot make themselves
@@ -96,7 +102,7 @@ router.post('/link/:token', loginLimiter, async (req, res, next) => {
 
 // Forgot password: the person's branch office is asked to send a new link. The reply is the
 // same whether or not the username exists.
-router.post('/forgot', loginLimiter, async (req, res, next) => {
+router.post('/forgot', forgotLimiter, async (req, res, next) => {
   try {
     const username = String(req.body?.username || '').trim().toLowerCase();
     if (!username) return res.status(400).json({ error: 'Enter your username.' });

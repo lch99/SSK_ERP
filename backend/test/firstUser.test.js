@@ -41,3 +41,14 @@ test('in production there is no first account without a setup key', async () => 
     process.env.NODE_ENV = 'test';
   }
 });
+
+// Last: it leaves this address at the limit.
+test('a whole office signing in from one address is never limited; wrong passwords are', async () => {
+  for (let i = 0; i < 40; i++) assert.equal((await api.call('POST', '/auth/login', { username: body.username, password: body.password })).status, 200, `sign-in ${i + 1}`);
+  // Failures do count (the wrong setup keys above too): at most 30, then refused. (A real account locks
+  // itself after five wrong passwords; guesses at names that don't exist count here.)
+  let wrong = 0, status;
+  while ((status = (await api.call('POST', '/auth/login', { username: `guess${wrong}`, password: 'wrong guess' })).status) === 401) wrong++;
+  assert.equal(status, 429);
+  assert.ok(wrong > 20 && wrong <= 30, `${wrong} wrong tries before the limit`);
+});

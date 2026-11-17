@@ -44,7 +44,7 @@ describe('upload rules', () => {
   it('builds the accept list and the hint from the same rule', () => {
     expect(F.acceptFor('avatar')).toBe('.jpg,.jpeg,image/jpeg,.png,image/png')
     expect(F.uploadHint('document')).toBe('PDF, JPG or PNG · max 10 MB')
-    expect(F.uploadHint('photo')).toBe('JPG or PNG · max 10 MB each · up to 20 photos')
+    expect(F.uploadHint('photo')).toBe('JPG or PNG · max 10 MB each · up to 50 photos')
   })
   it('reads the first bytes of a Blob', async () => {
     expect([...await F.fileHead(new Blob([PDF]))]).toEqual([...PDF])

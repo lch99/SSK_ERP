@@ -2,7 +2,7 @@
 
 **Try it with no server or database:** `npm install && npm run dev`, then open http://localhost:5175. It runs as a demo and saves to your browser.
 
-Commission and CMS system. The first part is the **Setup page**, which admins complete before the first deal is entered: company profile, branches, deal types, tier ladder, upline levels and split, total payout per tier (company-wide with branch overrides), and case/voucher numbering. [ERP_FEATURES.md](ERP_FEATURES.md) lists every screen of the current ERP and where it is in this one.
+Commission and CMS system. The first part is the **Setup page**, which admins complete before the first deal is entered: company profile, branches, deal types, tier ladder, upline levels and split, total payout per tier (company-wide with branch overrides), and case/voucher numbering. [ERP_FEATURES.md](ERP_FEATURES.md) lists every screen of the current ERP and where it is in this one; [LAUNCH.md](LAUNCH.md) is how its data moves across, for rehearsals and on launch day.
 
 ## Requirements
 - Node.js 22.12 or newer
@@ -31,6 +31,7 @@ The backend runs on MySQL only. Set `AUTH_DISABLED=true` in `backend/.env` to sk
 - `cd backend && npm run reset-db`: wipe back to blank
 - `npm test`: payout rule tests
 - `cd backend && npm test`: backend tests on MySQL (they empty and refill the test databases `ssk_erp_test` and `ssk_legacy_test`, never `ssk_erp`)
+- `npm run e2e`: browser tests (Playwright; once: `npx playwright install chromium`): every page on a desktop and a 360 px phone, and the sign-in screens. Against a running server, signed in for real: `E2E_URL=https://<staging> E2E_USER=… E2E_PASSWORD=… npm run e2e` (on a new server, add `E2E_SETUP_KEY` and the first account is made with it). Use a test account, never a real person's.
 
 ## Staging server
 

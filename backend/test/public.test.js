@@ -80,6 +80,11 @@ test('the site\'s filters and sorts', async () => {
   assert.ok(hot.body.rows.every(x => x.hotLists.includes('superHot')));
   const word = areas[0].name.slice(0, 4);
   assert.ok((await get(`/keywords?q=${encodeURIComponent(word)}`)).body.some(k => k.name.includes(word)));
+  // One agent's listings (their profile page): only those they are in charge of, never the whole agency.
+  const holder = data.listings.find(l => l.status === 'active' && isPublic(l)).holderId;
+  const theirs = await get(`/listings?role=person-in-charge&staff=${holder}&size=50`);
+  assert.ok(theirs.body.total > 0 && theirs.body.rows.every(x => x.contact?.id === holder), 'only the agent in charge');
+  assert.ok(theirs.body.total < (await get('/listings?size=1')).body.total);
 });
 
 test('details with photos served without signing in; looks counted per day', async () => {
@@ -97,6 +102,8 @@ test('details with photos served without signing in; looks counted per day', asy
   assert.equal(img.status, 200);
   assert.equal(img.headers.get('content-type'), 'image/webp');
   assert.match(img.headers.get('cache-control'), /public/);
+  // The website (another address) may show it: no same-origin-only header.
+  assert.equal(img.headers.get('cross-origin-resource-policy'), 'cross-origin');
   // A photo stops being public with its listing.
   await db('listings').where('id', l.id).update({ draft: true });
   assert.equal((await fetch(d.coverUrl)).status, 404);

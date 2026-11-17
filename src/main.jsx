@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
+import PageError from './erp/PageError.jsx'
 import './global.css'
 import { DEMO } from './api.js'
 import { isInstalled } from './erp/install.jsx'
@@ -15,4 +16,4 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}) })
 }
 
-createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)
+createRoot(document.getElementById('root')).render(<StrictMode><PageError whole><App /></PageError></StrictMode>)

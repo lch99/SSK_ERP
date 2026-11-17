@@ -4,6 +4,20 @@
 // loads them all: the rare ones that scan every listing (renaming a building or an area, the "still in
 // use" checks, the re-checks). shared/erpActions.js is the reference for what each one reads.
 const parseIds = v => (typeof v === 'string' ? JSON.parse(v || '[]') : v || []);
+const L = require('../../../shared/listings.js');
+const { MODELS } = require('./records');
+
+// The time rules (shared/erpActions.js runClock) touch two sets of listings: active ones with a co-product
+// handler's slot that has ended, and those held by someone the clock suspends or locks (handed on).
+async function clockListings(q, [today]) {
+  const [ended] = await q.raw(`select distinct l.id from listings l, json_table(l.share, '$.coPh[*]' columns (staff int path '$.staffId',
+    until varchar(10) path '$.until', locked varchar(5) path '$.locked')) c
+    where l.status = 'active' and c.staff is not null and c.until is not null and c.until < ? and (c.locked is null or c.locked <> 'true')`, [today]);
+  const people = (await q('staff').whereIn('status', ['pending', 'active'])).map(MODELS.staff.toRecord);
+  const due = people.filter(s => L.staffDue(s, today)).map(s => s.id);
+  const held = due.length ? await q('listings').whereIn('holder_id', due).pluck('id') : [];
+  return [...ended.map(r => r.id), ...held];
+}
 
 const dealListings = async (q, ids) => (await q('deals').whereIn('id', ids.filter(x => x != null).map(Number)).select('listing_id')).map(r => r.listing_id);
 const viewingListings = async (q, id) => parseIds((await q('viewings').where('id', Number(id)).first('listing_ids'))?.listing_ids);
@@ -22,6 +36,7 @@ const LISTING_SCOPE = {
     .orWhere('id', Number(b.listingId) || 0).select('id')).map(r => r.id) : []),
   // The duplicate check compares listings in the same building (by its name); the code comes from codeFloor.
   addListing: async (q, [b]) => (await q('listings').where('title', String(b?.title ?? '').trim()).select('id')).map(r => r.id),
+  runClock: clockListings,
 };
 
 // The listing ids an action loads (with their buildings), or null: all of them.

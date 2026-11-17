@@ -86,3 +86,24 @@ describe('paying an incentive out', () => {
     expect([kept.lines.length, kept.toCompany]).toEqual([0, 2000])
   })
 })
+
+describe('a paid incentive stays as it was paid', () => {
+  const ok = { name: 'October push', ...oct, kind: 'target', counts: 'company', steps: [{ units: 10, amount: 3000 }], paidTo: 'agents' }
+  const store = () => ({ nextId: 10, projects: [{ id: 1, name: 'Vista Kinara', developer: 'Dev', devCommissionPct: 3, payout: { mode: 'setup' },
+    incentives: [{ id: 5, ...ok, paid: { on: '2026-11-02', lines: 3 } }, { id: 6, ...ok, name: 'Not paid yet' }] }] })
+  it('cannot be changed or deleted, and its paid mark is never taken from a form', () => {
+    const s = store()
+    expect(() => J.saveIncentiveIn(s, 1, { id: 5, ...ok, name: 'Renamed' })).toThrow(/paid out on 2026-11-02/)
+    expect(() => J.deleteIncentiveIn(s, 1, 5)).toThrow(/stays on file/)
+    const saved = J.saveIncentiveIn(s, 1, { id: 6, ...ok, name: 'Still open', paid: { on: '2026-01-01' } })
+    expect(saved.paid).toBeUndefined()
+    expect(J.saveIncentiveIn(s, 1, { ...ok, name: 'New one', paid: { on: '2026-01-01' } }).paid).toBeUndefined()
+    expect(s.projects[0].incentives.find(x => x.id === 5).paid).toEqual({ on: '2026-11-02', lines: 3 })
+  })
+  it('saving the project keeps its incentives as they are', () => {
+    const s = store()
+    J.saveProjectIn(s, { id: 1, name: 'Vista Kinara', developer: 'Dev', devCommissionPct: 3, payout: { mode: 'setup' }, incentives: [] })
+    expect(s.projects[0].incentives.map(x => x.id)).toEqual([5, 6])
+    expect(s.projects[0].incentives[0].paid.on).toBe('2026-11-02')
+  })
+})

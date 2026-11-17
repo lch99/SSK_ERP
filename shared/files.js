@@ -24,7 +24,7 @@ export const FILE_TYPES = {
 // Upload slots. Change a limit here and every page (and the server) follows.
 export const UPLOADS = {
   document: { types: ['pdf', 'jpg', 'png'], maxMB: 10, maxFiles: 1, noun: 'file' },      // IC, forms, slips, receipts, letters
-  photo: { types: ['jpg', 'png'], maxMB: 10, maxFiles: 20, noun: 'photo' },              // listing photos
+  photo: { types: ['jpg', 'png'], maxMB: 10, maxFiles: 50, noun: 'photo' },              // listing photos (2,354 old listings had more than 20)
   avatar: { types: ['jpg', 'png'], maxMB: 2, maxFiles: 1, noun: 'photo' },               // profile picture
   spreadsheet: { types: ['xlsx', 'csv'], maxMB: 5, maxFiles: 1, noun: 'file' },          // Setup → agents import
   video: { types: ['mp4', 'mov'], maxMB: 500, maxFiles: 1, noun: 'video' },               // training videos

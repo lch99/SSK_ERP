@@ -16,3 +16,9 @@ logs
 
 # Uploaded files (the local storage driver; personal documents): never commit them
 backend/uploads/
+
+# Playwright's reports and traces
+e2e-report/
+test-results/
+# A signed-in session the server tests keep
+e2e/.auth/

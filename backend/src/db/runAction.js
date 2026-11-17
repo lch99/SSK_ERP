@@ -45,7 +45,7 @@ async function runAction(req, name, rawArgs) {
     // Only the kinds the action reads are loaded (db/erpRun.js act); the checks and the log come after its last run.
     const done = await act(async (s, trx) => {
       await G.checkBefore(trx, name, args, s.data, v);
-      await FILES.checkRefs(trx, args, req.user);
+      await FILES.checkRefs(trx, args, req);
       if (forProjects) result = PROJECT_ACTIONS[name](s, ...args);
       else {
         const no = A[name](...args)(s.data, s.setup, localToday());

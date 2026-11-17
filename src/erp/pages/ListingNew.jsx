@@ -5,6 +5,7 @@ import { useErp } from '../ErpContext.jsx'
 import { useList, useRecord, useRecordReader } from '../useList.js'
 import { madeId, fromReply, DEMO, uploadFile } from '../../api.js'
 import { isAgent } from '../model.js'
+import { useAccess } from '../access.jsx'
 import { Page, Card, Notice, FormField, FileInput, go, field } from '../ui.jsx'
 import { PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
@@ -35,9 +36,12 @@ function ListingForm({ vr, state }) {
   const { scoped: d, m } = erp
   // Product handlers are agents (office staff don't hold listings).
   const holders = d.staff.filter(s => isAgent(s) && s.status === 'active').sort((a, b) => a.short.localeCompare(b.short))
+  // An agent adding a listing holds it themselves unless they pick someone else.
+  const me = useAccess()?.who?.staffId
+  const mine = holders.find(s => s.id === me)?.id
   const [f, setF] = useState(() => ({ type: vr?.forType === 'Rent' ? 'rental' : 'sale', state: vr ? state || 'Selangor' : 'Selangor',
     category: vr?.category && CATEGORIES[vr.category] ? vr.category : 'Condominium', tenure: 'Freehold', restriction: 'cina', furnishing: 'Partly furnished',
-    flags: [], holderId: String((vr?.handledBy && holders.find(s => s.id === vr.handledBy)?.id) || holders[0]?.id || ''),
+    flags: [], holderId: String((vr?.handledBy && holders.find(s => s.id === vr.handledBy)?.id) || mine || holders[0]?.id || ''),
     ...(vr ? { area: vr.area, askPrice: String(vr.price), ownerName: vr.name, ownerPhone: vr.phone } : {}) }))
   const [photoFiles, setPhotoFiles] = useState([])
   const photos = photoFiles.length

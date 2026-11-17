@@ -25,7 +25,10 @@ const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5175').spli
 // Which proxies to believe about the client's IP (for the login rate limit).
 // Default: only one on this machine (Vite in dev, nginx on the same server).
 app.set('trust proxy', process.env.TRUST_PROXY || 'loopback');
-app.use(helmet({ contentSecurityPolicy: false }));
+// Images and files may be shown by other sites (www.subsaleking.com shows listing and agent photos from this
+// API's address; the ERP's thumbnails too, when it runs on another): helmet's default would block them. The
+// data itself stays guarded by CORS and sign-in.
+app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({ origin: allowedOrigins }));
 // Uploads: the body is the file itself (routes/files.js), so before the JSON parser.
 app.use('/api/files', filesRouter);

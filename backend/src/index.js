@@ -14,7 +14,11 @@ process.on('uncaughtException', stop('Uncaught'));
 const { runTimeRules } = require('./db/erpRun');
 
 const PORT = Number(process.env.PORT) || 3002;
-app.listen(PORT, () => console.log(`SSK ERP API on :${PORT}`));
+const server = app.listen(PORT, () => console.log(`SSK ERP API on :${PORT}`));
+// Idle connections stay open longer than a proxy's or load balancer's (60 s on most): Node's 5 s default lets
+// the server close one just as the proxy sends the next request on it, which the person sees as a random 502.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
 
 // The time rules (viewings expire, accounts suspend or lock…) and the notification clean-up, on a
 // schedule: once at start, then every TIME_RULES_MINUTES (15; 0 = off, e.g. on a copy of real data

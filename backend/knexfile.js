@@ -3,6 +3,14 @@ const path = require('path');
 
 const migrations = { directory: path.join(__dirname, 'src/db/migrations'), tableName: 'knex_migrations' };
 
+// Every connection speaks the business's time zone (APP_TZ, Malaysia's by default, as app.js), so NOW()
+// and TIMESTAMP columns read the same clock as the app on any host: a database server set to UTC would
+// otherwise put sign-in times and link uses 8 hours off. An offset, so the server needs no zone tables.
+function zoneOffset(tz = process.env.APP_TZ || 'Asia/Kuala_Lumpur') {
+  const name = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' }).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || 'GMT';
+  return name === 'GMT' ? '+00:00' : name.replace('GMT', '');
+}
+
 // MySQL only (8.0 or newer): the app, the tests (DB_NAME = the test database) and production.
 const mysql = {
   client: 'mysql2',
@@ -21,7 +29,7 @@ const mysql = {
     // JSON string value is never taken for the JSON itself.
     typeCast: (field, next) => (field.type === 'JSON' ? field.string('utf8') : next()),
   },
-  pool: { min: 0, max: 10 },
+  pool: { min: 0, max: 10, afterCreate: (conn, done) => conn.query(`SET time_zone = '${zoneOffset()}'`, err => done(err, conn)) },
   migrations,
 };
 

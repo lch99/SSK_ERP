@@ -258,4 +258,43 @@ test('opening the ERP no longer runs the time rules; the scheduled run does', as
   assert.equal((await db('viewings').where('id', v.id).first()).status, 'new');
   assert.equal(await runTimeRules(), true);
   assert.equal((await db('viewings').where('id', v.id).first()).status, 'expired');
+
+  // A clean-up that fails (here its table is away for a moment) is reported, and the rules still run.
+  await db('viewings').where('id', v.id).update({ status: 'new', date: '2020-01-01' });
+  await db.raw('rename table listing_daily to listing_daily_away');
+  try {
+    await assert.rejects(runTimeRules(), /Clean-up of daily counts/);
+  } finally {
+    await db.raw('rename table listing_daily_away to listing_daily');
+  }
+  assert.equal((await db('viewings').where('id', v.id).first()).status, 'expired', 'the viewing still expired');
+});
+
+test('the scheduled run reads only what the rules touch, and does what reading every record did', async () => {
+  const { runTimeRules } = require('../src/db/erpRun');
+  const { loadState } = require('../src/db/erpState');
+  const L = require('../../shared/listings.js');
+  const all = (await loadState(db)).data;
+  const agents = all.staff.filter(s => s.type === 'staff' && s.status === 'active');
+  // An active listing whose co-product handler's slot ended yesterday…
+  const slotted = all.listings.find(l => l.status === 'active' && l.holderId && agents.some(a => a.id !== l.holderId));
+  const co = agents.find(a => a.id !== slotted.holderId);
+  await db('listings').where('id', slotted.id).update({ share: JSON.stringify({ users: [], pmId: null, coPh: [{ staffId: co.id, until: L.addDays(today, -1), locked: false, from: L.addDays(today, -30) }] }) });
+  // …and an agent idle for 100 days, who holds listings: locked, their listings handed on.
+  const idle = agents.find(a => a.id !== co.id && a.id !== slotted.holderId && all.listings.some(l => l.holderId === a.id && l.status === 'active'));
+  await db('staff').where('id', idle.id).update({ last_active_on: L.addDays(today, -100) });
+  // Everyone else active today, so only these two change.
+  await db('staff').whereNot('id', idle.id).where('status', 'active').update({ last_active_on: today });
+
+  // What the rules do on every record, in memory (as the full read did)…
+  const want = (await loadState(db)).data;
+  A.runClock(want, (await loadState(db)).setup);
+  // …and what the scheduled run saves.
+  assert.equal(await runTimeRules(), true);
+  const got = (await loadState(db)).data;
+  assert.equal(got.staff.find(s => s.id === idle.id).status, 'locked');
+  for (const id of [slotted.id, ...want.listings.filter(l => l.holderId !== all.listings.find(x => x.id === l.id)?.holderId).map(l => l.id)]) {
+    assert.equal(got.listings.find(l => l.id === id).holderId, want.listings.find(l => l.id === id).holderId, `listing ${id}'s product handler`);
+  }
+  assert.ok(want.listings.some(l => all.listings.find(x => x.id === l.id)?.holderId === idle.id && l.holderId !== idle.id), 'the idle agent\'s listings were handed on');
 });

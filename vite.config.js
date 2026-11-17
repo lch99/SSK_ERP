@@ -14,7 +14,7 @@ export default defineConfig({
   // Relative asset paths, so the build also works under a sub-path (GitHub Pages: /SSK_ERP/)
   base: './',
   test: {
-    exclude: ['**/node_modules/**', 'backend/**'],
+    exclude: ['**/node_modules/**', 'backend/**', 'e2e/**'],
   },
   server: {
     host: true,

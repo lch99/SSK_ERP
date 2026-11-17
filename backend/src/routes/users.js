@@ -118,7 +118,7 @@ router.post('/:id/password', wrap(async (req, res) => {
   const err = R.validatePassword(req.body?.password);
   if (err) return fail(res, 400, err);
   await db('users').where('id', target.id).update({ password_hash: await bcrypt.hash(req.body.password, 12),
-    token_version: Number(target.token_version) + 1, locked: false, login_attempts: 0 });
+    token_version: Number(target.token_version) + 1, locked: false, login_attempts: 0, password_changed_at: db.fn.now() });
   await audit(req, { action: 'reset_password', entity: 'user', entityId: target.id });
   res.json({ user: out(await db('users').where('id', target.id).first()) });
 }));

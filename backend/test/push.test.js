@@ -35,6 +35,16 @@ before(async () => {
     if (req.url === '/v1/projects/test-proj/messages:send' && req.headers.authorization === 'Bearer at-1') {
       const { message } = JSON.parse(body);
       if (message.token === 'drop-token') { req.socket.destroy(); return; } // Google unreachable
+      if (message.token === 'bad-format-token') {
+        res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { status: 'INVALID_ARGUMENT',
+          message: 'The registration token is not a valid FCM registration token', details: [{ errorCode: 'INVALID_ARGUMENT' }] } }));
+        return;
+      }
+      if (JSON.stringify(message).length > 4096) {
+        res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'Request contains an invalid argument.',
+          details: [{ errorCode: 'INVALID_ARGUMENT' }, { fieldViolations: [{ field: 'message', description: 'Message is too big' }] }] } }));
+        return;
+      }
       if (message.token === 'dead-token') {
         res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } }));
         return;
@@ -121,4 +131,16 @@ test('when Google can\'t be reached mid-way, the notices not yet sent go again o
   const r = await pushNewNotices(db, { now });
   assert.equal(r.sent, 2, 'both go on the next run');
   assert.deepEqual(sent.map(m => m.notification.body), ['To the phone that drops.', 'After it.']);
+});
+
+test('a malformed token is a phone gone; a message Google won\'t take is not, and a long one is cut to fit', async () => {
+  const FCM = require('../src/push/fcm');
+  assert.deepEqual(await FCM.send({ to: 'bad-format-token', title: 'Hi', body: 'There' }), { ok: false, gone: true });
+  const long = 'A long notice from the office. '.repeat(300);
+  assert.deepEqual(await FCM.send({ to: 'agent-token', title: 'Office', body: long }), { ok: true });
+  const got = sent.at(-1).notification.body;
+  assert.ok(got.length <= 1000 && got.endsWith('…'));
+  const huge = await FCM.send({ to: 'agent-token', title: 'Office', body: 'x', data: { extra: 'y'.repeat(5000) } });
+  assert.equal(huge.ok, false);
+  assert.ok(!huge.gone, 'the phone is kept');
 });

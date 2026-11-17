@@ -30,7 +30,9 @@ async function signInAs(username, staffId, role) {
 
 before(async () => {
   await migrate();
-  await seedDemo({ asOf: today });
+  // The sample as of a fixed day (as the other files): one made for the day the tests run has a different
+  // mix each day, and on some has no new request forms or salary requests for this file to work on.
+  await seedDemo({ asOf: '2026-11-16' });
   api = await startApi();
   boss = await signInAs('boss', null, 'superadmin');
   const r = await boss.call('GET', '/erp/state');

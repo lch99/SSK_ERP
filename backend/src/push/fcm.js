@@ -44,9 +44,11 @@ async function accessToken(a) {
 async function send({ to, topic, title, body, data = {} }) {
   const a = account();
   if (!a) return { ok: false, error: 'off' };
+  // FCM takes 4 KB a message: a long notice is cut (the app opens the whole of it).
+  const cut = (t, n) => (String(t ?? '').length > n ? `${String(t).slice(0, n - 1)}…` : String(t ?? ''));
   const message = {
     ...(topic ? { topic } : { token: to }),
-    notification: { title, body },
+    notification: { title: cut(title, 120), body: cut(body, 1000) },
     data: Object.fromEntries(Object.entries({ ...data, click_action: 'FLUTTER_NOTIFICATION_CLICK' }).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])),
     android: { priority: 'high', notification: { click_action: 'FLUTTER_NOTIFICATION_CLICK' } },
     apns: { payload: { aps: { sound: 'default' } } },
@@ -57,8 +59,10 @@ async function send({ to, topic, title, body, data = {} }) {
   if (r.ok) return { ok: true };
   const err = (await r.json().catch(() => ({}))).error || {};
   const code = (err.details || []).map(d => d.errorCode).find(Boolean) || err.status;
-  // A phone that uninstalled the app or moved to another token.
-  if (!topic && (code === 'UNREGISTERED' || r.status === 404 || (r.status === 400 && code === 'INVALID_ARGUMENT'))) return { ok: false, gone: true };
+  // A phone that uninstalled the app or moved to another token. INVALID_ARGUMENT is that only when it is about
+  // the token: it also answers a message it won't take (too big…), and the phone is fine.
+  const aboutToken = /registration token|message\.token/i.test(`${err.message || ''} ${JSON.stringify(err.details || [])}`);
+  if (!topic && (code === 'UNREGISTERED' || r.status === 404 || (r.status === 400 && code === 'INVALID_ARGUMENT' && aboutToken))) return { ok: false, gone: true };
   return { ok: false, error: `${r.status} ${code || ''} ${err.message || ''}`.trim() };
 }
 

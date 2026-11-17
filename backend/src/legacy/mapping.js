@@ -48,7 +48,8 @@ const skip = reason => ({ skip: reason });
 const CODES = {
   staffStatus: { '-1': 'pending', 0: 'suspended', 1: 'active', 2: 'locked' },
   listingStatus: { 0: 'active', 1: 'sold', 2: 'rented', 3: 'invalid', 4: 'sold_other', 5: 'outdated' },
-  listingType: { sales: 'sale', sale: 'sale', rental: 'rental', rent: 'rental' },
+  // E-Forms say eform_sales / eform_rental in the live database (listings say sales / rental).
+  listingType: { sales: 'sale', sale: 'sale', rental: 'rental', rent: 'rental', eform_sales: 'sale', eform_rental: 'rental' },
   dealStatus: { 0: 'draft', 1: 'submitted', 2: 'cancelled', 3: 'closed', 4: 'partial' },
   moneyInStatus: { 0: 'draft', 1: 'cleared', 2: 'returned', 3: 'pending', 4: 'invalid' },
   purpose: { cashdeposit: 'deposit', balancecommission: 'commission', balancerent: 'rental', others: 'other' },

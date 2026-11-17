@@ -382,3 +382,48 @@ test('no ERP reply carries Setup\'s list of every agent (their IC and bank accou
   // Setup itself (with the list) stays closed to an agent.
   assert.equal((await call('GET', '/setup')).status, 403);
 });
+
+test('Edit on staff cannot change someone with more access (an e-mail, then Forgot password), nor add one', async () => {
+  const senior = data.staff.find(s => s.type === 'account' || s.type === 'admin-staff');
+  assert.ok(senior, 'the sample has an Accounting or Admin (Level 2) person');
+  const admin1 = data.staff.find(s => s.type === 'admin-staff2' && s.status === 'active');
+  assert.ok(admin1, 'the sample has an Admin (Level 1)');
+  // (An earlier test may have given them an account already: sign in with it.)
+  const had = await db('users').where('staff_id', admin1.id).first('username');
+  const call = had ? as((await api.call('POST', '/auth/login', { username: had.username, password: PASSWORD })).body.token) : await signInAs('branchadmin9', admin1.id);
+  const r = await call('POST', '/erp/actions/updateStaff', { args: [senior.id, { email: 'me@evil.example' }] });
+  assert.equal(r.status, 403, JSON.stringify(r.body));
+  assert.match(r.body.error, /more access than your role/);
+  assert.notEqual((await db('staff').where('id', senior.id).first('email')).email, 'me@evil.example');
+  const add = await call('POST', '/erp/actions/addStaff', { args: [{ name: 'Made Admin', type: 'admin-staff', branchId: senior.branchId }] });
+  assert.equal(add.status, 403, JSON.stringify(add.body));
+  assert.match(add.body.error, /cannot add someone as Admin \(Level 2\)/);
+});
+
+test('a listing someone adds names them as its creator, whoever its product handler is', async () => {
+  const leader = data.staff.find(s => s.type === 'staff' && s.status === 'active' && data.staff.some(d => d.uplineId === s.id && d.type === 'staff' && d.status === 'active'));
+  const downline = data.staff.find(d => d.uplineId === leader.id && d.type === 'staff' && d.status === 'active');
+  const had = await db('users').where('staff_id', leader.id).first('username');
+  const call = had ? as((await api.call('POST', '/auth/login', { username: had.username, password: PASSWORD })).body.token) : await signInAs('leader9', leader.id);
+  const r = await call('POST', '/erp/actions/addListing', { args: [{ type: 'sale', title: 'Creator Court', area: 'Kepong', askPrice: 500000, unit: 'C-1-9',
+    ownerName: 'Owner C', ownerPhone: '012-3456789', holderId: downline.id, createdBy: downline.id }] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const row = await db('listings').where('title', 'Creator Court').first('creator_id', 'holder_id');
+  assert.deepEqual([row.creator_id, row.holder_id], [leader.id, downline.id], 'the server names the creator; a createdBy sent along is ignored');
+});
+
+test('in production, only the Superadmin may read every record at once', async () => {
+  const taken = new Set(await db('users').whereNotNull('staff_id').pluck('staff_id'));
+  const me = data.staff.find(s => s.type === 'staff' && s.status === 'active' && !taken.has(s.id));
+  await db('staff').where('id', me.id).update({ last_active_on: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }) });
+  const agent = await signInAs('stateagent', me.id);
+  const boss = await signInAs('stateboss', null, 'superadmin');
+  process.env.NODE_ENV = 'production';
+  try {
+    assert.equal((await agent('GET', '/erp/state')).status, 403);
+    assert.equal((await agent('GET', '/erp/start')).status, 200, 'the start-up read is for everyone');
+    assert.equal((await boss('GET', '/erp/state')).status, 200);
+  } finally {
+    process.env.NODE_ENV = 'test';
+  }
+});

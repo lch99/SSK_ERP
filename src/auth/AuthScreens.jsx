@@ -1,18 +1,41 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { login, createFirstUser, forgotPassword, linkInfo, setPasswordByLink } from '../api.js'
 import { PASSWORD_MIN } from '../../shared/roles.js'
 import { C, inp, btnPrimary, label } from '../styles.js'
 import { ErrorList } from '../setup/Section.jsx'
 import Footer from '../brand/Footer.jsx'
+import { Brand } from '../brand/Logo.jsx'
 
-const card = { maxWidth: 380, margin: '72px auto', padding: 28, background: C.card, border: `1px solid ${C.border}`, borderRadius: C.radius }
+// A 16px gutter each side on a phone; 380 wide on anything bigger.
+const card = { maxWidth: 380, width: 'calc(100% - 32px)', boxSizing: 'border-box', margin: '72px auto', padding: 28, background: C.card, border: `1px solid ${C.border}`, borderRadius: C.radius }
 const field = { display: 'block', marginBottom: 12 }
 // Under the sign-in card: the copyright line, centred.
 const footer = { maxWidth: 380, margin: '-48px auto 24px', padding: '0 16px', borderTop: 'none', justifyContent: 'center', textAlign: 'center' }
 
-function Field({ title, ...props }) {
-  return <label style={field}><span style={label}>{title}</span><input style={{ ...inp, width: '100%' }} {...props} /></label>
+// A password box has Show / Hide, so a phone user can check what they typed.
+function Field({ title, type, ...props }) {
+  const [shown, setShown] = useState(false)
+  const id = useId()
+  const secret = type === 'password'
+  // The button sits outside the <label>, so the box is named by its title alone.
+  return (
+    <div style={field}>
+      <label htmlFor={id} style={{ ...label, display: 'block' }}>{title}</label>
+      <span style={{ position: 'relative', display: 'block' }}>
+        <input id={id} style={{ ...inp, width: '100%', ...(secret && { paddingRight: 64 }) }} type={secret && shown ? 'text' : type} {...props} />
+        {secret && (
+          <button type="button" onClick={() => setShown(v => !v)} aria-label={shown ? `Hide ${title.toLowerCase()}` : `Show ${title.toLowerCase()}`} aria-pressed={shown}
+            style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: C.primaryDark, fontWeight: 600, fontSize: 12.5, cursor: 'pointer', padding: '6px 8px', fontFamily: C.font }}>
+            {shown ? 'Hide' : 'Show'}
+          </button>
+        )}
+      </span>
+    </div>
+  )
 }
+
+// The logo over each sign-in screen.
+const Top = () => <div style={{ marginBottom: 18 }}><Brand /></div>
 
 function useSubmit(fn) {
   const [busy, setBusy] = useState(false)
@@ -35,8 +58,9 @@ export function LoginScreen({ onSignedIn, notice }) {
   return (
     <>
     <form style={card} onSubmit={submit}>
-      <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>SubSaleKing ERP</h1>
-      <p style={{ fontSize: 13, color: C.muted, margin: '0 0 18px' }}>Sign in to continue.</p>
+      <Top />
+      <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Sign in</h1>
+      <p style={{ fontSize: 13, color: C.muted, margin: '0 0 18px' }}>With the username and password from your office.</p>
       {notice && <p style={{ fontSize: 13, color: C.warn, background: C.warnBg, padding: '8px 10px', borderRadius: 6, margin: '0 0 14px' }}>{notice}</p>}
       <Field title="Username" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" autoCapitalize="none" autoFocus />
       <Field title="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
@@ -59,6 +83,7 @@ function ForgotScreen({ username: typed, onBack }) {
   return (
     <>
     <form style={card} onSubmit={submit}>
+      <Top />
       <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>A new password link</h1>
       {sent ? <p style={{ fontSize: 14, lineHeight: 1.5, margin: '8px 0 16px' }}>{sent} When it comes, open it on this phone or computer and choose your password.</p> : (
         <>
@@ -88,6 +113,7 @@ export function SetPasswordScreen({ token, onSignedIn, onDone }) {
   return (
     <>
     <form style={card} onSubmit={submit}>
+      <Top />
       <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>{info?.purpose === 'reset' ? 'Choose a new password' : 'Welcome to SubSaleKing ERP'}</h1>
       {problem ? <><ErrorList errors={[problem]} /><button type="button" onClick={onDone} style={linkBtn}>Go to sign in</button></>
         : !info ? <p style={{ fontSize: 13, color: C.muted }}>Checking your link…</p> : (
@@ -119,6 +145,7 @@ export function FirstUserScreen({ onSignedIn, needsSetupKey = false }) {
   return (
     <>
     <form style={card} onSubmit={submit}>
+      <Top />
       <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Welcome to SubSaleKing ERP</h1>
       <p style={{ fontSize: 13, color: C.muted, margin: '0 0 18px', lineHeight: 1.45 }}>
         Create the first account. It will be a <b>superadmin</b>, able to complete Setup and add everyone else.

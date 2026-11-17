@@ -6,8 +6,10 @@ import { C, inp, sel, btn, btnPrimary, th, td, label } from '../styles.js'
 import { ErrorList } from '../setup/Section.jsx'
 import { Dialog } from '../auth/AuthScreens.jsx'
 import { useFeedback } from '../erp/feedback.jsx'
+import { date } from '../erp/format.js'
 
-const fmtWhen = s => (s ? new Date(String(s).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? '' : 'Z')).toLocaleString() : 'Never')
+// The server gives the time as the business keeps it (its database speaks APP_TZ): shown as it is.
+const fmtWhen = s => (s ? `${date(String(s).slice(0, 10))}, ${String(s).slice(11, 16)}` : 'Never')
 
 export default function UsersPage({ me }) {
   const fb = useFeedback()

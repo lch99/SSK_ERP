@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../api.js'
-import { visibleData } from '../../shared/access.js'
+import { visibleData, RECORD_RULES } from '../../shared/access.js'
 import { buildModel, inBranch } from './model.js'
 import { useAccess } from './access.jsx'
 
@@ -48,7 +48,11 @@ export function ErpProvider({ reloadKey, children }) {
 
   const value = useMemo(() => {
     const act = (fn, name) => async (...args) => {
-      const why = name && refusal ? refusal(name, args, m?.data) : null
+      // A rule about the record itself (only your own drafts…) is asked here only when that record is loaded:
+      // on the server the page holds the start-up read, not every listing, and the server asks it anyway.
+      const kind = name && RECORD_RULES[name]
+      const held = !kind || (m?.data?.[kind] || []).some(x => x.id === Number(args[0]))
+      const why = name && refusal ? refusal(name, held ? args : null, m?.data) : null
       if (why) throw new Error(why)
       const s = await fn(...args)
       // A save's reply leaves out the start-up kinds it didn't change (`kept`, on the server): keep ours.

@@ -82,14 +82,20 @@ const act = (run, finish, { by, name, args = [] } = {}) => oneAtATime(() => db.t
 // The time rules (viewings expire or wait for review, co-PH slots end, accounts suspend or lock and
 // hand their listings on) and the notification clean-up: what the ERP does by itself, saved if it
 // changed anything. Returns whether it ran (not before Setup is done).
+// A clean-up that fails (storage refusing a delete…) does not stop the rules: it is thrown once they have
+// run, for index.js to log and alert.
 async function runTimeRules() {
-  await pruneNotices(db, localToday());
-  await pruneFiles(db);
-  await pruneDaily(db);
+  const failed = [];
+  for (const [what, step] of [['notifications', () => pruneNotices(db, localToday())], ['unused uploads', () => pruneFiles(db)], ['daily counts', () => pruneDaily(db)]]) {
+    try { await step(); } catch (err) { failed.push(Object.assign(err, { message: `Clean-up of ${what}: ${err.message}` })); }
+  }
+  // On the records the rules touch (db/actionScope.js runClock), not every one: on the real data a full read
+  // took 2 GB of memory every 15 minutes and held every save up while it ran.
   const setup = await loadState(db, { only: [] });
-  if (!setup.data) return false;
-  await changeState(() => {});
-  return true;
+  if (setup.data) await act(({ data, setup: s }) => { A.runClock(data, s); }, async () => {}, { name: 'runClock', args: [localToday()] });
+  for (const err of failed.slice(1)) console.error(err.message);
+  if (failed.length) throw failed[0];
+  return !!setup.data;
 }
 
 module.exports = { changeState, runTimeRules, act };

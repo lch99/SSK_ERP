@@ -10,6 +10,7 @@ const ACC = require('./accounts');
 
 const EXPIRES = process.env.JWT_EXPIRES_IN || '8h';
 const MAX_ATTEMPTS = 5;
+const HASH_ROUNDS = 12;
 // Compared against when the username doesn't exist, so a wrong username takes
 // as long as a wrong password and doesn't reveal which accounts exist.
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
@@ -48,7 +49,10 @@ async function checkSignIn(q, rawUsername, rawPassword) {
   const staff = u.staff_id ? await q('staff').where('id', u.staff_id).first('status') : null;
   const why = ACC.staffRefusal(staff?.status);
   if (why) throw refused(403, why, 'LOGIN_ACCOUNT_DISABLED');
-  await q('users').where('id', u.id).update({ login_attempts: 0, last_login_at: q.fn.now() });
+  // A password brought over from the current ERP was hashed lighter (to keep the import short): made full
+  // strength now that it is typed. The password itself is unchanged.
+  const stronger = bcrypt.getRounds(u.password_hash) < HASH_ROUNDS ? { password_hash: await bcrypt.hash(password, HASH_ROUNDS) } : {};
+  await q('users').where('id', u.id).update({ login_attempts: 0, last_login_at: q.fn.now(), ...stronger });
   return u;
 }
 

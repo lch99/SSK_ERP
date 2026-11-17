@@ -50,6 +50,9 @@ async function legacyTestDb() {
 async function startApi() {
   const app = require('../src/app');
   const server = app.listen(0, '127.0.0.1');
+  // As src/index.js: an idle connection is not closed under a request reusing it (fetch keeps them).
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}/api`;
   const call = async (method, path, body) => {
@@ -57,7 +60,7 @@ async function startApi() {
     return { status: res.status, body: await res.json().catch(() => null) };
   };
   const raw = (method, path) => fetch(base + path, { method });
-  return { base, call, raw, close: () => new Promise(r => server.close(r)) };
+  return { base, call, raw, close: () => new Promise(r => { server.close(r); server.closeIdleConnections(); }) };
 }
 
 // `want` with every key of `have` that `want` has (records may carry more fields than the demo's).
