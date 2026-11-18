@@ -334,7 +334,7 @@ function AllIncentives() {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
         {[['active', 'Running'], ['upcoming', 'Starts soon'], ['ended', 'Ended'], ['all', 'All']].map(([k, label]) => (
           <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k}
-            style={{ ...small, ...(filter === k ? { background: C.primaryBg, borderColor: C.primary, color: C.primary, fontWeight: 600 } : {}) }}>
+            style={{ ...small, borderColor: filter === k ? C.primary : C.borderStrong, ...(filter === k ? { background: C.primaryBg, color: C.primary, fontWeight: 600 } : {}) }}>
             {label} ({k === 'all' ? all.length : all.filter(x => x.status === k).length})
             {k === 'ended' && toPay > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, padding: '0 7px', lineHeight: '18px', borderRadius: 9, background: C.primary, color: '#fff' }}>{toPay} to pay out</span>}
           </button>

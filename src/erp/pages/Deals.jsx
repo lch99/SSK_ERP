@@ -16,6 +16,7 @@ import { BANKS } from './options.js'
 import { Review, missing, needText, markGaps } from '../review.jsx'
 import { maskAcc, maskIc } from '../format.js'
 import { fileLabel } from '../../../shared/files.js'
+import { errorText } from '../../errors.js'
 
 // Who the two parties are on each kind of E-Form (shown as "Purchaser Tan Ah Kow").
 const PARTIES = { sale: ['Purchaser', 'Vendor'], rental: ['Tenant', 'Landlord'], project: ['Purchaser', 'Developer'] }
@@ -218,7 +219,7 @@ export function DealActions({ deal, quiet }) {
   const free = r2(cash.cleared - sum(outs, x => x.amount))
   const run = async (done, fn) => {
     setBusy(true); setError(null)
-    try { await fn(); setDialog(null); setForm({}); fb.toast(done, { action: { label: 'View', onClick: () => go('money-out') } }) } catch (e) { setError(e.message) } finally { setBusy(false) }
+    try { await fn(); setDialog(null); setForm({}); fb.toast(done, { action: { label: 'View', onClick: () => go('money-out') } }) } catch (e) { setError(errorText(e)) } finally { setBusy(false) }
   }
   const set = k => e => setForm({ ...form, [k]: e.target.value })
   const print = (label, doc, ok, why) => gate({ label, icon: 'print', disabled: !ok, why, onClick: () => go(`invoices/doc/${deal.id}/${doc}`) }, 'invoices', 'view')

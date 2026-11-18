@@ -11,6 +11,7 @@ import { useCan } from '../access.jsx'
 import { useViewer, BookViewing } from '../listingLife.jsx'
 import { date } from '../format.js'
 import Icon from '../Icon.jsx'
+import { errorText } from '../../errors.js'
 
 // Viewings (the current app's appointments): the agent bringing a customer
 // books; the listing's product handler confirms with the owner, or either side
@@ -193,7 +194,7 @@ function ViewingActions({ v, onBook }) {
   if (!can('listings', 'edit')) return null
   const openWith = (name, values) => { setError(null); setF(values); setDialog(name) }
   const close = () => setDialog(null)
-  const run = async (fn, done) => { setError(null); try { await fn(); fb.toast(done); close() } catch (e) { setError(e.message) } }
+  const run = async (fn, done) => { setError(null); try { await fn(); fb.toast(done); close() } catch (e) { setError(errorText(e)) } }
   const l = v.$.listings[0]
   const host = me.staffId === v.handlerId || !me.agentId
   const footer = (label, onClick, danger) => <><button style={btn} onClick={close}>Back</button>

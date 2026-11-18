@@ -5,6 +5,7 @@ import { C, inp, btnPrimary, label } from '../styles.js'
 import { ErrorList } from '../setup/Section.jsx'
 import Footer from '../brand/Footer.jsx'
 import { Brand } from '../brand/Logo.jsx'
+import { errorList, errorText } from '../errors.js'
 
 // A 16px gutter each side on a phone; 380 wide on anything bigger.
 const card = { maxWidth: 380, width: 'calc(100% - 32px)', boxSizing: 'border-box', margin: '72px auto', padding: 28, background: C.card, border: `1px solid ${C.border}`, borderRadius: C.radius }
@@ -44,7 +45,7 @@ function useSubmit(fn) {
     e.preventDefault()
     setBusy(true)
     setErrors([])
-    try { await fn() } catch (err) { setErrors(err.errors || [err.message]) } finally { setBusy(false) }
+    try { await fn() } catch (err) { setErrors(errorList(err)) } finally { setBusy(false) }
   }
   return { busy, errors, setErrors, submit }
 }
@@ -105,7 +106,7 @@ export function SetPasswordScreen({ token, onSignedIn, onDone }) {
   const [info, setInfo] = useState(null)
   const [problem, setProblem] = useState(null)
   const [f, setF] = useState({ password: '', confirm: '' })
-  useEffect(() => { linkInfo(token).then(setInfo, e => setProblem(e.message)) }, [token])
+  useEffect(() => { linkInfo(token).then(setInfo, e => setProblem(errorText(e))) }, [token])
   const { busy, errors, setErrors, submit } = useSubmit(async () => {
     if (f.password !== f.confirm) return setErrors(["The two passwords don't match."])
     onSignedIn(await setPasswordByLink(token, f.password))

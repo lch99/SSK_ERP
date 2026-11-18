@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
 import { loadSample } from './localApi.js'
 import * as erp from './erpApi.js'
+
+// The demo's sample is made as of today: a fixed day keeps what it holds the same on every run (after midnight
+// on 18 Nov 2026 it had no approved line left to request, and a test failed for that reason alone).
+beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-17T04:00:00Z')) })
+afterAll(() => { vi.useRealTimers() })
 
 // No localStorage under the test runner: both stores fall back to memory.
 describe('ERP demo actions', () => {

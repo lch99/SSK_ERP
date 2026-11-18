@@ -10,6 +10,7 @@ import { roleColor } from './colors.js'
 import { readSheetFile, parseDelimited, makeXlsx, download, XLSX_TYPE } from './sheet.js'
 import { Avatar } from '../erp/ui.jsx'
 import { useFeedback } from '../erp/feedback.jsx'
+import { errorText } from '../errors.js'
 
 const TONES = ['brand', 'blue', 'violet', 'green', 'amber']
 const toneOf = name => TONES[[...String(name)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % TONES.length]
@@ -40,7 +41,9 @@ export default function AgentsSection({ setup, save, step, done }) {
     if (!file) return
     const problem = checkFile(file, 'spreadsheet', await fileHead(file).catch(() => null))
     if (problem) return setReadError(problem)
-    try { take(file.name, await readSheetFile(file)) } catch (e) { setReadError(e.message) }
+    try { take(file.name, await readSheetFile(file)) } catch (e) {
+      setReadError(errorText(e, `${file.name} could not be read: it may be damaged, or not really a spreadsheet. Open it in Excel, save it again as Excel Workbook (.xlsx) or CSV, and upload that.`))
+    }
   }
 
   const checked = pending && A.checkAgents(pending.read.rows, setup, pending.mode === 'add' ? saved : [])

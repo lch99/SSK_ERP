@@ -3,6 +3,7 @@ import * as api from '../api.js'
 import { visibleData, RECORD_RULES } from '../../shared/access.js'
 import { buildModel, inBranch } from './model.js'
 import { useAccess } from './access.jsx'
+import { errorText } from '../errors.js'
 
 // The ERP records for every page: the model (lookups and totals), the slice
 // the viewer may see (their role's reach, then the chosen branch), and the
@@ -20,7 +21,7 @@ export function ErpProvider({ reloadKey, children }) {
   const [branchId, setBranch] = useState(() => {
     try { return Number(localStorage.getItem(BRANCH_KEY)) || null } catch { return null }
   })
-  const load = useCallback(() => api.getErp().then(s => { setState(s); setError(null) }).catch(e => setError(e.message)), [])
+  const load = useCallback(() => api.getErp().then(s => { setState(s); setError(null) }).catch(e => setError(errorText(e))), [])
   useEffect(() => { load() }, [load, reloadKey])
   // The server closed for planned maintenance: read the start-up records again (they carry the window),
   // once per window (the menu's counts keep being refused while "back soon" shows).

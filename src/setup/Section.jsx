@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { C, btn, btnPrimary } from '../styles.js'
 import Icon from '../erp/Icon.jsx'
 import { STEP_ICONS } from './visuals.jsx'
+import { errorList } from '../errors.js'
 
 // Set by the Setup wizard: { onBack, onNext, isFirst, isLast, total, setDirty }.
 // When present, each step ends with Back / Save & continue instead of a plain Save.
@@ -27,7 +28,7 @@ export default function Section({ id, step, title, hint, done, dirty, errors = [
       setSavedAt(new Date())
       return true
     } catch (e) {
-      setServerErrors(e.errors || [e.message])
+      setServerErrors(errorList(e))
       return false
     } finally {
       setSaving(false)

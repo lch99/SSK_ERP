@@ -137,7 +137,7 @@ export default function TierEditor({ tiers, setTiers, enabled, perType }) {
       const ok = isNum(v) && isNum(t.agentRate) && !P.validateTotal(v, t.agentRate)
       const err = isNum(v) && isNum(t.agentRate) && !ok
       return field(type ? `Pays out · ${P.DEAL_TYPE_LABELS[type]} (%)` : 'Pays out in total (%)',
-        <input style={{ ...inp, width: '100%', ...(err ? { borderColor: C.err } : {}) }} type="number" min="0" max="100" step="0.01" value={v ?? ''}
+        <input style={{ ...inp, width: '100%', borderColor: err ? C.err : C.borderStrong }} type="number" min="0" max="100" step="0.01" value={v ?? ''}
           onChange={e => setTotal(i, type, e.target.value)} />,
         ok ? `Uplines ${r2(v - t.agentRate)}% · company ${r2(100 - v)}%` : err ? `At least the agent rate, ${t.agentRate}%` : 'Agent rate plus the upline pool.',
         err)
@@ -172,7 +172,7 @@ export default function TierEditor({ tiers, setTiers, enabled, perType }) {
             {field('Reached at (RM)', <input style={{ ...inp, width: '100%' }} type="number" min="0" step="1000" value={t.threshold}
               onChange={e => edit(i, { threshold: e.target.value })} />,
               !isNum(t.threshold) ? 'Commission earned to reach it.' : Number(t.threshold) ? `${rmHint(t.threshold)} ${t.basis === 'yearly' ? 'this year' : 'since joining'}` : 'Everyone starts here.')}
-            {field('Agent keeps (%)', <input style={{ ...inp, width: '100%', ...(rateBad ? { borderColor: C.err } : {}) }} type="number" min="0" max="100" step="0.01"
+            {field('Agent keeps (%)', <input style={{ ...inp, width: '100%', borderColor: rateBad ? C.err : C.borderStrong }} type="number" min="0" max="100" step="0.01"
               value={t.agentRate} onChange={e => edit(i, { agentRate: e.target.value })} />,
               rateBad ? 'Between 0% and 100%.' : "The negotiator's own share.", rateBad)}
             {(perType ? types : [null]).map(type => <span key={type || 'all'} style={{ display: 'contents' }}>{total(type)}</span>)}

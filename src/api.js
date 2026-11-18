@@ -31,8 +31,30 @@ export const SIGNED_OUT_EVENT = 'ssk:signed-out'
 // its start-up records again, which carry the window, and shows "back soon".
 export const DOWNTIME_EVENT = 'ssk:downtime'
 
+const failure = (msg, status, errors) => Object.assign(new Error(msg), { status, errors: errors?.length ? errors : [msg] })
+const UNREACHABLE = `Cannot reach the server. Check your internet connection and try again.${import.meta.env.DEV ? ' (Is the backend running?)' : ''}`
+// What a refusal says when the reply has no words of its own: an error page from a proxy in front of the
+// server (nginx's 502 while it restarts, 413 for a body too big), or an address this server doesn't have.
+const BUSY = 'The server is not answering right now (it may be restarting). Try again in a minute.'
+const STATUS_TEXT = {
+  400: 'The server could not read that. Reload the page and try again.',
+  401: 'Please sign in again.',
+  403: "Your account doesn't have access to this.",
+  404: 'The server does not have that. It may have been removed, or the ERP was updated: reload the page and try again.',
+  408: 'The server took too long to answer. Try again.',
+  413: 'That is too large to send. Send a smaller file, or fewer at once.',
+  429: 'Too many tries in a short time. Wait a minute and try again.',
+  502: BUSY,
+  503: BUSY,
+  504: 'The server took too long to answer. If you were saving, check whether it was saved before you try again.',
+}
+const statusText = s => STATUS_TEXT[s] || (s >= 500
+  ? 'Something went wrong on the server. Try again in a minute; if it keeps happening, tell the technical team.'
+  : `The server refused that (${s}). Reload the page and try again.`)
+
 // The API's reply to `path`, signed in; a refusal or an unreachable server is
-// thrown as an Error with `status` and `errors` (a 401 also signs the page out).
+// thrown as an Error with `status` and `errors` (a 401 also signs the page out),
+// always with a message that can be shown as it is.
 async function send(path, { method = 'GET', body, file } = {}) {
   const headers = file ? { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) } : { 'Content-Type': 'application/json' }
   const token = getToken()
@@ -41,7 +63,7 @@ async function send(path, { method = 'GET', body, file } = {}) {
   try {
     res = await fetch(`${API_URL}/api${path}`, { method, headers, body: file || (body === undefined ? undefined : JSON.stringify(body)) })
   } catch {
-    throw Object.assign(new Error('Cannot reach the server. Is the backend running?'), { status: 0, errors: ['Cannot reach the server. Is the backend running?'] })
+    throw failure(UNREACHABLE, 0)
   }
   if (res.ok) return res
   const data = await res.json().catch(() => ({}))
@@ -50,10 +72,19 @@ async function send(path, { method = 'GET', body, file } = {}) {
     window.dispatchEvent(new CustomEvent(SIGNED_OUT_EVENT, { detail: data.error }))
   }
   if (res.status === 503 && data.downtime) window.dispatchEvent(new CustomEvent(DOWNTIME_EVENT, { detail: data.downtime }))
-  const msg = data.error || `Request failed (${res.status})`
-  throw Object.assign(new Error(msg), { status: res.status, errors: data.errors || [msg] })
+  const msg = typeof data.error === 'string' && data.error.trim() ? data.error : statusText(res.status)
+  throw failure(msg, res.status, Array.isArray(data.errors) ? data.errors : null)
 }
-const request = async (path, opts) => (await send(path, opts)).json().catch(() => ({}))
+// A reply that isn't the API's JSON (a web page where the API should be: VITE_API_URL or the proxy pointing
+// at the wrong place) is said as such, not handed on as {} for a page to trip over.
+async function request(path, opts) {
+  const res = await send(path, opts)
+  try {
+    return await res.json()
+  } catch {
+    throw failure('The server sent a reply the ERP could not read. Reload the page and try again; if you were saving, check whether it was saved first.', res.status)
+  }
+}
 
 // Uploads (shared/files.js UPLOADS kinds). On the server a picked file is sent at once and checked
 // there too; the record then keeps its reference ('files/<id>/<name>'). The demo keeps no files:

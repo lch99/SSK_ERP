@@ -475,3 +475,12 @@ test('text or numbers too big for the database are refused as the person\'s mist
   assert.equal(huge.status, 400, JSON.stringify(huge.body));
   assert.equal((await api.call('GET', '/health')).status, 200);
 });
+
+test('an address the API does not have is refused in JSON with a reason, not as a web page', async () => {
+  for (const [method, path] of [['GET', '/no-such-thing'], ['POST', '/auth/no-such-thing'], ['DELETE', '/public/no-such-thing']]) {
+    const r = await api.raw(method, path);
+    assert.equal(r.status, 404, `${method} ${path}`);
+    assert.match(r.headers.get('content-type') || '', /json/, `${method} ${path}`);
+    assert.match((await r.json()).error, /does not have that address/);
+  }
+});

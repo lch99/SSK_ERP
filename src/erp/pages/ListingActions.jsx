@@ -17,6 +17,7 @@ import { Photo, coverOf, savePreviews, viewMedia, downloadMedia } from '../photo
 import { useInReach } from '../listingLife.jsx'
 import { useRecordReader } from '../useList.js'
 import { fromReply, DEMO, uploadFile } from '../../api.js'
+import { errorText } from '../../errors.js'
 
 // Everyone who hasn't left (status Inactive), for the listing's people pickers.
 const STILL_HERE = 'active,pending,suspended,locked'
@@ -69,7 +70,7 @@ export default function ListingActions({ l, quiet, onBook }) {
   const set = k => e => setF(v => ({ ...v, [k]: e.target.value }))
   const save = async (fn, done) => {
     setBusy(true); setError(null)
-    try { await fn(); setDialog(null); fb.toast(done) } catch (e) { setError(e.message) } finally { setBusy(false) }
+    try { await fn(); setDialog(null); fb.toast(done) } catch (e) { setError(errorText(e)) } finally { setBusy(false) }
   }
   const footer = (label, onClick, danger) => <><button style={btn} onClick={close}>Cancel</button>
     <button style={{ ...(danger ? { ...btn, background: C.err, borderColor: C.err, color: '#fff' } : btnPrimary), opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={onClick}>{label}</button></>

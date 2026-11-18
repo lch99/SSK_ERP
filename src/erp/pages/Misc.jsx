@@ -11,6 +11,7 @@ import { rm, date, maskAcc, amt } from '../format.js'
 import Icon from '../Icon.jsx'
 import { useCan } from '../access.jsx'
 import { FileName } from '../files.jsx'
+import { errorText } from '../../errors.js'
 
 // ── Commission (2020): the old pay-detail confirmation, superseded by Closed Case ──
 export function Commission() {
@@ -177,7 +178,7 @@ export function Videos({ parts }) {
   const dates = videos.counts.dates?.distinct ?? 0
   const save = async () => {
     setError(null)
-    try { await erp.saveVideo({ ...edit, cate }); fb.toast(edit.id ? `${edit.title} saved` : `${edit.title} published`); setEdit(null) } catch (e) { setError(e.message) }
+    try { await erp.saveVideo({ ...edit, cate }); fb.toast(edit.id ? `${edit.title} saved` : `${edit.title} published`); setEdit(null) } catch (e) { setError(errorText(e)) }
   }
   const remove = async v => {
     if (await fb.confirm({ title: `Delete ${v.title}?`, body: 'The video is removed from the gallery.', confirmLabel: 'Delete', danger: true }) && await fb.run(() => erp.deleteVideo(v.id), `${v.title} deleted`)) setOpen(null)

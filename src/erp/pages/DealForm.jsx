@@ -15,6 +15,7 @@ import { useReview, changedRows, missing, needText, markGaps } from '../review.j
 import { BANKS } from './options.js'
 import { useCan } from '../access.jsx'
 import { fileLabel } from '../../../shared/files.js'
+import { errorText } from '../../errors.js'
 
 // New E-Form ("Submit New Case") and Edit E-Form, in the current form's order:
 // the case, purchaser/tenant, vendor/landlord, deposits (rent), others (fees,
@@ -159,7 +160,7 @@ function Form({ id, deal, startListing, query }) {
         go(`deals/${made.id}`)
       }
     } catch (e) {
-      setErrors(e.message)
+      setErrors(errorText(e))
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } finally { setBusy(false) }
   }

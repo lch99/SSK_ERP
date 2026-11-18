@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { C, btn, btnPrimary } from '../styles.js'
+import { errorText } from '../errors.js'
 import { Modal } from './ui.jsx'
 import Icon from './Icon.jsx'
 
@@ -35,7 +36,7 @@ export function FeedbackProvider({ children }) {
 
   const api = useMemo(() => ({
     toast,
-    error: e => toast(e?.message || String(e), { tone: 'red' }),
+    error: e => toast(errorText(e), { tone: 'red' }),
     confirm: opts => new Promise(resolve => setAsk({ ...opts, resolve })),
     run: async (fn, done, opts) => {
       try {
@@ -43,11 +44,33 @@ export function FeedbackProvider({ children }) {
         if (done) toast(typeof done === 'function' ? done(out) : done, opts)
         return true
       } catch (e) {
-        toast(e?.message || String(e), { tone: 'red' })
+        toast(errorText(e), { tone: 'red' })
         return false
       }
     },
   }), [toast])
+
+  // An error nobody caught (an action a button started without fb.run, a fault in a click handler) is still
+  // said, so a click never fails in silence. Not: a signed-out session (the sign-in screen says it), errors
+  // without an Error (a picture that didn't load, another site's script), or the same note again at once.
+  const told = useRef({ text: null, at: 0 })
+  useEffect(() => {
+    const tell = e => {
+      if (!e || e.status === 401) return
+      const text = errorText(e)
+      if (told.current.text === text && Date.now() - told.current.at < 3000) return
+      told.current = { text, at: Date.now() }
+      toast(text, { tone: 'red' })
+    }
+    const onRejection = ev => tell(ev.reason)
+    const onError = ev => { if (ev.error) tell(ev.error) }
+    window.addEventListener('unhandledrejection', onRejection)
+    window.addEventListener('error', onError)
+    return () => {
+      window.removeEventListener('unhandledrejection', onRejection)
+      window.removeEventListener('error', onError)
+    }
+  }, [toast])
 
   const answer = ok => { ask?.resolve(ok); setAsk(null) }
 

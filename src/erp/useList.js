@@ -5,6 +5,7 @@ import { makeXlsx, XLSX_TYPE } from '../../shared/xlsx.js'
 import { download } from '../setup/sheet.js'
 import { useErp } from './ErpContext.jsx'
 import { useAccess } from './access.jsx'
+import { errorText } from '../errors.js'
 
 // What every read of a list adds to the page's own params, and where the demo
 // finds the records. `branch: false` leaves the top bar's branch out (a check
@@ -70,7 +71,7 @@ export function useList(key, params, { pageSize = 20, branch = true, skip = fals
     setOut(o => ({ ...o, loading: true }))
     load(1, shown).then(
       g => { if (live) setOut({ sig, rows: g.rows, total: g.total, counts: g.counts, loading: false, error: null }) },
-      e => { if (live) setOut(o => ({ ...o, loading: false, error: e.message })) })
+      e => { if (live) setOut(o => ({ ...o, loading: false, error: errorText(e) })) })
     return () => { live = false }
   }, [sig, pageSize, erp.m, erp.scoped, skip]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -80,7 +81,7 @@ export function useList(key, params, { pageSize = 20, branch = true, skip = fals
     setOut(o => ({ ...o, loading: true }))
     load(Math.floor(out.rows.length / pageSize) + 1, pageSize, false).then(
       g => setOut(o => (o.sig !== sig ? o : { ...o, rows: [...o.rows, ...g.rows], total: g.total, loading: false })),
-      e => setOut(o => ({ ...o, loading: false, error: e.message })))
+      e => setOut(o => ({ ...o, loading: false, error: errorText(e) })))
   }
 
   return { rows: out.rows, total: out.total, counts: out.counts, loading: out.loading, error: out.error, more, searching: typed !== (params.q || '') }

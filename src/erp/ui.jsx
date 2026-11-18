@@ -7,6 +7,7 @@ import Icon from './Icon.jsx'
 import { date, num } from './format.js'
 import { UPLOADS, acceptFor, checkFile, fileHead, fileSize, uploadHint } from '../../shared/files.js'
 import { uploadFile } from '../api.js'
+import { errorText } from '../errors.js'
 
 // Building blocks shared by the ERP pages.
 
@@ -1158,7 +1159,7 @@ export function FileInput({ kind = 'document', onChange, onSaved, disabled = fal
     if (fresh.length) {
       setBusy(true)
       for (const f of fresh) {
-        try { f.ref = await uploadFile(f, kind) } catch (e) { failed.push(`${f.name}: ${e.message}`) }
+        try { f.ref = await uploadFile(f, kind) } catch (e) { failed.push(`${f.name}: ${errorText(e)}`) }
       }
       setBusy(false)
     }

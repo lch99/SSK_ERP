@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { authStatus, getMe, getToken, signOut, SIGNED_OUT_EVENT } from './api.js'
+import { errorText } from './errors.js'
 import { C, btn } from './styles.js'
 import { LoginScreen, FirstUserScreen, SetPasswordScreen } from './auth/AuthScreens.jsx'
 import { ErrorList } from './setup/Section.jsx'
@@ -27,12 +28,14 @@ export default function App() {
         return setPhase('in')
       }
       if (getToken()) {
-        try { setMe((await getMe()).user); return setPhase('in') } catch { /* fall through to sign-in */ }
+        // A session the server refuses (expired, signed out elsewhere: a 4xx) signs in again; a server that
+        // can't be reached or fails is said, with Try again, not passed off as a sign-in screen.
+        try { setMe((await getMe()).user); return setPhase('in') } catch (e) { if (!(e.status >= 400 && e.status < 500)) throw e }
       }
       setNeedsSetupKey(!!status.needsSetupKey)
       setPhase(status.needsFirstUser ? 'first' : 'login')
     } catch (e) {
-      setError(e.message)
+      setError(errorText(e))
       setPhase('error')
     }
   }

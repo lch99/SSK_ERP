@@ -15,6 +15,7 @@ import { useCan } from '../access.jsx'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
 import { FileName } from '../files.jsx'
 import { fileLabel } from '../../../shared/files.js'
+import { errorText } from '../../errors.js'
 
 const r2 = n => Math.round(n * 100) / 100
 
@@ -206,7 +207,7 @@ function TxEdit({ t, deal, erp }) {
       warnings: [lookalikeText(await lookalikes(read, f, t.id)),
         t.status === 'pending' && 'Accounts is already checking this payment against the bank. Tell them what you changed.'] })
     if (!ok) return
-    try { await erp.updateTransaction(t.id, f); fb.toast(`${t.code} updated`); setF(null) } catch (e) { setError(e.message) }
+    try { await erp.updateTransaction(t.id, f); fb.toast(`${t.code} updated`); setF(null) } catch (e) { setError(errorText(e)) }
   }
   const remove = async () => {
     if (await fb.confirm({ title: `Delete ${t.code}?`, body: `${rm(t.amount)} from ${t.payer} is removed from ${t.$.deal?.code}. This cannot be undone.`, confirmLabel: 'Delete', danger: true })
@@ -336,7 +337,7 @@ function AddTransaction({ dealId }) {
       await erp.addTransaction(f)
       fb.toast(`${rm(f.amount)} added to ${deal.code} as Draft. Accounts clears it after checking the bank.`)
       go(`deals/${f.dealId}`)
-    } catch (e) { setError(e.message); window.scrollTo({ top: 0, behavior: 'smooth' }) } finally { setBusy(false) }
+    } catch (e) { setError(errorText(e)); window.scrollTo({ top: 0, behavior: 'smooth' }) } finally { setBusy(false) }
   }
   const radio = (name, value, label) => (
     <label key={value} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 14, marginRight: 14 }}>

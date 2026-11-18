@@ -83,8 +83,8 @@ function Flow({ steps }) {
   const [ref, narrow] = useNarrow(steps.length * 190 + (steps.length - 1) * 40)
   return (
     <div ref={ref} style={{ display: 'flex', flexDirection: narrow ? 'column' : 'row', alignItems: narrow ? 'stretch' : 'center', gap: 0 }}>
-      {steps.map((s, i) => (
-        <Fragment key={s.key}>
+      {steps.map(({ key, ...s }, i) => (
+        <Fragment key={key}>
           {i > 0 && <Arrow label={s.via} down={narrow} />}
           <FlowBox {...s} />
         </Fragment>

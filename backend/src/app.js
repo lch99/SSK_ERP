@@ -56,6 +56,8 @@ app.use('/api/erp', erpRouter);
 app.use('/api/accounts', accountsRouter);
 // What the website reads (public fields only; no sign-in but for saved listings).
 app.use('/api/public', publicRouter);
+// An address under /api that the API doesn't have: a refusal in JSON like every other (Express's own is a web page).
+app.use('/api', (req, res) => res.status(404).json({ error: 'The server does not have that address. Reload the page: the ERP may have been updated.' }));
 
 // The ERP's pages too, when this server is the only one (staging): WEB_DIR is the built frontend
 // (`VITE_USE_SERVER=true npm run build` in the project root → dist/). Its files under assets/ have

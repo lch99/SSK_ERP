@@ -23,6 +23,7 @@ import { madeId } from '../../api.js'
 import { StaffPicker } from '../pickers.jsx'
 import { FileName } from '../files.jsx'
 import { SignInCard } from '../signIn.jsx'
+import { errorText } from '../../errors.js'
 
 // Agents and office staff ("H.R Portal" in the current ERP is one list for both).
 // Agents (Agents module): position (tier), upline and status. Office staff
@@ -204,8 +205,8 @@ function Profile({ id }) {
     if (s.status === 'active' && v !== 'active' && handling > 0 && !(await fb.confirm({ title: `Set ${s.short} ${STAFF_STATUS[v].label}?`,
       body: `${s.short} handles ${handling} listing${handling > 1 ? 's' : ''}. ${handling > 1 ? 'They go' : 'It goes'} to the next person in line (a co-product handler, the building's lead, the area manager or the branch manager). You can give ${handling > 1 ? 'them' : 'it'} back when ${s.short} is active again.`,
       confirmLabel: `Set ${STAFF_STATUS[v].label}` }))) return
-    const st = await fb.run(() => erp.setStaffStatus(s.id, v))
-    if (st) { const n = st.data.runs?.handover?.staffId === s.id && s.status === 'active' ? st.data.runs.handover.changed : 0; fb.toast(`${s.short} is now ${STAFF_STATUS[v].label}${n ? `; ${n} listing${n > 1 ? 's' : ''} handed on` : ''}`) }
+    let st
+    if (await fb.run(async () => { st = await erp.setStaffStatus(s.id, v) })) { const n = st?.data?.runs?.handover?.staffId === s.id && s.status === 'active' ? st.data.runs.handover.changed : 0; fb.toast(`${s.short} is now ${STAFF_STATUS[v].label}${n ? `; ${n} listing${n > 1 ? 's' : ''} handed on` : ''}`) }
   }
 
   return (
@@ -499,7 +500,7 @@ function StaffFormFor({ s, office }) {
         fb.toast(`${body.short} added${f.active ? '' : ' as Pending. Switch on Active Staff Account when HR is done'}`)
         go(`staff/${made.id}`)
       }
-    } catch (e) { setError(e.message); window.scrollTo({ top: 0, behavior: 'smooth' }) } finally { setBusy(false) }
+    } catch (e) { setError(errorText(e)); window.scrollTo({ top: 0, behavior: 'smooth' }) } finally { setBusy(false) }
   }
   return (
     <Page title={s ? `Edit Staff · ${s.code}` : office ? 'Add office staff' : 'Add an agent'} help={s ? PAGE.staffEdit : PAGE.staffNew}

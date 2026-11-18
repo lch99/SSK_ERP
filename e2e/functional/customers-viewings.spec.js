@@ -58,7 +58,8 @@ test('a viewing: refused empty, in the past and on a busy slot; booked; cancelle
   await box.getByRole('button', { name: 'Book viewing' }).click()
   await expect(page.getByText(/later than now/)).toBeVisible()
   // Tomorrow, at a time of its own: booked.
-  const slot = `${String(8 + Math.floor(Math.random() * 11)).padStart(2, '0')}:${Math.random() < 0.5 ? '00' : '30'}`
+  // (Viewings are booked from 09:00, every half hour.)
+  const slot = `${String(9 + Math.floor(Math.random() * 10)).padStart(2, '0')}:${Math.random() < 0.5 ? '00' : '30'}`
   await box.getByLabel(/^Date/).fill(isoDay(1))
   await pick(page, 'Time', slot)
   await box.getByRole('button', { name: 'Book viewing' }).click()

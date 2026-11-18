@@ -187,7 +187,8 @@ Queries, Payment Ready, Payment Clear), one entry per kind.
 | Current ERP | Details | New ERP |
 |---|---|---|
 | Add New Agent/Staff | (Not opened) | ✅ Agents › Add an agent, System › Add office staff |
-| All / Active / Inactive / Pending Agent/Staff | Staff ID, user name, IC name, IC no., name-card name, phone, e-mail, position request, closing amount, upline, manage; link to the person's E-Forms | ✅ Agents › All agents (position requests, closing amount) |
+| All / Active / Inactive / Pending Agent/Staff | Staff ID, user name, IC name, IC no., name-card name, phone, e-mail, position request, closing amount, upline, manage; link to the person's E-Forms | ✅ Agents › All agents (position requests, closing amount; status tabs All, Active, Inactive, Pending, Suspended, Locked) |
+| Per person: Marketing, View Chart | The marketing staff a person works with; their place in the org chart | ✅ A person's page › Marketing staffs (`#/staff/<id>/marketing`); Org chart from that person (`#/org-chart/<id>`) |
 
 ## Invoice & receipt
 

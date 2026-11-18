@@ -63,8 +63,8 @@ export default function Rules() {
     suspended: people.suspended || 0, lockedStaff: people.locked || 0, looks: lc.ownerLooks?.n || 0,
   }
   const run = (fn, key, label) => async () => {
-    const st = await fb.run(fn)
-    if (st) { const n = st.data.runs?.[key]?.changed || 0; fb.toast(n ? `${fmt(n)} ${label}` : 'Checked: nothing to change') }
+    let st
+    if (await fb.run(async () => { st = await fn() })) { const n = st?.data?.runs?.[key]?.changed || 0; fb.toast(n ? `${fmt(n)} ${label}` : 'Checked: nothing to change') }
   }
   return (
     <Page title="Automatic rules" help={PAGE.rules} sub="What the ERP does by itself, and what each rule affects right now. The same rules run on the server when the ERP goes live.">

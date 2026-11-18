@@ -13,6 +13,7 @@ import { rm0, rmShort, date, ago } from '../format.js'
 import Icon from '../Icon.jsx'
 import { useCan, useGate } from '../access.jsx'
 import { FavStar } from '../listingLife.jsx'
+import { errorText } from '../../errors.js'
 
 // ── Vendor Requests: owners who asked us (through the public site) to list ──
 // A page at a time (useList); one search for the ticket id, the owner or their phone number (by its digits).
@@ -131,11 +132,11 @@ export function Titles() {
   const setStatus = (ids, status, done) => fb.run(() => erp.setTitleStatus(ids, status), done).then(ok => ok && setPicked(new Set()))
   const save = async () => {
     setError(null)
-    try { await erp.saveTitle(edit); fb.toast(edit.id ? `${edit.name} saved` : `${edit.name} added to the database`); setEdit(null) } catch (e) { setError(e.message) }
+    try { await erp.saveTitle(edit); fb.toast(edit.id ? `${edit.name} saved` : `${edit.name} added to the database`); setEdit(null) } catch (e) { setError(errorText(e)) }
   }
   const remove = async () => {
     setError(null)
-    try { await erp.deleteTitle(removing.title.id, removing.to); fb.toast(`${removing.title.name} deleted`); setRemoving(null) } catch (e) { setError(e.message) }
+    try { await erp.deleteTitle(removing.title.id, removing.to); fb.toast(`${removing.title.name} deleted`); setRemoving(null) } catch (e) { setError(errorText(e)) }
   }
   const startEdit = t => { setError(null); setEdit(t ? { id: t.id, name: t.name, area: t.area, category: String(t.category), handlerId: t.handlerId ? String(t.handlerId) : '', managerId: t.managerId ? String(t.managerId) : '', remark: t.remark || '' }
     : { name: '', area: '', category: '2', handlerId: '', managerId: '', remark: '' }) }
@@ -167,8 +168,8 @@ export function Titles() {
     ) },
   ]
   const recheck = async () => {
-    const st = await fb.run(() => erp.recheckBuildingLeads())
-    if (st) { const n = st.data.runs?.leads?.changed || 0; fb.toast(n ? `${n} building lead${n > 1 ? 's' : ''} changed; each new lead is told` : 'Checked every building: no lead changes') }
+    let st
+    if (await fb.run(async () => { st = await erp.recheckBuildingLeads() })) { const n = st?.data?.runs?.leads?.changed || 0; fb.toast(n ? `${n} building lead${n > 1 ? 's' : ''} changed; each new lead is told` : 'Checked every building: no lead changes') }
   }
   const listed = removing?.title.$.listings || 0
   return (
@@ -265,7 +266,7 @@ export function Areas() {
   const states = Object.keys(list.counts.state || {}).sort()
   const save = async () => {
     setError(null)
-    try { await erp.saveArea(edit); fb.toast(edit.id ? `${edit.name} saved` : `${edit.name} added`); setEdit(null) } catch (e) { setError(e.message) }
+    try { await erp.saveArea(edit); fb.toast(edit.id ? `${edit.name} saved` : `${edit.name} added`); setEdit(null) } catch (e) { setError(errorText(e)) }
   }
   const remove = async a => {
     if (await fb.confirm({ title: `Delete ${a.name}?`, body: 'The area is removed from the list.', confirmLabel: 'Delete', danger: true })) fb.run(() => erp.deleteArea(a.id), `${a.name} deleted`)

@@ -12,6 +12,7 @@ import { date } from '../format.js'
 import Icon from '../Icon.jsx'
 import { OrgTree } from './OrgChart.jsx'
 import { BANKS } from './options.js'
+import { errorText } from '../../errors.js'
 
 // The signed-in person's profile; updates the moment it is saved anywhere.
 export function useProfile() {
@@ -104,7 +105,7 @@ function Details({ me, saved }) {
 
   const input = (k, label, { required, help, ...attrs } = {}) => (
     <FormField label={label} required={required} help={bad(k) ? problem(errors[k]) : help}>
-      <input value={d[k]} onChange={set(k)} onBlur={left(k)} aria-invalid={!!bad(k)} style={{ ...field, borderColor: bad(k) ? C.err : undefined }} {...attrs} />
+      <input value={d[k]} onChange={set(k)} onBlur={left(k)} aria-invalid={!!bad(k)} style={{ ...field, borderColor: bad(k) ? C.err : C.borderStrong }} {...attrs} />
     </FormField>
   )
   const branch = me.branchId ? setup.branches.find(b => b.id === me.branchId)?.name : 'All branches'
@@ -185,7 +186,7 @@ export function PasswordForm({ profile, onDone, onCancel, autoFocus }) {
       fb.toast(!needCurrent ? 'Password set' : DEMO ? 'Password changed' : 'Password changed. Other devices were signed out.')
       onDone?.()
     } catch (err) {
-      setError(err.message)
+      setError(errorText(err))
     } finally {
       setBusy(false)
     }

@@ -32,6 +32,7 @@ The backend runs on MySQL only. Set `AUTH_DISABLED=true` in `backend/.env` to sk
 - `npm test`: payout rule tests
 - `cd backend && npm test`: backend tests on MySQL (they empty and refill the test databases `ssk_erp_test` and `ssk_legacy_test`, never `ssk_erp`)
 - `npm run e2e`: browser tests (Playwright; once: `npx playwright install chromium`): every page on a desktop and a 360 px phone, and the sign-in screens. Against a running server, signed in for real: `E2E_URL=https://<staging> E2E_USER=… E2E_PASSWORD=… npm run e2e` (on a new server, add `E2E_SETUP_KEY` and the first account is made with it). On a server it also runs `e2e/functional/`: the journeys (listings, E-Forms and payments, customers, viewings, the website's reads and owner form) and what must be refused (missing and hostile input, duplicates, double clicks, closed pages and actions, broken sessions, bad uploads). They make their own test agents and records, named `E2E…`, and never sign in as a real person. Those tests try wrong passwords on purpose: give the test server `LOGIN_ATTEMPTS=1000`.
+- `E2E_URL=… node e2e/load.mjs 10,25,50 30`: a load test (people at once, seconds each) on whatever data the server holds: office, agent and website traffic, with how fast each kind of request answered. Reads only, plus saves on one draft listing of its own, deleted at the end.
 
 ## Staging server
 

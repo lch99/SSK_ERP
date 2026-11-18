@@ -11,6 +11,7 @@ import LogoMark from '../brand/Logo.jsx'
 import { useFeedback } from '../erp/feedback.jsx'
 import Icon from '../erp/Icon.jsx'
 import { ProgressRing, STEP_ICONS } from './visuals.jsx'
+import { errorText } from '../errors.js'
 
 // Order matches setupChecklist() in shared/payout.js; Review comes last.
 const SECTIONS = {
@@ -70,7 +71,7 @@ export default function SetupPage() {
       // Fix the starting step once (first unfinished one), so that finishing a
       // step later doesn't silently move "where you are".
       setCurrent(c => c || (s.checklist.find(i => !i.done) || REVIEW).key)
-    }).catch(e => setError(e.message))
+    }).catch(e => setError(errorText(e)))
   }
   useEffect(load, [])
 

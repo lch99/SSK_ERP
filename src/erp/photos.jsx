@@ -12,8 +12,14 @@ import { fileId } from '../../shared/files.js'
 export const PREVIEW_PX = 480
 const QUALITY = 0.6
 
+// A file the browser can't draw (damaged, or a format it doesn't know, such as HEIC outside Safari) is said by name.
 export async function shrinkPhoto(file) {
-  const bmp = await createImageBitmap(file)
+  let bmp
+  try {
+    bmp = await createImageBitmap(file)
+  } catch {
+    throw new Error(`${file.name || 'That photo'} could not be read as a picture: it may be damaged, or in a format this browser doesn't open. Save it as JPG or PNG and add it again.`)
+  }
   const k = Math.min(1, PREVIEW_PX / Math.max(bmp.width, bmp.height))
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(bmp.width * k))
@@ -25,7 +31,9 @@ export async function shrinkPhoto(file) {
   const as = type => new Promise(ok => canvas.toBlob(ok, type, QUALITY))
   // Safari can't write WebP and hands back a PNG instead: use JPEG there.
   const webp = await as('image/webp')
-  return webp?.type === 'image/webp' ? webp : as('image/jpeg')
+  const out = webp?.type === 'image/webp' ? webp : await as('image/jpeg')
+  if (!out) throw new Error(`${file.name || 'That photo'} could not be made smaller in this browser. Try a smaller photo, or another browser.`)
+  return out
 }
 
 // ── Storage: IndexedDB, with this visit's object URLs cached in memory (also

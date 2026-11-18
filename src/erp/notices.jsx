@@ -10,6 +10,7 @@ import { Page, Card, Tabs, Pill, Empty, Modal, FormField, Select, TextArea, Noti
 import { PAGE } from './help.js'
 import { ago } from './format.js'
 import Icon from './Icon.jsx'
+import { errorText } from '../errors.js'
 
 // Notifications (the current system's in-app notices and pushes): viewing
 // requests and replies, price changes and sales on favourites, becoming a
@@ -142,7 +143,7 @@ function SendNoticeForm({ onClose }) {
   const count = f.to === 'all' ? Object.values(perBranch).reduce((a, b) => a + b, 0) : String(f.to).startsWith('branch:') ? perBranch[String(f.to).slice(7)] || 0 : 1
   const send = async () => {
     setError(null)
-    try { await erp.sendNotice(f); fb.toast(`Sent to ${count} ${count === 1 ? 'person' : 'people'}`); setF({ to: 'all', text: '' }); onClose() } catch (e) { setError(e.message) }
+    try { await erp.sendNotice(f); fb.toast(`Sent to ${count} ${count === 1 ? 'person' : 'people'}`); setF({ to: 'all', text: '' }); onClose() } catch (e) { setError(errorText(e)) }
   }
   return (
     <Modal open onClose={onClose} title="Send a notice" footer={<><button style={btn} onClick={onClose}>Cancel</button><button style={btnPrimary} onClick={send}>Send to {count}</button></>}>

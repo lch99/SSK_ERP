@@ -8,6 +8,7 @@ import { Choice } from '../../setup/ui.jsx'
 import { ErrorList } from '../../setup/Section.jsx'
 import { rm0, date } from '../format.js'
 import { useReview, changedRows, missing, needText, markGaps } from '../review.jsx'
+import { errorList } from '../../errors.js'
 
 const pctBox = (value, onChange, props = {}) => (
   <span style={{ whiteSpace: 'nowrap' }}><input style={{ ...inp, width: 90 }} type="number" step="0.01" min="0" value={value ?? ''} onChange={e => onChange(e.target.value)} {...props} /> %</span>
@@ -52,7 +53,7 @@ export function ProjectForm({ project, onSaved }) {
       ],
     })
     if (!ok) return
-    try { onSaved((await erp.saveProject(p, setup.tiers)).result) } catch (e) { setErrors(e.errors || [e.message]); window.scrollTo(0, 0) }
+    try { onSaved((await erp.saveProject(p, setup.tiers)).result) } catch (e) { setErrors(errorList(e)); window.scrollTo(0, 0) }
   }
 
   return (
@@ -126,7 +127,7 @@ export function IncentiveDrawer({ open, incentive, project, onClose, onSaved }) 
   const setStep = (i, k, v) => set('steps', d.steps.map((s, j) => (j === i ? { ...s, [k]: v } : s)))
 
   async function save() {
-    try { await erp.saveIncentive(project.id, d); onSaved() } catch (e) { setErrors(e.errors || [e.message]) }
+    try { await erp.saveIncentive(project.id, d); onSaved() } catch (e) { setErrors(errorList(e)) }
   }
 
   return (

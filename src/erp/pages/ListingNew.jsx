@@ -15,6 +15,7 @@ import ListingPreview from './ListingPreview.jsx'
 import { ListingDetailFields, listingDetailRows } from './ListingDetails.jsx'
 import { STATES } from './options.js'
 import { savePreviews } from '../photos.jsx'
+import { errorText } from '../../errors.js'
 
 // Add Property List: the current form's fields, in the same order. "Create Listing"
 // on an owner request (#/listing-new?vr=<id>) fills in what the owner told us, so
@@ -90,7 +91,7 @@ function ListingForm({ vr, state }) {
       if (vr) await erp.setVendorRequest(vr.id, 2, made.id)
       fb.toast(`${made.code} ${draft ? 'saved as draft' : 'published'}${vr ? ` · ticket ${vr.ticket} set to Listing Created` : ''}`)
       go(`listings/${made.id}`)
-    } catch (e) { setError(e.message); window.scrollTo(0, 0) } finally { setBusy(false) }
+    } catch (e) { setError(errorText(e)); window.scrollTo(0, 0) } finally { setBusy(false) }
   }
   const grid = { display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))' }
   const radio = (k, opts) => (

@@ -7,6 +7,7 @@ import { ErrorList } from '../setup/Section.jsx'
 import { Dialog } from '../auth/AuthScreens.jsx'
 import { useFeedback } from '../erp/feedback.jsx'
 import { date } from '../erp/format.js'
+import { errorList, errorText } from '../errors.js'
 
 // The server gives the time as the business keeps it (its database speaks APP_TZ): shown as it is.
 const fmtWhen = s => (s ? `${date(String(s).slice(0, 10))}, ${String(s).slice(11, 16)}` : 'Never')
@@ -22,7 +23,7 @@ export default function UsersPage({ me }) {
 
   const load = () => Promise.all([listUsers(), getBranches()])
     .then(([u, b]) => { setData(u); setBranches(b.branches) })
-    .catch(e => setError(e.message))
+    .catch(e => setError(errorText(e)))
   useEffect(() => { load() }, [])
 
   if (error) return <div style={{ padding: 24 }}><ErrorList errors={[error]} /></div>
@@ -138,7 +139,7 @@ function UserDialog({ me, user, branches, assignable, onClose, onSaved }) {
       else await updateUser(user.id, { name: body.name, role: body.role, branchId: body.branchId, isActive: body.isActive })
       onSaved()
     } catch (e) {
-      setServerErrors(e.errors || [e.message])
+      setServerErrors(errorList(e))
     } finally {
       setBusy(false)
     }
@@ -199,7 +200,7 @@ function ResetDialog({ user, onClose, onSaved }) {
   const err = validatePassword(pw)
   async function save() {
     setBusy(true)
-    try { await resetUserPassword(user.id, pw); onSaved() } catch (e) { setErrors(e.errors || [e.message]) } finally { setBusy(false) }
+    try { await resetUserPassword(user.id, pw); onSaved() } catch (e) { setErrors(errorList(e)) } finally { setBusy(false) }
   }
   return (
     <Dialog onClose={onClose}>

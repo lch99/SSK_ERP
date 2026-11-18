@@ -225,7 +225,7 @@ const START_KINDS = ['staff', 'titles', 'areas', 'propertyTypes', 'downtime'];
 const START_OMITS = { staff: ['bio', 'awards', 'socials', 'docs', 'extra'], titles: ['leadLog'] };
 const omit = (r, keys) => { const o = { ...r }; for (const k of keys) delete o[k]; return o; };
 function startUp(data) {
-  return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, START.has(k) ? (START_OMITS[k] ? v.map(r => omit(r, START_OMITS[k])) : v) : Array.isArray(v) ? []
+  return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, START.has(k) ? (START_OMITS[k] ? v.map(r => omit(r, START_OMITS[k])) : v) : k === 'runs' ? v : Array.isArray(v) ? []
     : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).map(x => [x, []])) : v]));
 }
 

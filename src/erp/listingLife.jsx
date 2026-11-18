@@ -11,6 +11,7 @@ import { Pill, Modal, FormField, Select, TextArea, Notice, Link, field, small, m
 import { missing, needText, markGaps } from './review.jsx'
 import Icon from './Icon.jsx'
 import { date } from './format.js'
+import { errorText } from '../errors.js'
 
 // Pieces the listing pages share for the rules in shared/listings.js: who is
 // looking, what of the owner they may see, favourites, the price pill, the
@@ -148,7 +149,7 @@ function BookForm({ listing, onClose }) {
       await erp.bookViewing({ ...f, listingIds: [listing.id, ...(f.extra ? [Number(f.extra)] : [])] })
       fb.toast(listing.holderId === Number(f.requestedBy) ? 'Viewing booked and confirmed (it is your own listing)' : `Viewing requested. ${m.staffName(listing.holderId)} confirms it with the owner.`)
       close()
-    } catch (e) { setError(e.message) } finally { setBusy(false) }
+    } catch (e) { setError(errorText(e)) } finally { setBusy(false) }
   }
   const pickCustomer = id => {
     const c = customers.find(x => x.id === Number(id))

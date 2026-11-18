@@ -17,6 +17,7 @@ import { RoleTag } from './Staff.jsx'
 import { useDealProject } from './DealPage.jsx'
 import { fileId } from '../../../shared/files.js'
 import { FileName } from '../files.jsx'
+import { errorText } from '../../errors.js'
 
 // Save a report as an Excel file: its rows are the server's summary (one per person or
 // building), already all here; numbers stay numbers, so they add up in Excel.
@@ -363,7 +364,7 @@ function Landlord() {
   const archives = useList('archives', { sort: '-date', counts: '0' }, { pageSize: 200 }).rows
   const save = async () => {
     setError(null)
-    try { await erp.verifyLandlord(verify.id, Number(form.status), form.remarks); setVerify(null) } catch (e) { setError(e.message) }
+    try { await erp.verifyLandlord(verify.id, Number(form.status), form.remarks); setVerify(null) } catch (e) { setError(errorText(e)) }
   }
   return (
     <>

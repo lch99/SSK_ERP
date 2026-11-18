@@ -96,3 +96,44 @@ test('the first account asks for the setup key when the server wants one', async
   await expect(page.getByText('That setup key is not right.')).toBeVisible()
   expect(sent).toEqual({ name: 'Jonathan', username: 'jonathan', password: 'correct horse battery', setupKey: 'not-the-key' })
 })
+
+// When the server, or what stands in front of it, fails, the person reads what happened and what to do:
+// never "Request failed (502)", "Unexpected token <…" or "Failed to fetch".
+const FAILING = [
+  ['an error page from the proxy in front of the server', r => r.fulfill({ status: 502, contentType: 'text/html', body: '<html><body><h1>502 Bad Gateway</h1><hr>nginx</body></html>' }),
+    /not answering right now \(it may be restarting\)/],
+  ['no server at all', r => r.abort('connectionrefused'), /Cannot reach the server\. Check your internet connection/],
+  ['a web page where the API should be', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>ERP</title><p>Hello' }),
+    /a reply the ERP could not read/],
+]
+for (const [what, answer, said] of FAILING) {
+  test(`${what} is said in plain words, with Try again`, async ({ page }) => {
+    let failing = true
+    await page.unroute('**/api/auth/status')
+    await page.route('**/api/auth/status', r => (failing ? answer(r) : json(r, 200, { needsFirstUser: false })))
+    await page.goto('/')
+    await expect(page.getByText(said)).toBeVisible()
+    await expect(page.getByText(/Request failed|Unexpected token|JSON|Failed to fetch|Bad Gateway/)).toHaveCount(0)
+    failing = false
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+  })
+}
+
+test('a kept session while the server fails is said, not turned into the sign-in screen', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ssk-token', 'kept-token'))
+  await page.route('**/api/auth/me', r => r.fulfill({ status: 504, contentType: 'text/html', body: '<h1>504 Gateway Time-out</h1>' }))
+  await page.goto('/')
+  await expect(page.getByText(/The server took too long to answer/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem('ssk-token'))).toBe('kept-token')
+})
+
+test('a kept session the server no longer takes goes back to sign in, saying why', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ssk-token', 'old-token'))
+  await page.route('**/api/auth/me', r => json(r, 401, { error: 'Your session has expired. Please sign in again.' }))
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByText('Your session has expired. Please sign in again.')).toBeVisible()
+})

@@ -11,6 +11,7 @@ import { rm0, date, ago } from '../format.js'
 import { localToday, FOLLOW_UP_ACTIONS } from '../../demo/erpSample.js'
 import { useAccess, useCan } from '../access.jsx'
 import { useReview, missing, needText, markGaps } from '../review.jsx'
+import { errorText } from '../../errors.js'
 
 // Customer Database: leads, with the current ERP's Action and Status per row.
 export default function Customers({ parts }) {
@@ -99,11 +100,11 @@ function Details({ c, erp }) {
   const [error, setError] = useState(null)
   const saveEdit = async () => {
     setError(null)
-    try { await erp.updateCustomer(c.id, edit); fb.toast(`${edit.name} saved`); setEdit(null) } catch (e) { setError(e.message) }
+    try { await erp.updateCustomer(c.id, edit); fb.toast(`${edit.name} saved`); setEdit(null) } catch (e) { setError(errorText(e)) }
   }
   const saveFu = async () => {
     setError(null)
-    try { await erp.addCustomerFollowUp(c.id, fu); fb.toast('Follow-up saved'); setFu(null) } catch (e) { setError(e.message) }
+    try { await erp.addCustomerFollowUp(c.id, fu); fb.toast('Follow-up saved'); setFu(null) } catch (e) { setError(errorText(e)) }
   }
   const grid = { display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))' }
   return (
@@ -206,7 +207,7 @@ function AddName() {
   async function save() {
     setError(null)
     if (!await preview()) return
-    try { await erp.addCustomer(f); fb.toast(`${f.name} added to the Customer Database`); go('customers') } catch (e) { setError(e.message); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+    try { await erp.addCustomer(f); fb.toast(`${f.name} added to the Customer Database`); go('customers') } catch (e) { setError(errorText(e)); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   }
   return (
     <Page title="Add a customer" help={PAGE.customerNew} back={{ to: 'customers', label: 'Customers' }}>
