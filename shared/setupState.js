@@ -3,6 +3,7 @@
 // demo (src/demo/localApi.js) runs on this with no server.
 import * as P from './payout.js';
 import * as A from './agents.js';
+import * as ST from './standard.js';
 
 export const DEFAULTS = {
   company: { name: '', regNo: '', licenceNo: '', reaName: '', reaNo: '', sstNo: '', address: '', phone: '', email: '' },
@@ -26,6 +27,7 @@ export function emptyState() {
     approvals: { ...DEFAULTS.approvals },
     confirmed: {},
     bankAccounts: [], branches: [], plans: [], roles: [], splits: {}, agents: [],
+    standard: { kind: 'cms' },
     nextId: 1,
   };
 }
@@ -57,6 +59,7 @@ export function view(saved) {
     splits: P.normalizeSplits(state.splits, state.roles),
     sideSharePct: state.sideSharePct ?? P.SIDE_SHARE,
     ruleHistory: state.ruleHistory || [],
+    standard: ST.standardOf(state),
     agents: state.agents || [],
   };
   // Data saved before steps were tracked has no `confirmed`: treat it as all checked.
@@ -141,7 +144,8 @@ const STEPS = {
     const history = state.ruleHistory || [];
     const from = str(body?.from);
     check(P.validateRulesFrom(from, history));
-    const kept = { until: from, plans: state.plans, roles: state.roles, splits: state.splits, sideSharePct: state.sideSharePct ?? P.SIDE_SHARE };
+    const kept = { until: from, plans: state.plans, roles: state.roles, splits: state.splits, sideSharePct: state.sideSharePct ?? P.SIDE_SHARE,
+      standard: ST.standardOf(state) };
     return { ...state, ruleHistory: [...history, structuredClone(kept)] };
   },
 
@@ -176,6 +180,28 @@ const STEPS = {
     const knownTiers = new Set(state.plans.flatMap(p => p.tiers.map(t => t.id)));
     const list = plans.map(p => ({ ...p, id: keep(p.id, knownPlans), tiers: p.tiers.map(t => ({ ...t, id: keep(t.id, knownTiers) })) }));
     return { ...state, plans: list, nextId, ...(sideSharePct === undefined ? {} : { sideSharePct }) };
+  },
+
+  // body: { kind: 'cms' } or { kind: 'existing', cap, positions, bands, creator, branchManagers? }.
+  // The payout standard (standard.js). Branch Manager accounts are kept when not sent.
+  standard(state, body) {
+    if (body?.kind !== 'existing') return { ...state, standard: { ...(state.standard || {}), kind: 'cms' } };
+    const pct = v => numOrBlank(v);
+    const branchIds = new Set(state.branches.map(b => b.id));
+    const managers = body.branchManagers === undefined ? state.standard?.branchManagers || {} : body.branchManagers || {};
+    const standard = {
+      kind: 'existing', cap: pct(body.cap),
+      positions: (Array.isArray(body.positions) ? body.positions : []).map(p => ({ code: str(p.code).toUpperCase(), name: str(p.name), rate: pct(p.rate),
+        rank: p.rank === '' || p.rank == null ? '' : Number(p.rank) })),
+      bands: (Array.isArray(body.bands) ? body.bands : []).map(b => ({ code: str(b.code).toUpperCase(), upTo: pct(b.upTo),
+        from: str(b.from).toUpperCase(), selfFrom: str(b.selfFrom).toUpperCase() })),
+      creator: { pct: pct(body.creator?.pct), holderKeeps: pct(body.creator?.holderKeeps),
+        steps: (Array.isArray(body.creator?.steps) ? body.creator.steps : []).map(s => ({ from: str(s.from).toUpperCase(), upTo: pct(s.upTo) })) },
+      branchManagers: Object.fromEntries(Object.entries(managers).filter(([b, id]) => branchIds.has(Number(b)) && id != null && id !== '')
+        .map(([b, id]) => [Number(b), Number(id)])),
+    };
+    check(ST.validateStandard(standard));
+    return { ...state, standard };
   },
 
   uplines(state, body) {
@@ -228,6 +254,7 @@ const STEPS = {
 
 // Which part of the checklist each step confirms.
 const STEP_KEYS = { 'deal-types': 'dealTypes', plans: 'tiers', 'rules-from': 'tiers' };
+// (The 'standard' step confirms itself: the checklist's "Payout standard" part.)
 
 export function applyStep(saved, step, body) {
   const fn = STEPS[step];
@@ -245,7 +272,8 @@ function tidyAgents(state) {
   const branchIds = new Set(state.branches.map(b => b.id));
   const kept = state.agents.filter(a => branchIds.has(a.branchId));
   const ids = new Set(kept.map(a => a.id));
-  const codes = new Set(state.roles.map(r => r.code));
+  // Positions are Setup's upline levels or the existing standard's positions (kept also while the CMS pays).
+  const codes = new Set([...state.roles.map(r => r.code), ...(state.standard?.positions || ST.EXISTING_DEFAULT.positions).map(p => p.code)]);
   return { ...state, agents: kept.map(a => {
     const tiers = state.plans[P.planIndexFor(state.plans, a.branchId)]?.tiers || [];
     return { ...a, uplineId: ids.has(a.uplineId) ? a.uplineId : null, position: codes.has(a.position) ? a.position : null,

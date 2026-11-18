@@ -1,5 +1,6 @@
 // Lookups and totals over the ERP records, built once per load, plus the
 // labels for every status. Pages read from this instead of searching arrays.
+import * as ST from '../../shared/standard.js'
 import * as P from '../../shared/payout.js'
 import { readyLeft } from '../../shared/lists.js'
 import { categoryGroup } from '../../shared/listings.js'
@@ -92,6 +93,13 @@ export const closeType = c => (!c.full ? 'Partial Close' : c.partNo > 1 ? 'Balan
 // Where a person stands on their tier ladder, from their tier credit: `lifetime`
 // (with their opening balance) and `yearly` (a staff record's $.credit on the server's lists).
 export function tierStanding(s, lifetime, yearly, setup) {
+  // Under the existing standard a person's position is what sets their rate: it stands in for a tier.
+  const standard = ST.standardOf(setup)
+  if (standard.kind === 'existing' || !P.tiersFor(setup, s.branchId).length) {
+    const pos = (standard.positions || []).find(p => p.code === s.role)
+    const tier = { id: null, name: pos?.code || '—', title: pos?.name || (standard.kind === 'existing' ? 'No position' : 'No tiers'), agentRate: pos?.rate ?? '', threshold: 0, basis: 'lifetime' }
+    return { tier, next: null, idx: 0, tiers: [tier], lifetime, yearly, progress: 1, toNext: 0, kept: false, byPosition: true }
+  }
   const tiers = P.tiersFor(setup, s.branchId)
   const floor = Math.max(0, tiers.findIndex(t => t.id === s.tierFloorId))
   const idx = P.computeTierIndex(lifetime, yearly, tiers, floor)
@@ -143,7 +151,10 @@ export function buildModel(data, setup) {
     while (p && !seen.has(p.id)) { out.push(p); seen.add(p.id); p = staff[p.uplineId] }
     return out
   }
-  const roleName = code => setup.roles.find(r => r.code === code)?.name || code
+  // A position or payout line role: Setup's upline levels, then the existing standard's positions and line roles.
+  const standard = ST.standardOf(setup)
+  const roleName = code => setup.roles.find(r => r.code === code)?.name
+    || (standard.positions || []).find(p => p.code === code)?.name || ST.EXISTING_ROLES[code] || code
   const branchName = id => branches[id]?.name || ''
   const staffName = id => staff[id]?.short || staff[id]?.name || '—'
 

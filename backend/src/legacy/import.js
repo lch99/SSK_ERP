@@ -23,6 +23,8 @@ const { localToday } = require('../db/days');
 const bcrypt = require('bcryptjs');
 const { freeUsername } = require('../auth/accounts');
 const { LISTS } = require('../db/lists');
+const ST = require('../../../shared/standard.js');
+const SS = require('../../../shared/setupState.js');
 
 const PAGE = 1000;
 const BATCH = 200;
@@ -252,7 +254,7 @@ async function carryPasswords(db, legacy, log = () => {}) {
 }
 
 // ── Branches: the old ERP's "B.M (…)" accounts (account type sale-staff) ─────
-async function makeBranches(db, people, report) {
+async function makeBranches(db, people, report, usual = new Map()) {
   const existing = await db('branches').select('id', 'name', 'code', 'sort_order');
   const byName = new Map(existing.map(b => [b.name.trim().toLowerCase(), b.id]));
   const codes = new Set(existing.map(b => b.code));
@@ -276,20 +278,73 @@ async function makeBranches(db, people, report) {
     bm.set(M.int(p.user_id), await branch(name));
   }
   const hq = await branch(HQ_NAME);
-  // A person's branch: the first B.M account up their upline chain (their own, for one).
+  // A person's branch: their own, for a B.M account; else the B.M account their listings are
+  // mostly filed under (the current ERP keeps no branch on a person, and its upline chains
+  // don't lead to the B.M accounts); else the first B.M account up their upline chain.
   const memo = new Map();
   const branchOfStaff = sid => {
     if (sid == null) return null;
     if (memo.has(sid)) return memo.get(sid);
+    // Up the chain (themselves first): a B.M account, or someone whose listings or cases show their branch.
     let cur = sid, found = null;
     for (let hops = 0; cur && hops < 60 && found == null; hops++) {
       if (bm.has(cur)) found = bm.get(cur);
+      else if (bm.has(usual.get(cur))) found = bm.get(usual.get(cur));
       else cur = M.id(people.get(cur)?.staff_id);
     }
     memo.set(sid, found);
     return found;
   };
   return { bm, hq, branchOfStaff };
+}
+
+// The B.M account each person's listings are mostly filed under (created or held), and how
+// many listings each B.M account has: the current ERP pays the closing agent's BM profit to it.
+async function usualBranchManagers(legacy, present) {
+  const byPerson = new Map(), listings = new Map();
+  if (!present.includes('db_property')) return { byPerson, listings };
+  const counts = new Map();
+  const rows = await legacy('db_property').whereNotNull('branch_manager_id').where('branch_manager_id', '>', 0)
+    .select('staff_id', 'project_handler_id', 'branch_manager_id');
+  // The cases they closed count too (someone with no listings of their own).
+  if (present.includes('db_eforms')) {
+    rows.push(...(await legacy('db_eforms').whereNotNull('branch_manager_id').where('branch_manager_id', '>', 0)
+      .select('staff_id', { project_handler_id: 'staff_id' }, 'branch_manager_id')).map(r => ({ ...r, listing: false })));
+  }
+  for (const r of rows) {
+    const b = M.int(r.branch_manager_id);
+    if (r.listing !== false) listings.set(b, (listings.get(b) || 0) + 1);
+    for (const p of new Set([M.int(r.staff_id), M.int(r.project_handler_id)].filter(Boolean))) {
+      const k = `${p}|${b}`;
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+  }
+  const best = new Map();
+  for (const [k, n] of counts) {
+    const [p, b] = k.split('|').map(Number);
+    if (!best.has(p) || best.get(p).n < n) best.set(p, { b, n });
+  }
+  for (const [p, { b }] of best) byPerson.set(p, b);
+  return { byPerson, listings };
+}
+
+// Setup's Branch Manager account per branch (the existing payout standard pays BM profit to it):
+// the B.M account each branch was made from (the one with most listings when several share a
+// name). A branch Setup already names keeps its account: Setup stays through every re-import.
+async function setBranchManagers(db, bm, listings) {
+  const best = new Map();
+  for (const [staffId, branchId] of bm) {
+    const n = listings.get(staffId) || 0;
+    if (!best.has(branchId) || best.get(branchId).n < n) best.set(branchId, { staffId, n });
+  }
+  const row = await db('settings').where('key', 'setup').first();
+  const { branches, agents, ...doc } = row ? parseJson(row.value) : SS.emptyState(); // eslint-disable-line no-unused-vars
+  const had = doc.standard?.branchManagers || {};
+  const auto = Object.fromEntries([...best].filter(([b]) => had[b] == null && had[String(b)] == null).map(([b, { staffId }]) => [b, staffId]));
+  if (!Object.keys(auto).length) return 0;
+  doc.standard = { ...(doc.standard || { kind: 'cms' }), branchManagers: { ...auto, ...had } };
+  await db('settings').insert({ key: 'setup', value: JSON.stringify(doc), updated_at: db.fn.now() }).onConflict('key').merge();
+  return Object.keys(auto).length;
 }
 
 // ── The import ───────────────────────────────────────────────────────────────
@@ -314,8 +369,13 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
   const titles = new Map(present.includes('db_property_title') ? (await legacy('db_property_title').select('title_id', 'title_name')).map(r => [M.int(r.title_id), M.text(r.title_name)]) : []);
   const people = new Map(present.includes('new_staff')
     ? (await legacy('new_staff').select('user_id', 'staff_id', 'type', 'name_card_name', 'ic_name', 'user_name')).map(p => [M.int(p.user_id), p]) : []);
-  const { bm, hq, branchOfStaff } = await makeBranches(db, people, report);
-  const roles = (await loadState(db)).roles || [];
+  const usual = await usualBranchManagers(legacy, present);
+  const { bm, hq, branchOfStaff } = await makeBranches(db, people, report, usual.byPerson);
+  const setupNow = await loadState(db);
+  const roles = setupNow.roles || [];
+  // Positions: Setup's upline levels when one matches, else the existing standard's (Trainee … Area Manager).
+  const positions = [...roles, ...(setupNow.standard?.positions || ST.EXISTING_DEFAULT.positions)];
+  report.branchManagersSet = await setBranchManagers(db, bm, usual.listings);
 
   const ids = { staff: new Set() };
   const seen = {};
@@ -356,7 +416,7 @@ async function importLegacy({ legacy, db, replace = false, force = false, includ
     branchOfStaff: sid => branchOfStaff(sid),
     branchOfBm: sid => (sid != null && bm.has(sid) ? bm.get(sid) : null),
     hq: () => hq,
-    positionFor: rank => roles.find(r => [r.name, r.code].some(x => x && String(x).toLowerCase() === String(rank || '').toLowerCase()))?.code || null,
+    positionFor: rank => positions.find(r => [r.name, r.code].some(x => x && String(x).toLowerCase() === String(rank || '').toLowerCase()))?.code || null,
     bankName: v => lookup.db_bank.get(M.int(v)) || '',
     stateName: v => lookup.db_property_state.get(M.int(v)) || '',
     subName: v => lookup.db_property_cate_sub.get(M.int(v)) || '',

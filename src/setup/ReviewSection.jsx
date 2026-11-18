@@ -1,3 +1,4 @@
+import * as ST from '../../shared/standard.js'
 import { useState } from 'react'
 import * as P from '../../shared/payout.js'
 import { C, sel, btn, label } from '../styles.js'
@@ -21,6 +22,8 @@ export default function ReviewSection({ setup, step, onGoTo }) {
   const dt = enabled.includes(dealRaw) ? dealRaw : enabled[0] || 'sale'
   const [tryRaw, setTryPlan] = useState(0)
   const plans = setup.plans || []
+  const standard = ST.standardOf(setup)
+  const existing = standard.kind === 'existing'
   const tryPlan = Math.min(tryRaw, Math.max(0, plans.length - 1))
   const agents = setup.agents || []
   const todo = setup.checklist.filter(i => !i.done)
@@ -90,15 +93,23 @@ export default function ReviewSection({ setup, step, onGoTo }) {
         meta: enabled.map(x => `${P.DEAL_TYPE_LABELS[x]} ${setup.dealTypes[x].defaultRate === '' ? '(rate not set)' : `${setup.dealTypes[x].defaultRate}%`}`)
           .join(' · ') + ` · SST ${setup.dealTypes.sstPct}%`,
       },
-      ...(plans.length ? plans.map(planNode) : [{ key: 'noplans', label: 'Tiers', meta: <span style={{ color: C.warn }}>No tiers yet</span> }]),
-      {
+      ...(existing ? [{
+        key: 'standard', label: ST.STANDARDS.existing,
+        meta: `${standard.cap}% paid out per side · ${standard.bands.map(b => `${b.code} to ${b.upTo}%`).join(' · ')} · the rest to the Branch Manager`,
+        children: [
+          { key: 'positions', label: 'Positions and rates', meta: standard.positions.map(x => `${x.name} ${x.rate}%`).join(' · ') },
+          { key: 'creator', label: 'Listing created by someone else', meta: `Holder keeps ${standard.creator.holderKeeps}% · creator's part ${standard.creator.pct}% (${standard.creator.steps.map(x => `${x.from}+ ${x.upTo}%`).join(', ')})` },
+          { key: 'bms', label: 'Branch Manager accounts', meta: `${Object.keys(standard.branchManagers || {}).length} of ${setup.branches.length} branches set` },
+        ],
+      }] : plans.length ? plans.map(planNode) : [{ key: 'noplans', label: 'Tiers', meta: <span style={{ color: C.warn }}>No tiers yet</span> }]),
+      ...(existing ? [] : [{
         key: 'uplines', label: 'Upline chain', open: false,
         meta: setup.roles.length ? [...setup.roles].reverse().map(r => `${r.code} ${r.name}`).join(' → ') + ' → Negotiator' : 'No uplines: negotiators keep their tier rate',
         children: setup.roles.length ? [{
           key: 'split', tone: roleColor(setup.roles, setup.roles.at(-1).code), label: 'Split of the upline pool',
           meta: setup.roles.map(r => `${r.code} ${setup.splits?.[r.code] ?? '?'}%`).join(' · ') + ' · a level missing from a deal leaves its share with the company',
         }] : [],
-      },
+      }]),
       {
         key: 'sides', label: 'Two agents on one deal',
         meta: `Closing agent ${setup.sideSharePct}% · listing holder ${Math.round((100 - setup.sideSharePct) * 100) / 100}%`,
@@ -109,7 +120,8 @@ export default function ReviewSection({ setup, step, onGoTo }) {
         children: setup.ruleHistory.map((h, i) => ({
           key: `rules${h.until}`,
           label: i === 0 ? `Before ${P.dayLabel(h.until)}` : `From ${P.dayLabel(setup.ruleHistory[i - 1].until)}, before ${P.dayLabel(h.until)}`,
-          meta: `${h.plans.reduce((n, p) => n + p.tiers.length, 0)} tiers · ${h.roles.map(r => r.code).join(' → ') || 'no uplines'} · closing agent ${h.sideSharePct ?? P.SIDE_SHARE}%`,
+          meta: h.standard?.kind === 'existing' ? `${ST.STANDARDS.existing} · ${h.standard.cap}% paid out`
+            : `${h.plans.reduce((n, p) => n + p.tiers.length, 0)} tiers · ${h.roles.map(r => r.code).join(' → ') || 'no uplines'} · closing agent ${h.sideSharePct ?? P.SIDE_SHARE}%`,
         })),
       }] : []),
       {
@@ -140,7 +152,7 @@ export default function ReviewSection({ setup, step, onGoTo }) {
         <OutlineTree nodes={nodes} />
       </div>
 
-      {plans.length > 0 && enabled.length > 0 && (
+      {!existing && plans.length > 0 && enabled.length > 0 && (
         <>
           {plans.length > 1 && (
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 20 }}>

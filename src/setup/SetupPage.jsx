@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getSetup, saveSetup, DEMO, loadSampleSetup, startBlankSetup } from '../api.js'
 import { C, btn, btnPrimary, sel } from '../styles.js'
 import { CompanySection, DealTypesSection } from './BasicSections.jsx'
-import TiersSection from './TiersSection.jsx'
+import PayoutSection from './PayoutSection.jsx'
 import AgentsSection from './AgentsSection.jsx'
 import ReviewSection from './ReviewSection.jsx'
 import ApprovalsSection from './ApprovalsSection.jsx'
@@ -17,7 +17,7 @@ import { errorText } from '../errors.js'
 const SECTIONS = {
   company: CompanySection,
   dealTypes: DealTypesSection,
-  tiers: TiersSection,
+  tiers: PayoutSection,
   agents: AgentsSection,
   approvals: ApprovalsSection,
 }

@@ -1,3 +1,4 @@
+import { positionsOf } from '../../../shared/standard.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C } from '../../styles.js'
@@ -47,7 +48,7 @@ export function OrgTree({ focus = null, highlight = null }) {
   const [box, narrow] = useNarrow(560)
 
   const rank = useMemo(() => {
-    const codes = setup.roles.map(r => r.code)
+    const codes = positionsOf(setup).map(r => r.code)
     return p => (p.role ? codes.indexOf(p.role) : -1)
   }, [setup.roles])
   // Agents only: office staff have no upline and sit in System → Users.

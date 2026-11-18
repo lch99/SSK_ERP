@@ -2,6 +2,7 @@
 // sample alike: dates, pay days, who approves a payout, what Setup must have,
 // the documents an E-Form needs, and one close's payout lines.
 import * as P from './payout.js'
+import * as ST from './standard.js'
 import { projectPayout } from './projects.js'
 
 const r2 = n => Math.round(n * 100) / 100
@@ -48,7 +49,7 @@ export function payoutApprovers(setup, branchId, paidOut) {
 export function erpBlockers(setup) {
   const out = []
   if (!setup?.branches?.length) out.push('Add at least one branch.')
-  if (!setup?.tiers?.length) out.push('Set up the tiers.')
+  if (ST.standardOf(setup).kind !== 'existing' && !setup?.tiers?.length) out.push('Set up the tiers.')
   if (!P.DEAL_TYPES.some(dt => setup?.dealTypes?.[dt]?.enabled)) out.push('Turn on at least one deal type.')
   return out
 }
@@ -81,8 +82,10 @@ export function docNames(type, coBroke) {
 // close date, for whether an agent had left by then.
 // project: a project E-Form's project (projectOfDeal): its own payout rule (as Setup, a boost, or its own
 // totals per tier: projectPayout) changes each side's agent rate and total.
-export function payoutForClose(current, staffById, deal, net, creditOf, on = localToday(), project = null) {
+export function payoutForClose(current, staffById, deal, net, creditOf, on = localToday(), project = null, listingOf = () => null) {
   const setup = P.rulesAt(current, deal.date)
+  const standard = ST.standardOf(setup)
+  if (standard.kind === 'existing') return existingClose(setup, standard, staffById, deal, net, on, listingOf)
   const roles = setup.roles || []
   const all = P.dealSides(deal, setup.sideSharePct)
   const sides = [], lines = []
@@ -107,6 +110,30 @@ export function payoutForClose(current, staffById, deal, net, creditOf, on = loc
     sides.push({ side: side.side, staffId: earner.id, sharePct: side.pct, base, tierId: tier.id, agentRate: rate.agentRate,
       totalPct: rate.totalPct ?? null, company: out.company })
     for (const l of out.lines) lines.push({ ...l, side: side.side, base, tierId: l.role ? null : tier.id })
+  })
+  return { sides, lines }
+}
+
+// One close under the existing standard (standard.js): each side paid by position and
+// bands up the chain, the listing's creator on the listing side, BM profit to the
+// Branch Manager account. listingOf(id) → the listing (for its creator).
+function existingClose(setup, standard, staffById, deal, net, on, listingOf) {
+  const all = ST.existingSides(deal, setup.sideSharePct)
+  const listing = deal.listingId != null ? listingOf(deal.listingId) : null
+  const sides = [], lines = []
+  let given = 0
+  all.forEach((side, i) => {
+    const base = i === all.length - 1 ? r2(net - given) : r2(net * side.pct / 100)
+    given = r2(given + base)
+    if (P.sideRetracted(side, staffById, on)) {
+      sides.push({ side: side.side, staffId: side.staffId, sharePct: side.pct, base, retracted: true, tierId: null, agentRate: null, totalPct: null, company: base })
+      return
+    }
+    const earner = staffById[side.staffId]
+    const out = ST.existingSide({ standard, amount: base, earnerId: earner.id, creatorId: side.side === 'listing' ? listing?.creatorId ?? null : null,
+      staffById, bmId: ST.branchManagerFor(standard, side.side, { deal, earner }) })
+    sides.push({ side: side.side, staffId: earner.id, sharePct: side.pct, base, tierId: null, agentRate: out.agentRate, totalPct: Number(standard.cap), company: out.company })
+    for (const l of out.lines) lines.push({ ...l, side: side.side, base, tierId: null })
   })
   return { sides, lines }
 }

@@ -12,6 +12,8 @@
 //     using the split set for that combination of uplines.
 //   • Whatever isn't paid out stays with the company.
 
+import { standardOf, validateStandard, describeStandard } from "./standard.js";
+
 export const DEAL_TYPES = ["sale", "rental", "project"];
 export const DEAL_TYPE_LABELS = { sale: "Sub-Sales", rental: "Rental", project: "Project" };
 export const COMPANY_SCOPE = 0;            // payout_totals.branch_id for the company default
@@ -349,8 +351,10 @@ export function validateSideShare(pct) {
 export function rulesAt(s, date) {
   const past = date ? (s?.ruleHistory || []).find(h => date < h.until) : null;
   if (!past) return s;
+  // Rules kept before the payout standard was a choice were the CMS's.
   return { ...s, plans: past.plans, ...plansView(past.plans, s.branches || []), roles: past.roles,
-    splits: normalizeSplits(past.splits, past.roles), sideSharePct: past.sideSharePct ?? SIDE_SHARE, rulesUntil: past.until };
+    splits: normalizeSplits(past.splits, past.roles), sideSharePct: past.sideSharePct ?? SIDE_SHARE, rulesUntil: past.until,
+    standard: past.standard ? { ...past.standard, branchManagers: s.standard?.branchManagers || past.standard.branchManagers || {} } : { kind: "cms" } };
 }
 
 // The date the current rules started, or null when they have always applied.
@@ -662,11 +666,13 @@ export function setupChecklist(s) {
       [...validateCompany(s.company), ...validateBranches(s.branches), ...(s.bankAccounts ? validateBankAccounts(s.bankAccounts) : [])],
       `${s.company?.name} · ${branches} branch${branches === 1 ? "" : "es"}`, ["company", "branches"]),
     item("dealTypes", "Deals, tax and sharing", validateDealTypes(s.dealTypes), enabled.map(dt => DEAL_TYPE_LABELS[dt]).join(", ")),
-    item("tiers", "Tiers, uplines and payouts",
-      [...tierErrors, ...validateRoles(s.roles || []), ...validateSplits(s.splits, s.roles || [])],
-      [plans.length > 1 ? `${plans.length} tier plans` : `${plans[0]?.tiers.length} tier${plans[0]?.tiers.length === 1 ? "" : "s"}`,
-        (s.roles || []).length ? (s.roles || []).map(r => r.code).join(" → ") : "no uplines"].join(" · "),
-      ["tiers", "uplines"]),
+    standardOf(s).kind === "existing"
+      ? item("tiers", "Payout standard", validateStandard(standardOf(s)), describeStandard(standardOf(s)), ["standard"])
+      : item("tiers", "Tiers, uplines and payouts",
+        [...tierErrors, ...validateRoles(s.roles || []), ...validateSplits(s.splits, s.roles || [])],
+        [plans.length > 1 ? `${plans.length} tier plans` : `${plans[0]?.tiers.length} tier${plans[0]?.tiers.length === 1 ? "" : "s"}`,
+          (s.roles || []).length ? (s.roles || []).map(r => r.code).join(" → ") : "no uplines"].join(" · "),
+        ["tiers", "uplines"]),
     ...(Array.isArray(s.agents) ? [item("agents", "Agents", [], (() => {
       const leaders = s.agents.filter(a => a.position).length;
       return s.agents.length ? `${s.agents.length} agent${s.agents.length === 1 ? "" : "s"}${leaders ? ` · ${leaders} leader${leaders === 1 ? "" : "s"}` : ""}` : "None yet, can be added later";

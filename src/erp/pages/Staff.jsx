@@ -1,3 +1,4 @@
+import { positionsOf, standardOf } from '../../../shared/standard.js'
 import { useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import * as A from '../../../shared/access.js'
@@ -43,7 +44,7 @@ export default function Staff({ parts }) {
   return <StaffList key="agents" />
 }
 
-const roleTone = (setup, code) => ROLE_COLORS[Math.max(0, setup.roles.findIndex(r => r.code === code)) % ROLE_COLORS.length]
+const roleTone = (setup, code) => ROLE_COLORS[Math.max(0, positionsOf(setup).findIndex(r => r.code === code)) % ROLE_COLORS.length]
 export function RoleTag({ code, setup }) {
   if (!code) return null
   const color = roleTone(setup, code)
@@ -89,9 +90,9 @@ function StaffList({ office = false }) {
 
   const byLevel = counts.leaders || {}
   const levelOptions = [{ value: '', label: 'All levels' },
-    ...(setup.roles.length ? [{ value: 'leaders', label: `All leaders (${num(leaders)})` }] : []),
-    ...[...setup.roles].reverse().map(r => ({ value: r.code, label: `${r.code} · ${r.name} (${num(byLevel[r.code] || 0)})` })),
-    ...(setup.roles.length ? [{ value: 'none', label: `No upline level (${num(all - leaders)})` }] : [])]
+    ...(positionsOf(setup).length ? [{ value: 'leaders', label: `All leaders (${num(leaders)})` }] : []),
+    ...[...positionsOf(setup)].reverse().map(r => ({ value: r.code, label: `${r.code} · ${r.name} (${num(byLevel[r.code] || 0)})` })),
+    ...(positionsOf(setup).length ? [{ value: 'none', label: `No upline level (${num(all - leaders)})` }] : [])]
   const byTier = counts.tiers || {}
   const tierNames = Object.keys(byTier).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   const tierOptions = [{ value: '', label: 'All tiers' }, ...tierNames.map(t => ({ value: t, label: `${t} (${num(byTier[t])})` }))]
@@ -127,7 +128,7 @@ function StaffList({ office = false }) {
     { key: 'type', label: 'Account Type', sortKey: 'type', render: s => <Pill tone="violet" dot={false}>{ACCOUNT_TYPES[s.type] || s.type}</Pill> },
     { key: 'branch', label: 'Branch', sortKey: 'branch', render: s => m.branchName(s.branchId) },
   ] : c.key === 'closing' || c.key === 'upline' ? [] : [c]))
-  const levelsLine = [...setup.roles].reverse().map(r => `${num(byLevel[r.code] || 0)} ${r.code}`).join(' · ')
+  const levelsLine = [...positionsOf(setup)].reverse().map(r => `${num(byLevel[r.code] || 0)} ${r.code}`).join(' · ')
   const pick = (k, v) => () => { clear(); if (k === 'level') setLevel(v); else if (k === 'quick') setQuick(v) }
   const expiring = counts.expiring?.n || 0
   return (
@@ -513,7 +514,7 @@ function StaffFormFor({ s, office }) {
           {pick('type', 'Account Type', Object.entries(ACCOUNT_TYPES).map(([value, label]) => ({ value, label })), { required: true })}
           {pick('branchId', 'Branch', setup.branches.map(b => ({ value: String(b.id), label: b.name })), { required: true })}
           {agentForm && pick('tierFloorId', 'Rank (position)', [{ value: '', label: `${tiers[0] ? P.tierLabel(tiers[0]) : 'First tier'} (start)` }, ...tiers.slice(1).map(t => ({ value: t.id, label: P.tierLabel(t) }))], { help: 'The tier they start at. They move up as they earn.' })}
-          {agentForm && setup.roles.length > 0 && pick('role', 'Upline level they hold', [{ value: '', label: 'None (negotiator)' }, ...setup.roles.map(r => ({ value: r.code, label: `${r.code} · ${r.name}` }))])}
+          {agentForm && positionsOf(setup).length > 0 && pick('role', standardOf(setup).kind === 'existing' ? 'Position' : 'Upline level they hold', [{ value: '', label: standardOf(setup).kind === 'existing' ? 'None' : 'None (negotiator)' }, ...positionsOf(setup).map(r => ({ value: r.code, label: `${r.code} · ${r.name}` }))])}
           {agentForm && <FormField label="Upline" help="An existing staff member to be the upline for this agent.">
             <StaffPicker block plain label="Upline" all="No upline" value={f.uplineId} onChange={v => setF(x => ({ ...x, uplineId: v }))} not={id ? [id] : []} branch={false}
               filters={{ kind: 'agent', branchId, status: 'active,pending,suspended,locked' }} show={x => `${x.code} (${x.short})${x.role ? ` · ${x.role}` : ''}`} />

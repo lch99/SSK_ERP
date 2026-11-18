@@ -308,7 +308,7 @@ function CaseSummary() {
   const preview = useMemo(() => {
     if (!deal || !(amount > 0) || !creditOf || !ready) return null
     const net = r2(deal.money.net * Math.min(amount, deal.money.billed) / deal.money.billed)
-    return { net, ...payoutForClose(setup, m.staff, deal, net, creditOf, undefined, project) }
+    return { net, ...payoutForClose(setup, m.staff, deal, net, creditOf, undefined, project, lid => m.data.listings.find(l => l.id === lid)) }
   }, [deal, amount, setup, m, credit, project, ready]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', alignItems: 'start' }}>

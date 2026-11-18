@@ -178,7 +178,13 @@ function Figure({ label, value, sub }) {
 function sidesOf(deal, m, setup, { closes, lines, creditOf, preview, project, projectReady }) {
   const rules = P.rulesAt(setup, deal.date)
   if (!preview && closes.length) {
-    return P.dealSides(deal, rules.sideSharePct).map(sd => {
+    // The sides its closes recorded (one person can hold both halves under the existing standard).
+    const recorded = closes.flatMap(c => c.sides)
+    const recordedSides = [...new Set(recorded.map(s => s.side))].map(side => {
+      const s = recorded.find(x => x.side === side)
+      return { side, staffId: s.staffId, pct: s.sharePct }
+    })
+    return (recordedSides.length ? recordedSides : P.dealSides(deal, rules.sideSharePct)).map(sd => {
       const parts = closes.flatMap(c => c.sides.filter(s => s.side === sd.side))
       const mine = lines.filter(l => l.side === sd.side)
       const keyed = {}
@@ -195,12 +201,10 @@ function sidesOf(deal, m, setup, { closes, lines, creditOf, preview, project, pr
   }
   if (!creditOf || !projectReady) return null
   // What closing it today would pay: the same rule the close runs (payoutForClose), with a project's own rule.
-  const out = payoutForClose(setup, m.staff, deal, deal.money.net, creditOf, undefined, project)
-  return P.dealSides(deal, rules.sideSharePct).map(sd => {
-    const s = out.sides.find(x => x.side === sd.side)
-    return { ...sd, base: s.base, company: s.company, retracted: !!s.retracted, tierId: s.tierId, agentRate: s.agentRate, totalPct: s.totalPct,
-      lines: out.lines.filter(l => l.side === sd.side), preview: true }
-  })
+  const out = payoutForClose(setup, m.staff, deal, deal.money.net, creditOf, undefined, project, lid => m.data.listings.find(l => l.id === lid))
+  // The sides the rule paid (the existing standard keeps both halves even for one person).
+  return out.sides.map(s => ({ side: s.side, staffId: s.staffId, pct: s.sharePct, base: s.base, company: s.company, retracted: !!s.retracted,
+    tierId: s.tierId, agentRate: s.agentRate, totalPct: s.totalPct, lines: out.lines.filter(l => l.side === s.side), preview: true }))
 }
 
 function Split({ deal, m, setup, recs }) {

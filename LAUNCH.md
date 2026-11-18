@@ -24,6 +24,11 @@ including the 16,039 listings the website shows.
   in plain text; the import stores only a one-way hash of each (the text is never copied), and signing in
   makes it full strength. Each re-import brings a password changed in the old ERP; one set in the new ERP
   (a link, the office, a change) is kept. People who left get no account.
+- **Payouts** follow the current ERP's rules (its version 23H2.3: rates by position, bands up the chain to 90%, the
+  listing creator's part, BM profit) until the company moves to the tiers and uplines: Setup → Payout standard, from a
+  date. Replayed on the 3,374 cases it paid since August 2025, the new ERP pays the same on 96.5% of case sides; the rest
+  differ only because people changed team since. Each person's position and usual branch, and each branch's B.M account,
+  come with the import.
 - **Setup** (company, tiers, uplines, approvals, numbering) is typed into the new ERP once and **stays**
   through every re-import. So do **sign-in accounts**: each is linked back to its person after a re-import.
 
@@ -75,7 +80,9 @@ Clients test on staging, never on the production database.
 5. Point the addresses at the new server: `erp.subsaleking.com` (the ERP) and `api.subsaleking.com` (the phone
    app's `/v1`). Switch the website to its new version that reads `/api/public` (see **The website** below):
    it reads the old database directly, so pointing an address is not enough.
-6. Smoke test: `npm run e2e` against production with a test account.
+6. Smoke test by hand: sign in, open listings, an E-Form, payments and agents; one office volunteer signs in with their
+   usual password; the phone app and the website show listings. **Not** `npm run e2e`: even its sign-in part adds test
+   agents (E2E…), so it runs on staging only.
 7. People sign in as before. Keep the old ERP read-only for a few weeks, and keep the final copy somewhere safe.
 
 The downtime is the freeze to the switch: about **30 minutes** at today's size.

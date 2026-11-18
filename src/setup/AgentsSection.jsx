@@ -1,3 +1,4 @@
+import { positionsOf } from '../../shared/standard.js'
 import { useRef, useState } from 'react'
 import * as P from '../../shared/payout.js'
 import * as A from '../../shared/agents.js'
@@ -57,7 +58,7 @@ export default function AgentsSection({ setup, save, step, done }) {
     fb.toast('Agents removed')
   }
 
-  const roleName = code => setup.roles.find(r => r.code === code)?.name
+  const roleName = code => positionsOf(setup).find(r => r.code === code)?.name
   return (
     <Section id="agents" step={step} title="Agents" done={done} dirty={!!pending} onReset={() => setPending(null)}
       hint={<>Bring in your whole team at once from Excel, instead of keying in each person. Positions, uplines and tiers are matched to what you set up in the previous steps. You can also skip this and add agents later in H.R Portal.</>}
@@ -188,7 +189,7 @@ function DropZone({ onFile }) {
 // One tree per branch: leaders with their people under them, most senior first.
 function TeamTree({ setup, people, roleName }) {
   const byKey = new Map(people.map(p => [p.key, p]))
-  const rank = p => (p.position ? setup.roles.findIndex(r => r.code === p.position) : -1)
+  const rank = p => (p.position ? positionsOf(setup).findIndex(r => r.code === p.position) : -1)
   const kids = new Map()
   for (const p of people) {
     const up = byKey.get(p.upline)
@@ -209,7 +210,7 @@ function TeamTree({ setup, people, roleName }) {
           <Avatar name={p.name || '?'} size={26} tone={p.bad ? 'red' : toneOf(p.name)} />
           <span style={{ color: p.bad ? C.err : C.text }}>{p.name || <i>No name</i>}</span>
           {p.position && <span title={roleName(p.position)} style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10,
-            color: roleColor(setup.roles, p.position), background: `${roleColor(setup.roles, p.position)}1a` }}>{p.position}</span>}
+            color: roleColor(positionsOf(setup), p.position), background: `${roleColor(positionsOf(setup), p.position)}1a` }}>{p.position}</span>}
           {p.bad && <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 10, background: C.errBg, color: C.err }}>row {p.line} to fix</span>}
         </span>
       ),
@@ -245,7 +246,7 @@ const toCells = row => A.AGENT_COLUMNS.map(c => row[c.key] ?? '')
 
 function template(setup) {
   const codes = [...new Set((setup.plans || []).flatMap(p => p.tiers.map(t => t.name)))]
-  const roles = setup.roles.map(r => `${r.code} (${r.name})`).join(', ')
+  const roles = positionsOf(setup).map(r => `${r.code} (${r.name})`).join(', ')
   const widths = A.AGENT_COLUMNS.map(c => c.width)
   const help = [
     ['Column', 'What to put in it'],
@@ -262,7 +263,7 @@ function template(setup) {
     ['', 'Only the first sheet (Agents) is read. The Example sheet shows a filled-in team.'],
   ]
   return makeXlsx([
-    { name: 'Agents', rows: [AGENT_HEADERS], widths, lists: { 1: setup.branches.map(b => b.name), 2: setup.roles.map(r => r.code), 4: codes } },
+    { name: 'Agents', rows: [AGENT_HEADERS], widths, lists: { 1: setup.branches.map(b => b.name), 2: positionsOf(setup).map(r => r.code), 4: codes } },
     { name: 'Example', rows: [AGENT_HEADERS, ...A.exampleAgents(setup, 5).map(toCells)], widths },
     { name: 'How to fill', rows: help, widths: [28, 100] },
   ])
@@ -281,5 +282,5 @@ function exportList(setup) {
       joined: ddmmyyyy(a.joined) })
   })
   return makeXlsx([{ name: 'Agents', rows: [AGENT_HEADERS, ...rows], widths: A.AGENT_COLUMNS.map(c => c.width),
-    lists: { 1: setup.branches.map(b => b.name), 2: setup.roles.map(r => r.code) } }])
+    lists: { 1: setup.branches.map(b => b.name), 2: positionsOf(setup).map(r => r.code) } }])
 }

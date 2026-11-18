@@ -231,6 +231,7 @@ async function writeReport({ db, report, checks, present }) {
       out.push('', `**Sign-in:** ${fmt(p.made + p.updated)} people sign in with the password they use in the current ERP (kept only as a one-way hash; ${fmt(p.made)} accounts made, ${fmt(p.updated)} brought up to date), ${fmt(p.keptNewErp)} keep a password they set in the new ERP, and ${fmt(p.noPassword)} have none in the current ERP (they get a link). People who left get no account.`);
     }
 
+    if (report.branchManagersSet) out.push('', `**Branch Manager accounts:** ${fmt(report.branchManagersSet)} branches were given the B.M account they were made from, for the existing payout standard's BM profit (Setup → Payout standard). Branches Setup already names keep theirs.`);
     const branches = await db('branches').whereIn('id', report.branchesMade).select('id', 'name', 'code');
     if (branches.length) {
       out.push('', '## Branches made from the old "B.M" accounts', '', 'Rename them, or move people, in Setup → Company and branches.', '', '| Branch | Code | People | Listings | E-Forms |', '|---|---|--:|--:|--:|');

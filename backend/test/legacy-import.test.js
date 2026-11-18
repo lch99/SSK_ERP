@@ -260,6 +260,19 @@ test('starred listings and buildings become favourites', async () => {
   assert.ok(result.checks.filter(c => c.group === 'Favourites').every(c => c.ok));
 });
 
+test("people get the current ERP's position and their usual branch; each branch's B.M account is Setup's Branch Manager", async () => {
+  const staff = Object.fromEntries((await db('staff').whereIn('id', [10, 11, 12, 20, 21]).select('id', 'position', 'branch_id')).map(s => [s.id, s]));
+  // The existing payout standard's positions (Setup has no upline level of those names).
+  assert.equal(staff[11].position, 'TL');
+  assert.equal(staff[12].position, 'AG');
+  // Bob's listings are filed under B.M Kepong, Eve's under B.M Puchong.
+  assert.equal(staff[12].branch_id, staff[10].branch_id);
+  assert.equal(staff[21].branch_id, staff[20].branch_id);
+  const doc = JSON.parse((await db('settings').where('key', 'setup').first()).value);
+  assert.deepEqual(doc.standard.branchManagers, { [staff[10].branch_id]: 10, [staff[20].branch_id]: 20 });
+  assert.equal(report.branchManagersSet, 2);
+});
+
 test('the website\'s saved listings come across; one on a deleted listing stays in history', async () => {
   assert.deepEqual((await db('saved_listings').select('staff_id', 'listing_id', 'saved_at')).map(r => ({ ...r, saved_at: String(r.saved_at).slice(0, 10) })),
     [{ staff_id: 12, listing_id: 100, saved_at: '2026-03-01' }]);

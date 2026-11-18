@@ -2,6 +2,7 @@
 // pasted from Excel): one row per person, with their branch, position, upline
 // and tier. The same rules check the preview on the Setup page and the save in
 // setupState.js, so what the page accepts is what gets stored.
+import { positionsOf } from './standard.js';
 import * as P from "./payout.js";
 
 // Columns, in template order. Headers are matched loosely (case, "*", "(RM)",
@@ -106,7 +107,7 @@ const rounded = v => /^\d(\.\d+)?e\+\d+$/i.test(text(v));     // 9.00101E+11: Ex
 export function checkAgents(rows, setup, existing = []) {
   const errors = [];
   const branches = setup.branches || [];
-  const roles = setup.roles || [];
+  const roles = positionsOf(setup);
   const tiersOf = branchId => (Array.isArray(setup.plans) ? setup.plans[P.planIndexFor(setup.plans, branchId)]?.tiers || [] : P.tiersFor(setup, branchId));
   const branchNames = branches.map(b => b.name).join(", ");
 

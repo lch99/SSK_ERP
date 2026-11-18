@@ -277,7 +277,7 @@ export const closeDeal = id => change((data, setup, today) => {
   const closeNet = full ? r2(net - sum(before, c => c.net)) : r2(net * claim / billed)
   const closeSst = full ? r2(sst - sum(before, c => c.sst)) : r2(sst * claim / billed)
   // A project E-Form pays by its project's own rule.
-  const { sides, lines } = payoutForClose(setup, staffById, deal, closeNet, creditOf, undefined, projectFor(data, deal))
+  const { sides, lines } = payoutForClose(setup, staffById, deal, closeNet, creditOf, undefined, projectFor(data, deal), lid => data.listings.find(l => l.id === lid))
   let nextId = newId(data)
   const close = { id: nextId++, dealId: id, date: today, claim, full, partNo: before.length + 1, net: closeNet, sst: closeSst, sides }
   data.closes.push(close)
@@ -689,7 +689,7 @@ export const rerunClose = closeId => change((data, setup, today) => {
   if (old.some(l => l.requestId || l.archiveId || l.status === 'paid')) return 'Some of these lines are already requested for salary, so the case cannot be re-run.'
   const deal = data.deals.find(d => d.id === close.dealId)
   const staffById = Object.fromEntries(data.staff.map(s => [s.id, s]))
-  const { sides, lines } = payoutForClose(setup, staffById, deal, close.net, creditWithout(data, closeId, today), undefined, projectFor(data, deal))
+  const { sides, lines } = payoutForClose(setup, staffById, deal, close.net, creditWithout(data, closeId, today), undefined, projectFor(data, deal), lid => data.listings.find(l => l.id === lid))
   close.sides = sides
   // A line that keeps its CASE- code keeps its id too: it is the same line worked out again
   // (the server saves it as a change; a new row with an old code would clash with the old row).
