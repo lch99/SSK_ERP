@@ -4,6 +4,7 @@ import Icon from '../Icon.jsx'
 import { num } from '../format.js'
 import { ReviewHeading } from '../review.jsx'
 import { Photo } from '../photos.jsx'
+import { htmlToText } from '../../../shared/text.js'
 
 // How a listing will look on the SubSaleKing website, drawn from the form's
 // values before it is saved. l: { type, title, area, state, category, tenure,
@@ -38,7 +39,7 @@ export default function ListingPreview({ l, agent, photos = 0, videos = 0, cover
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{facts.map(x => <span key={x} style={{ fontSize: 12, fontWeight: 600, background: C.grayBg, borderRadius: 6, padding: '2px 8px' }}>{x}</span>)}</div>
           )}
           <div style={{ fontSize: 12.5, color: C.muted }}>{[l.category, l.tenure, l.furnishing].filter(Boolean).join(' · ')}</div>
-          {l.description && <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{l.description}</p>}
+          {l.description && <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', whiteSpace: 'pre-line' }}>{htmlToText(l.description)}</p>}
           {agent && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
               <Avatar name={agent.short} photo={agent.photo} size={28} />

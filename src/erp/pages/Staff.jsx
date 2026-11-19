@@ -712,7 +712,7 @@ function ProfileDoc({ id }) {
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: C.primary }}>{l.type === 'sale' ? 'FOR SALE' : 'FOR RENT'} · #{l.code}</div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{l.title}, {l.category}</div>
                   <div style={{ fontSize: 12.5, color: C.muted }}>{l.area} · {l.beds ? `${l.beds}bd / ${l.baths}ba · ` : ''}{num(l.builtUp)} sq ft</div>
-                  <div style={{ fontWeight: 700, marginTop: 4 }}>{rm(l.askPrice)}{l.type === 'rental' ? ' /month' : ''}</div>
+                  <div style={{ fontWeight: 700, marginTop: 4 }}>{l.askPrice ? `${rm(l.askPrice)}${l.type === 'rental' ? ' /month' : ''}` : 'No ad price'}</div>
                 </div>
               ))}
             </div>

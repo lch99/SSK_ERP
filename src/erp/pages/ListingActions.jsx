@@ -13,6 +13,7 @@ import * as L from '../../../shared/listings.js'
 import Icon from '../Icon.jsx'
 import { useGate, useAccess } from '../access.jsx'
 import { UPLOADS } from '../../../shared/files.js'
+import { htmlToText } from '../../../shared/text.js'
 import { Photo, coverOf, savePreviews, viewMedia, downloadMedia } from '../photos.jsx'
 import { useInReach } from '../listingLife.jsx'
 import { useRecordReader } from '../useList.js'
@@ -126,7 +127,7 @@ export default function ListingActions({ l, quiet, onBook }) {
         { section: l.code },
         book, book && '-',
         { label: 'Edit listing', icon: 'edit', onClick: () => openWith('edit', { askPrice: l.askPrice, bestPrice: l.bestPrice, marketValue: l.marketValue ?? '', commission: l.commission ?? '',
-          beds: l.beds, baths: l.baths, builtUp: l.builtUp, tenure: l.tenure, furnishing: l.furnishing, description: l.description || '', remarks: l.remarks || '',
+          beds: l.beds, baths: l.baths, builtUp: l.builtUp, tenure: l.tenure, furnishing: l.furnishing, description: htmlToText(l.description) || '', remarks: l.remarks || '',
           ownerName: l.owner.name, ownerPhone: l.owner.phone, ...detailValues(l) }) },
         { label: 'Change Listing Owner', icon: 'staff', sub: `Now ${m.staffName(l.holderId)}`, onClick: () => openWith('owner', { holderId: String(l.holderId) }) },
         { label: 'Update Listing Tracking', icon: 'refresh', onClick: () => openWith('track', { status: TRACKING.some(([k]) => k === l.status) ? l.status : 'active', trackingPrice: l.trackingPrice ?? '' }) },
@@ -146,7 +147,9 @@ export default function ListingActions({ l, quiet, onBook }) {
         footer={step === 'review' ? <>
           <button style={btn} onClick={() => setStep('form')}>Back to edit</button>
           <button style={{ ...btnPrimary, opacity: busy || !editChanges.length ? 0.5 : 1 }} disabled={busy || !editChanges.length} onClick={() => save(() => erp.updateListing(l.id, { askPrice: f.askPrice, bestPrice: f.bestPrice, marketValue: f.marketValue, commission: f.commission,
-            beds: f.beds, baths: f.baths, builtUp: f.builtUp, tenure: f.tenure, furnishing: f.furnishing, description: f.description, remarks: f.remarks,
+            beds: f.beds, baths: f.baths, builtUp: f.builtUp, tenure: f.tenure, furnishing: f.furnishing, remarks: f.remarks,
+            // An imported description shows as plain lines here; left untouched, it is saved back as it was.
+            description: f.description === start.description ? l.description || '' : f.description,
             owner: { name: f.ownerName, phone: f.ownerPhone },
             // Only the details that changed (an imported listing keeps a value it was never edited for as it is).
             ...Object.fromEntries(L.LISTING_DETAILS.filter(k => String(f[k] ?? '') !== String(start[k] ?? '')).map(k => [k, f[k]])) }), `${l.code} saved`)}>Save &amp; Publish</button>

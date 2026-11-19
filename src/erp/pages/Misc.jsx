@@ -8,6 +8,7 @@ import { Page, Card, Tabs, DataTable, Status, Link, Empty, Modal, KV, Notice, Fo
 import { useFeedback } from '../feedback.jsx'
 import { CARD, PAGE } from '../help.js'
 import { rm, date, maskAcc, amt } from '../format.js'
+import { htmlToText } from '../../../shared/text.js'
 import Icon from '../Icon.jsx'
 import { useCan } from '../access.jsx'
 import { FileName } from '../files.jsx'
@@ -209,12 +210,12 @@ export function Videos({ parts }) {
       {!list.length && !videos.loading && <Empty title="No videos yet" text="Press Add to upload the first one." icon="video" />}
       <Modal open={!!open} onClose={() => setOpen(null)} title={open?.title} width={640}
         footer={open && can('videos', 'edit') && <>{can('videos', 'full') && <button style={{ ...btn, color: C.err }} onClick={() => remove(open)}>Delete</button>}<span style={{ flex: 1 }} />
-          <button style={btn} onClick={() => { setError(null); setEdit({ id: open.id, title: open.title, date: open.date, description: open.description || '', minutes: open.minutes }); setOpen(null) }}>Edit</button></>}>
+          <button style={btn} onClick={() => { setError(null); setEdit({ id: open.id, title: open.title, date: open.date, description: htmlToText(open.description) || '', minutes: open.minutes }); setOpen(null) }}>Edit</button></>}>
         {open && (
           <>
             <div style={{ aspectRatio: '16 / 9', background: C.side, borderRadius: 8, display: 'grid', placeItems: 'center', color: '#fff' }}><Icon name="video" size={36} /></div>
             <p style={{ fontSize: 13.5, color: C.muted }}>{date(open.date)} · {open.minutes} min{open.file ? <> · <FileName value={open.file} /></> : ''}</p>
-            {open.description && <p style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{open.description}</p>}
+            {open.description && <p style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{htmlToText(open.description)}</p>}
           </>
         )}
       </Modal>

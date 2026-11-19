@@ -15,6 +15,7 @@ import { Photo, coverOf, prunePreviews } from '../photos.jsx'
 import { useFeedback } from '../feedback.jsx'
 import { useCan, useAccess } from '../access.jsx'
 import * as L from '../../../shared/listings.js'
+import { htmlToText } from '../../../shared/text.js'
 import { useViewer, useOwnerSight, useInReach, OwnerContact, FavStar, RatingPill, HotTags, BookViewing } from '../listingLife.jsx'
 import { ListingViewings } from './Viewings.jsx'
 
@@ -120,8 +121,9 @@ export default function Listings({ parts }) {
     } },
     { key: 'unit', label: 'Unit Number / Size', render: l => <span style={{ fontSize: 12.5 }}>{sightOf(l).level === 'none' ? <span style={{ color: C.muted }}>Unit hidden</span> : l.address.split(',')[0]}<span style={{ display: 'block', color: C.muted }}>{num(l.builtUp)} sq ft{l.beds ? ` · ${l.beds}R${l.baths}B` : ''}</span></span> },
     { key: 'price', label: 'Ad · Best · M. Value', help: COLUMN.listingPrice, align: 'right', sortKey: view === 'price' ? 'priceUpdated' : 'price', render: l => (
-      <span style={{ fontSize: 13 }}>{rm0(l.askPrice)}
-        {l.priceBefore && view === 'price' && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>was {rm0(l.priceBefore)} · {date(l.priceUpdated, { short: true })}</span>}
+      <span style={{ fontSize: 13 }}>{l.askPrice ? rm0(l.askPrice) : <span style={{ color: C.muted }}>No ad price</span>}
+        {/* (A 0 here must not reach the page: React would print it after the price, as "RM 00".) */}
+        {view === 'price' && l.priceBefore != null && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>was {l.priceBefore ? rm0(l.priceBefore) : 'not set'} · {date(l.priceUpdated, { short: true })}</span>}
         <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{rm0(l.bestPrice)} · {l.marketValue ? rm0(l.marketValue) : 'no M.V.'}</span>
         <RatingPill l={l} /></span>
     ) },
@@ -224,7 +226,7 @@ function ListingCard({ l, m, base }) {
       </div>
       <div style={{ padding: '10px 12px 12px' }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 17, fontWeight: 700 }}>{rm0(l.askPrice)}{l.type === 'rental' && <span style={{ fontSize: 12, fontWeight: 500, color: C.muted }}> /month</span>}</span>
+          <span style={{ fontSize: 17, fontWeight: 700 }}>{l.askPrice ? rm0(l.askPrice) : <span style={{ fontSize: 14, color: C.muted }}>No ad price</span>}{l.askPrice > 0 && l.type === 'rental' && <span style={{ fontSize: 12, fontWeight: 500, color: C.muted }}> /month</span>}</span>
           <RatingPill l={l} />
         </div>
         <HotTags l={l} />
@@ -280,13 +282,14 @@ function AdPrice({ l }) {
   const can = useCan()
   const inReach = useInReach()
   const editable = can('listings', 'edit') && inReach(l)
-  const [v, setV] = useState(String(l.askPrice))
-  const changed = Number(v) !== l.askPrice && Number(v) >= 0 && v !== ''
+  // An ad price of 0 is one never set (many imported listings have only a best price).
+  const [v, setV] = useState(l.askPrice ? String(l.askPrice) : '')
+  const changed = v !== '' && Number(v) >= 0 && Number(v) !== (l.askPrice || 0)
   const save = () => changed && fb.run(() => erp.updateListing(l.id, { askPrice: Number(v) }), `${l.code} Ad Price set to ${rm(Number(v))}`)
-  if (!editable) return <b>{rm(l.askPrice)}</b>
+  if (!editable) return l.askPrice ? <b>{rm(l.askPrice)}</b> : <span style={{ color: C.muted }}>Not set</span>
   return (
     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-      <input type="number" min="0" value={v} onChange={e => setV(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save() }} aria-label="Ad Price"
+      <input type="number" min="0" value={v} placeholder="Not set" onChange={e => setV(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save() }} aria-label="Ad Price"
         style={{ width: 120, padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: 6, fontWeight: 700, fontFamily: C.font, fontSize: 13.5 }} />
       {changed && <button style={{ ...small, padding: '3px 8px', fontSize: 12 }} onClick={save}>Save</button>}
     </span>
@@ -323,7 +326,7 @@ export function ListingDetails({ l, m, onBook }) {
           [l.type === 'sale' ? 'Ad Price' : 'Ad Price (rent)', <AdPrice key={`${l.id}-${l.askPrice}`} l={l} />], ['Best Price', rm(l.bestPrice)],
           ['Market Value', l.marketValue ? rm(l.marketValue) : 'Not set'], ['Built-up', `${num(l.builtUp)} sq ft`], ...listingDetailRows(l),
           ['Rooms', l.beds ? `${l.beds} bed · ${l.baths} bath` : `${l.baths} toilets`], ['Tenure', l.tenure], ['Furnishing', l.furnishing],
-          ['Category', `${LISTING_CATEGORY[listingCategory(l)]} · ${l.category}`], ['Address', `${l.address}, ${l.postcode} ${l.city}, ${l.state}`],
+          ['Category', `${LISTING_CATEGORY[listingCategory(l)]} · ${l.category}`], ['Address', [l.address, [l.postcode, l.city].filter(Boolean).join(' '), l.state].filter(Boolean).join(', ') || 'Not set'],
           ['C.Date', date(l.created)], ['U.Date', date(l.updated)], l.commission != null && ['Commission', `${l.commission}%`],
           l.trackingPrice != null && l.status !== 'active' && ['Went for', rm(l.trackingPrice)],
         ]} />
@@ -333,11 +336,11 @@ export function ListingDetails({ l, m, onBook }) {
           </div>
         )}
         {l.status === 'active' && L.isOutdated(l, m.today) && <p style={{ fontSize: 12.5, color: C.warn, margin: '8px 0 0' }}>Not updated for over {L.LISTING_RULES.outdatedDays[l.type === 'rental' ? 'rental' : 'sale']} days: it will be marked Outdated unless someone follows it up.</p>}
-        {l.shortDescription && <p style={{ fontSize: 13, margin: '10px 0 0', fontWeight: 600, whiteSpace: 'pre-wrap' }}>{l.shortDescription}</p>}
-        {l.description && <p style={{ fontSize: 13, margin: '10px 0 0', whiteSpace: 'pre-wrap' }}>{l.description}</p>}
-        {l.renoDescription && <p style={{ fontSize: 12.5, margin: '8px 0 0', whiteSpace: 'pre-wrap' }}><span style={{ color: C.muted }}>Renovation: </span>{l.renoDescription}</p>}
-        {l.furnishDescription && <p style={{ fontSize: 12.5, margin: '8px 0 0', whiteSpace: 'pre-wrap' }}><span style={{ color: C.muted }}>Furnishing: </span>{l.furnishDescription}</p>}
-        {l.remarks && <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>Personal use remarks: {l.remarks}</p>}
+        {l.shortDescription && <p style={{ fontSize: 13, margin: '10px 0 0', fontWeight: 600, whiteSpace: 'pre-wrap' }}>{htmlToText(l.shortDescription)}</p>}
+        {l.description && <p style={{ fontSize: 13, margin: '10px 0 0', whiteSpace: 'pre-wrap' }}>{htmlToText(l.description)}</p>}
+        {l.renoDescription && <p style={{ fontSize: 12.5, margin: '8px 0 0', whiteSpace: 'pre-wrap' }}><span style={{ color: C.muted }}>Renovation: </span>{htmlToText(l.renoDescription)}</p>}
+        {l.furnishDescription && <p style={{ fontSize: 12.5, margin: '8px 0 0', whiteSpace: 'pre-wrap' }}><span style={{ color: C.muted }}>Furnishing: </span>{htmlToText(l.furnishDescription)}</p>}
+        {l.remarks && <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>Personal use remarks: {htmlToText(l.remarks)}</p>}
         {l.flags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>{l.flags.map(f => <Pill key={f} tone={f === 'Process Deal' ? 'blue' : 'gray'} dot={false}>{f}</Pill>)}</div>}
       </Block>
       {deal && (

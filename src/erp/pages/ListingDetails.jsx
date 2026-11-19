@@ -1,6 +1,7 @@
 import { FormField, TextArea, Select, field } from '../ui.jsx'
 import * as L from '../../../shared/listings.js'
 import { rm } from '../format.js'
+import { htmlToText } from '../../../shared/text.js'
 
 // The rest of the current ERP's listing form: land, car parks, store rooms, race, placement, specs,
 // renovation, pricing, bank value and the three short descriptions. Used by Add a listing and Edit.
@@ -56,4 +57,5 @@ export function listingDetailRows(l) {
 }
 
 // The detail fields as they are on a listing, for an Edit form to start from.
-export const detailValues = l => Object.fromEntries(L.LISTING_DETAILS.map(k => [k, l[k] ?? '']))
+// (An imported description shows as plain lines; Edit sends only the details that changed.)
+export const detailValues = l => Object.fromEntries(L.LISTING_DETAILS.map(k => [k, L.LISTING_TEXTS.includes(k) ? htmlToText(l[k]) ?? '' : l[k] ?? '']))
