@@ -11,6 +11,7 @@ import { useFeedback } from '../feedback.jsx'
 import { FlowBar } from '../flow.jsx'
 import { rm, pct, date, amt } from '../format.js'
 import { useCan } from '../access.jsx'
+import { roleColor, AGENT_COLOR } from '../../setup/colors.js'
 
 // Closed Case: one line per person per closed claim (CASE-…), New → Pending Queries → Ready,
 // then requested for salary and archived weekly. A page at a time (useList).
@@ -225,15 +226,7 @@ function ApprovalList({ erp, closes: count }) {
               </div>
               {queried && <Notice tone="red"><b>Pending Queries:</b> {queried.query}</Notice>}
               {selfPaid.length > 0 && <Notice tone="amber">{selfPaid.join(' and ')} {selfPaid.length > 1 ? 'are' : 'is'} also paid on this case.</Notice>}
-              <div style={{ borderTop: `1px solid ${C.border}` }}>
-                {ls.map(l => (
-                  <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap' }}>
-                    <span style={{ flex: '1 1 200px', minWidth: 0 }}><Who name={m.staffName(l.staffId)} to={`staff/${l.staffId}`} size={24} sub={m.commType(l)} /></span>
-                    <span style={{ fontSize: 12.5, color: C.muted, ...tabular }}>{pct(l.pct)} of {rm(l.base)}</span>
-                    <b style={{ minWidth: 92, textAlign: 'right', ...tabular }}>{rm(l.amount)}</b>
-                  </div>
-                ))}
-              </div>
+              <PayoutChains lines={ls} m={m} />
               {asking === close.id ? (
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                   <TextArea style={{ flex: '1 1 240px', width: 'auto' }} autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="What needs checking? e.g. SPA not uploaded" />
@@ -263,6 +256,57 @@ function ApprovalList({ erp, closes: count }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 12, fontSize: 13, color: C.muted }}>
           <span style={tabular}>Showing {closes.length} of {count} closes</span>
           <button style={small} disabled={list.loading} onClick={list.more}>{list.loading ? 'Loading…' : 'Show more'}</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// A close's lines as the org chain they came from: one box per side (Marketing, Product),
+// top-down like the org chart, from the most senior upline to the agent who earned the side.
+// Lines that are not a side's agent or upline (e.g. a developer incentive) are listed under it.
+function PayoutChains({ lines, m }) {
+  const roles = m.setup.roles || []
+  const rank = l => roles.findIndex(r => r.code === l.role)
+  const sides = []
+  const other = []
+  for (const l of lines) {
+    if (l.role && (l.role === 'DEV' || rank(l) < 0)) { other.push(l); continue }
+    const key = l.side === 'listing' ? 'listing' : 'sales'
+    const s = sides.find(x => x.key === key) || (sides.push({ key, lines: [] }), sides.at(-1))
+    s.lines.push(l)
+  }
+  for (const s of sides) s.lines.sort((a, b) => (b.role ? rank(b) : -1) - (a.role ? rank(a) : -1))
+  const row = (l, depth, sub, color) => (
+    <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
+      {depth > 0 && <span aria-hidden style={{ flexShrink: 0, width: 12, height: 14, marginLeft: Math.min(depth - 1, 4) * 14 + 6, marginTop: -12, borderLeft: `1.5px solid ${C.borderStrong}`, borderBottom: `1.5px solid ${C.borderStrong}`, borderBottomLeftRadius: 4 }} />}
+      <span aria-hidden style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, background: color, flexShrink: 0 }} />
+      <span style={{ flex: '1 1 0', minWidth: 0 }}><Who name={m.staffName(l.staffId)} to={`staff/${l.staffId}`} size={24} sub={sub} /></span>
+      <span style={{ fontSize: 12.5, color: C.muted, minWidth: 30, textAlign: 'right', flexShrink: 0, ...tabular }}>{pct(l.pct)}</span>
+      <b style={{ textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0, ...tabular }}>{rm(l.amount)}</b>
+    </div>
+  )
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(360px, 100%), 1fr))', gap: 10, marginTop: 4 }}>
+      {sides.map(s => {
+        const base = s.lines[0]?.base
+        const total = sum(s.lines, l => l.amount)
+        return (
+          <div key={s.key} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', background: C.bg }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', paddingBottom: 6, marginBottom: 2, borderBottom: `1px solid ${C.border}` }}>
+              <b style={{ fontSize: 13.5, flex: 1 }}>{s.key === 'listing' ? 'Product side' : 'Marketing side'}</b>
+              <span style={{ fontSize: 12.5, color: C.muted, ...tabular }}>{rm(total)} of {rm(base)}</span>
+            </div>
+            {s.lines.map((l, i) => row(l, i,
+              l.role ? `${m.roleName(l.role) || l.role} · upline` : lineRole(l, m),
+              l.role ? roleColor(roles, l.role) : AGENT_COLOR))}
+          </div>
+        )
+      })}
+      {other.length > 0 && (
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', background: C.bg }}>
+          <b style={{ fontSize: 13.5, display: 'block', paddingBottom: 6, borderBottom: `1px solid ${C.border}` }}>Other</b>
+          {other.map(l => row(l, 0, `${m.commType(l)} · ${pct(l.pct)} of ${rm(l.base)}`, C.faint))}
         </div>
       )}
     </div>
