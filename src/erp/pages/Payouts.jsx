@@ -1,17 +1,19 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import * as P from '../../../shared/payout.js'
 import { C, btn, btnPrimary } from '../../styles.js'
 import { payoutApprovers } from '../../demo/erpSample.js'
 import { useErp } from '../ErpContext.jsx'
 import { useList } from '../useList.js'
-import { PAYOUT_STATUS, SALARY_STATUS, closeType, sum } from '../model.js'
+import { PAYOUT_STATUS, SALARY_STATUS, closeType, sum, r2 } from '../model.js'
 import { Page, Card, Tabs, Toolbar, SearchBox, Select, DataTable, Status, Who, Link, Empty, Notice, Modal, FormField, SelectionBar, TextArea, cols, Stat, mono, tabular, small } from '../ui.jsx'
 import { COLUMN, PAGE } from '../help.js'
 import { useFeedback } from '../feedback.jsx'
 import { FlowBar } from '../flow.jsx'
 import { rm, pct, date, amt } from '../format.js'
 import { useCan } from '../access.jsx'
-import { roleColor, AGENT_COLOR } from '../../setup/colors.js'
+import { ROLE_COLORS, AGENT_COLOR } from '../../setup/colors.js'
+import * as ST from '../../../shared/standard.js'
+import { useNarrow } from '../../setup/useNarrow.js'
 
 // Closed Case: one line per person per closed claim (CASE-…), New → Pending Queries → Ready,
 // then requested for salary and archived weekly. A page at a time (useList).
@@ -262,53 +264,98 @@ function ApprovalList({ erp, closes: count }) {
   )
 }
 
-// A close's lines as the org chain they came from: one box per side (Marketing, Product),
-// top-down like the org chart, from the most senior upline to the agent who earned the side.
-// Lines that are not a side's agent or upline (e.g. a developer incentive) are listed under it.
+// A close's lines as a ladder: one row per level (the most senior upline at the top, the agent who
+// earned the side at the bottom), the Marketing and Product sides side by side so each level reads
+// across both. A level a side has nobody at shows "—" (its share stays with the company), then what
+// the company keeps and what is paid out of each side. Others paid on a side (the listing's creator)
+// come under the agent; lines on neither side (a developer incentive) at the end.
 function PayoutChains({ lines, m }) {
-  const roles = m.setup.roles || []
-  const rank = l => roles.findIndex(r => r.code === l.role)
-  const sides = []
-  const other = []
-  for (const l of lines) {
-    if (l.role && (l.role === 'DEV' || rank(l) < 0)) { other.push(l); continue }
-    const key = l.side === 'listing' ? 'listing' : 'sales'
-    const s = sides.find(x => x.key === key) || (sides.push({ key, lines: [] }), sides.at(-1))
-    s.lines.push(l)
+  const [ref, narrow] = useNarrow(560)
+  // The ladder, junior first: the existing standard's positions (PTL … BM) or Setup's upline levels,
+  // then the current ERP's positions for lines imported from it.
+  const st = ST.standardOf(m.setup)
+  const own = (st.kind === 'existing' ? st.positions : m.setup.roles || []).map(r => r.code)
+  const legacy = ST.EXISTING_DEFAULT.positions.map(r => r.code)
+  const rank = code => (own.includes(code) ? own.indexOf(code) : legacy.includes(code) ? 1000 + legacy.indexOf(code) : -1)
+  const SIDES = ['sales', 'listing']
+  const sides = SIDES.filter(k => lines.some(l => l.side === k && l.role !== 'DEV'))
+  const other = lines.filter(l => l.role === 'DEV' || !SIDES.includes(l.side))
+  const onSides = lines.filter(l => !other.includes(l))
+  // Rows: the upline levels anyone holds here (senior first), the agent, then anyone else on a side.
+  const ups = [...new Set(onSides.filter(l => l.role && rank(l.role) >= 0).map(l => l.role))].sort((a, b) => rank(b) - rank(a))
+  const extras = [...new Set(onSides.filter(l => l.role && rank(l.role) < 0).map(l => l.role))]
+  const rows = [
+    ...ups.map(code => ({ key: code, label: m.roleName(code), color: ROLE_COLORS[(rank(code) % 1000) % ROLE_COLORS.length], of: l => l.role === code })),
+    { key: 'agent', label: 'Agent', color: AGENT_COLOR, of: l => !l.role, agent: true },
+    ...extras.map(code => ({ key: code, label: m.roleName(code), color: C.faint, of: l => l.role === code })),
+  ]
+  const sideOf = k => {
+    const ls = onSides.filter(l => l.side === k)
+    const base = (ls.find(l => !l.role) || ls[0])?.base || 0
+    const paid = r2(sum(ls, l => l.amount))
+    return { base, paid, kept: r2(base - paid) }
   }
-  for (const s of sides) s.lines.sort((a, b) => (b.role ? rank(b) : -1) - (a.role ? rank(a) : -1))
-  const row = (l, depth, sub, color) => (
-    <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
-      {depth > 0 && <span aria-hidden style={{ flexShrink: 0, width: 12, height: 14, marginLeft: Math.min(depth - 1, 4) * 14 + 6, marginTop: -12, borderLeft: `1.5px solid ${C.borderStrong}`, borderBottom: `1.5px solid ${C.borderStrong}`, borderBottomLeftRadius: 4 }} />}
-      <span aria-hidden style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, background: color, flexShrink: 0 }} />
-      <span style={{ flex: '1 1 0', minWidth: 0 }}><Who name={m.staffName(l.staffId)} to={`staff/${l.staffId}`} size={24} sub={sub} /></span>
-      <span style={{ fontSize: 12.5, color: C.muted, minWidth: 30, textAlign: 'right', flexShrink: 0, ...tabular }}>{pct(l.pct)}</span>
-      <b style={{ textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0, ...tabular }}>{rm(l.amount)}</b>
+  const totals = Object.fromEntries(sides.map(k => [k, sideOf(k)]))
+  const sideName = k => (sides.length < 2 ? 'Both sides' : k === 'listing' ? 'Product side' : 'Marketing side')
+  const cols = narrow ? `repeat(${sides.length}, minmax(0, 1fr))` : `minmax(110px, 160px) repeat(${sides.length}, minmax(0, 1fr))`
+  const cell = { padding: narrow ? '8px 8px' : '8px 10px', minWidth: 0, borderTop: `1px solid ${C.border}` }
+  const label = (text, color, extra) => (
+    <div style={{ ...cell, display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, fontWeight: 600, color: C.muted, background: C.bg,
+      ...(narrow && { gridColumn: '1 / -1', padding: '5px 10px' }), ...extra }}>
+      {color && <span aria-hidden style={{ width: 4, alignSelf: 'stretch', minHeight: 14, borderRadius: 2, background: color, flexShrink: 0 }} />}{text}
+    </div>
+  )
+  const person = (l, agent) => (
+    <div key={l.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+      <span style={{ minWidth: 0 }}>
+        <Link to={`staff/${l.staffId}`} style={{ fontWeight: 600, color: C.text, overflowWrap: 'anywhere' }}>{m.staffName(l.staffId)}</Link>
+        {agent && <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{lineRole(l, m)}</span>}
+      </span>
+      <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '0 8px', alignItems: 'baseline', ...tabular }}><span style={{ fontSize: 12.5, color: C.muted, whiteSpace: 'nowrap' }}>{pct(l.pct)}</span><b style={{ whiteSpace: 'nowrap' }}>{rm(l.amount)}</b></span>
     </div>
   )
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(360px, 100%), 1fr))', gap: 10, marginTop: 4 }}>
-      {sides.map(s => {
-        const base = s.lines[0]?.base
-        const total = sum(s.lines, l => l.amount)
-        return (
-          <div key={s.key} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', background: C.bg }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', paddingBottom: 6, marginBottom: 2, borderBottom: `1px solid ${C.border}` }}>
-              <b style={{ fontSize: 13.5, flex: 1 }}>{s.key === 'listing' ? 'Product side' : 'Marketing side'}</b>
-              <span style={{ fontSize: 12.5, color: C.muted, ...tabular }}>{rm(total)} of {rm(base)}</span>
-            </div>
-            {s.lines.map((l, i) => row(l, i,
-              l.role ? `${m.roleName(l.role) || l.role} · upline` : lineRole(l, m),
-              l.role ? roleColor(roles, l.role) : AGENT_COLOR))}
+    <div ref={ref} style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', marginTop: 4 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: cols }}>
+        {!narrow && <div style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: C.muted, background: C.bg }}>Level</div>}
+        {sides.map(k => (
+          <div key={k} style={{ padding: '8px 10px', background: C.bg, minWidth: 0 }}>
+            <b style={{ fontSize: 13.5 }}>{sideName(k)}</b>
+            <span style={{ display: 'block', fontSize: 12, color: C.muted, ...tabular }}>Share {rm(totals[k].base)}</span>
           </div>
-        )
-      })}
-      {other.length > 0 && (
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', background: C.bg }}>
-          <b style={{ fontSize: 13.5, display: 'block', paddingBottom: 6, borderBottom: `1px solid ${C.border}` }}>Other</b>
-          {other.map(l => row(l, 0, `${m.commType(l)} · ${pct(l.pct)} of ${rm(l.base)}`, C.faint))}
-        </div>
-      )}
+        ))}
+        {rows.map(r => (
+          <Fragment key={r.key}>
+            {label(r.label, r.color)}
+            {sides.map(k => {
+              const ls = onSides.filter(l => l.side === k && r.of(l))
+              return (
+                <div key={k} style={{ ...cell, display: 'grid', gap: 6, ...(narrow && { borderTop: 'none' }) }}>
+                  {ls.length ? ls.map(l => person(l, r.agent)) : <span style={{ color: C.faint }} title="Nobody at this level on this side: the share stays with the company">—</span>}
+                </div>
+              )
+            })}
+          </Fragment>
+        ))}
+        {label('Company keeps', null, { borderTop: `1.5px solid ${C.borderStrong}` })}
+        {sides.map(k => (
+          <div key={k} style={{ ...cell, borderTop: narrow ? 'none' : `1.5px solid ${C.borderStrong}`, color: C.muted, ...tabular }}>
+            {rm(totals[k].kept)} <span style={{ fontSize: 12.5 }}>({pct(totals[k].base ? r2(totals[k].kept / totals[k].base * 100) : 0)})</span>
+          </div>
+        ))}
+        {label('Paid out')}
+        {sides.map(k => (
+          <div key={k} style={{ ...cell, ...(narrow && { borderTop: 'none' }), ...tabular }}><b>{rm(totals[k].paid)}</b> <span style={{ fontSize: 12.5, color: C.muted }}>of {rm(totals[k].base)}</span></div>
+        ))}
+        {other.map(l => (
+          <Fragment key={l.id}>
+            {label(m.commType(l), C.faint)}
+            <div style={{ ...cell, gridColumn: narrow ? '1 / -1' : `2 / span ${sides.length || 1}`, ...(narrow && { borderTop: 'none' }) }}>
+              {person(l)}<span style={{ fontSize: 12, color: C.muted }}>{pct(l.pct)} of {rm(l.base)}</span>
+            </div>
+          </Fragment>
+        ))}
+      </div>
     </div>
   )
 }
