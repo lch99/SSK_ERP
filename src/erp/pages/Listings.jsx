@@ -296,6 +296,42 @@ function AdPrice({ l }) {
   )
 }
 
+// A listing's description, laid out: an all-caps line ("FACILITIES") is a heading, "- x" or "• x" lines are a
+// bullet list, the rest are paragraphs. A long one is cut to its first lines until "Show all" is pressed.
+function Description({ text }) {
+  const [all, setAll] = useState(false)
+  const lines = String(text || '').split('\n')
+  const long = lines.filter(x => x.trim()).length > 14
+  const blocks = []
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) { blocks.push({ gap: true }); continue }
+    const bullet = line.match(/^[-•*]\s*(.+)$/)
+    if (bullet) {
+      const last = blocks[blocks.length - 1]
+      if (last?.items) last.items.push(bullet[1]); else blocks.push({ items: [bullet[1]] })
+    } else if (line.length <= 40 && /[A-Z]/.test(line) && line === line.toUpperCase()) blocks.push({ heading: line.replace(/:$/, '') })
+    else blocks.push({ text: line })
+  }
+  // Blank lines only space things out; drop them next to a heading or a list (they bring their own space).
+  const shown = blocks.filter((b, i) => !b.gap || (blocks[i - 1]?.text && blocks[i + 1]?.text))
+  return (
+    <div>
+      <div style={{ position: 'relative', maxHeight: long && !all ? 260 : undefined, overflow: 'hidden' }}>
+        {shown.map((b, i) => b.heading ? (
+          <h4 key={i} style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.05em', color: C.text, margin: i ? '14px 0 4px' : '0 0 4px', fontFamily: C.font }}>{b.heading}</h4>
+        ) : b.items ? (
+          <ul key={i} style={{ margin: '0 0 4px', paddingLeft: 18, fontSize: 13.5, lineHeight: 1.6 }}>{b.items.map((x, j) => <li key={j}>{x}</li>)}</ul>
+        ) : b.gap ? <div key={i} style={{ height: 8 }} /> : (
+          <p key={i} style={{ margin: '0 0 4px', fontSize: 13.5, lineHeight: 1.55 }}>{b.text}</p>
+        ))}
+        {long && !all && <div aria-hidden style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56, background: `linear-gradient(to bottom, transparent, ${C.card})` }} />}
+      </div>
+      {long && <button style={{ ...small, marginTop: 8 }} onClick={() => setAll(!all)}>{all ? 'Show less' : 'Show all'}</button>}
+    </div>
+  )
+}
+
 export function ListingDetails({ l, m, onBook }) {
   // Its E-Form and building come with it ($), or from the records here when it was read some other way.
   const deal = l.dealId ? (l.$?.deal ? { id: l.dealId, ...l.$.deal } : m.deals?.[l.dealId]) : null
@@ -322,27 +358,55 @@ export function ListingDetails({ l, m, onBook }) {
             ))}
           </div>
         )}
-        <KV min={160} items={[
-          [l.type === 'sale' ? 'Ad Price' : 'Ad Price (rent)', <AdPrice key={`${l.id}-${l.askPrice}`} l={l} />], ['Best Price', rm(l.bestPrice)],
-          ['Market Value', l.marketValue ? rm(l.marketValue) : 'Not set'], ['Built-up', `${num(l.builtUp)} sq ft`], ...listingDetailRows(l),
-          ['Rooms', l.beds ? `${l.beds} bed · ${l.baths} bath` : `${l.baths} toilets`], ['Tenure', l.tenure], ['Furnishing', l.furnishing],
-          ['Category', `${LISTING_CATEGORY[listingCategory(l)]} · ${l.category}`], ['Address', [l.address, [l.postcode, l.city].filter(Boolean).join(' '), l.state].filter(Boolean).join(', ') || 'Not set'],
-          ['C.Date', date(l.created)], ['U.Date', date(l.updated)], l.commission != null && ['Commission', `${l.commission}%`],
-          l.trackingPrice != null && l.status !== 'active' && ['Went for', rm(l.trackingPrice)],
-        ]} />
+        {/* The three prices side by side, then what makes the listing (size, rooms, tenure) as chips. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: 8 }}>
+          {[[l.type === 'sale' ? 'Ad Price' : 'Ad Price (rent)', <AdPrice key={`${l.id}-${l.askPrice}`} l={l} />],
+            ['Best Price', l.bestPrice ? rm(l.bestPrice) : <span style={{ color: C.muted, fontWeight: 500 }}>Not set</span>],
+            ['Market Value', l.marketValue ? rm(l.marketValue) : <span style={{ color: C.muted, fontWeight: 500 }}>Not set</span>]].map(([k, v]) => (
+            <div key={k} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 12px', minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, marginBottom: 3 }}>{k}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, overflowWrap: 'anywhere' }}>{v}</div>
+            </div>
+          ))}
+        </div>
         {(rating || L.hotLists(l).length > 0) && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 12, fontSize: 12.5, color: C.muted }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10, fontSize: 12.5, color: C.muted }}>
             <RatingPill l={l} long />{rating && <span>{rating.diff > 0 ? `${rm0(rating.diff)} above` : `${rm0(-rating.diff)} below`} market value</span>}<HotTags l={l} />
           </div>
         )}
         {l.status === 'active' && L.isOutdated(l, m.today) && <p style={{ fontSize: 12.5, color: C.warn, margin: '8px 0 0' }}>Not updated for over {L.LISTING_RULES.outdatedDays[l.type === 'rental' ? 'rental' : 'sale']} days: it will be marked Outdated unless someone follows it up.</p>}
-        {l.shortDescription && <p style={{ fontSize: 13, margin: '10px 0 0', fontWeight: 600, whiteSpace: 'pre-wrap' }}>{htmlToText(l.shortDescription)}</p>}
-        {l.description && <p style={{ fontSize: 13, margin: '10px 0 0', whiteSpace: 'pre-wrap' }}>{htmlToText(l.description)}</p>}
-        {l.renoDescription && <p style={{ fontSize: 12.5, margin: '8px 0 0', whiteSpace: 'pre-wrap' }}><span style={{ color: C.muted }}>Renovation: </span>{htmlToText(l.renoDescription)}</p>}
-        {l.furnishDescription && <p style={{ fontSize: 12.5, margin: '8px 0 0', whiteSpace: 'pre-wrap' }}><span style={{ color: C.muted }}>Furnishing: </span>{htmlToText(l.furnishDescription)}</p>}
-        {l.remarks && <p style={{ fontSize: 12.5, color: C.muted, margin: '8px 0 0' }}>Personal use remarks: {htmlToText(l.remarks)}</p>}
-        {l.flags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>{l.flags.map(f => <Pill key={f} tone={f === 'Process Deal' ? 'blue' : 'gray'} dot={false}>{f}</Pill>)}</div>}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
+          {[l.builtUp ? `${num(l.builtUp)} sq ft` : null, l.beds ? `${l.beds} bed · ${l.baths} bath` : l.baths ? `${l.baths} toilets` : null,
+            l.carpark != null ? `${l.carpark} car park${l.carpark === 1 ? '' : 's'}` : null, l.tenure, l.furnishing].filter(Boolean).map(x => (
+            <span key={x} style={{ fontSize: 13, fontWeight: 600, background: C.grayBg, borderRadius: 6, padding: '4px 10px' }}>{x}</span>
+          ))}
+        </div>
+        {l.flags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>{l.flags.map(f => <Pill key={f} tone={f === 'Process Deal' ? 'blue' : 'gray'} dot={false}>{f}</Pill>)}</div>}
+        <p style={{ fontSize: 12.5, color: C.muted, margin: '12px 0 0' }}>C.Date {date(l.created)} · U.Date {date(l.updated)}</p>
       </Block>
+      <Block title="Details">
+        <KV min={150} items={[
+          ['Category', `${LISTING_CATEGORY[listingCategory(l)]} · ${l.category}`],
+          ['Address', [l.address, [l.postcode, l.city].filter(Boolean).join(' '), l.state].filter(Boolean).join(', ') || 'Not set'],
+          // (Car parks are in the chips above.)
+          ...listingDetailRows(l).filter(([k]) => k !== 'Car Parks'),
+          l.commission != null && ['Commission', `${l.commission}%`],
+          l.trackingPrice != null && l.status !== 'active' && ['Went for', rm(l.trackingPrice)],
+        ]} />
+      </Block>
+      {(l.shortDescription || l.description || l.renoDescription || l.furnishDescription || l.remarks) && (
+        <Block title="Description">
+          {l.shortDescription && <p style={{ fontSize: 14, margin: '0 0 10px', fontWeight: 600, whiteSpace: 'pre-wrap' }}>{htmlToText(l.shortDescription)}</p>}
+          {l.description && <Description text={htmlToText(l.description)} />}
+          {(l.renoDescription || l.furnishDescription || l.remarks) && (
+            <div style={{ display: 'grid', gap: 8, marginTop: l.description || l.shortDescription ? 12 : 0, paddingTop: l.description || l.shortDescription ? 12 : 0, borderTop: l.description || l.shortDescription ? `1px solid ${C.border}` : 'none' }}>
+              {[['Renovation', l.renoDescription], ['Furnishing', l.furnishDescription], ['Personal use remarks', l.remarks]].filter(([, v]) => v).map(([k, v]) => (
+                <div key={k} style={{ fontSize: 13 }}><div style={{ fontSize: 12, color: C.muted, fontWeight: 600, marginBottom: 2 }}>{k}</div><div style={{ whiteSpace: 'pre-wrap' }}>{htmlToText(v)}</div></div>
+              ))}
+            </div>
+          )}
+        </Block>
+      )}
       {deal && (
         <Block title="E-Form">
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>

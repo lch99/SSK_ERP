@@ -851,8 +851,8 @@ export const updateListing = (id, fields) => change((data, setup, today) => {
     }
     settleHandler(data, setup, l, today)
   }
-  // Whoever keeps it as a favourite hears about price changes and where it went.
-  if (l.askPrice !== before.askPrice) {
+  // Whoever keeps it as a favourite hears about price changes and where it went (not an ad price set or cleared: 0 is none).
+  if (l.askPrice !== before.askPrice && l.askPrice > 0 && before.askPrice > 0) {
     const down = l.askPrice < before.askPrice
     for (const k of fans(data, 'listings', l.id)) notify(data, k, down ? 'good' : 'bad', `${l.code} (${l.title}) ${down ? 'dropped' : 'went up'} from ${rm(before.askPrice)} to ${rm(l.askPrice)}.`, `listings/${l.id}`, today)
   }

@@ -126,7 +126,7 @@ export default function ListingActions({ l, quiet, onBook }) {
       <Menu quiet={quiet} label="Actions" items={[
         { section: l.code },
         book, book && '-',
-        { label: 'Edit listing', icon: 'edit', onClick: () => openWith('edit', { askPrice: l.askPrice, bestPrice: l.bestPrice, marketValue: l.marketValue ?? '', commission: l.commission ?? '',
+        { label: 'Edit listing', icon: 'edit', onClick: () => openWith('edit', { askPrice: l.askPrice || '', bestPrice: l.bestPrice, marketValue: l.marketValue ?? '', commission: l.commission ?? '',
           beds: l.beds, baths: l.baths, builtUp: l.builtUp, tenure: l.tenure, furnishing: l.furnishing, description: htmlToText(l.description) || '', remarks: l.remarks || '',
           ownerName: l.owner.name, ownerPhone: l.owner.phone, ...detailValues(l) }) },
         { label: 'Change Listing Owner', icon: 'staff', sub: `Now ${m.staffName(l.holderId)}`, onClick: () => openWith('owner', { holderId: String(l.holderId) }) },
@@ -146,7 +146,7 @@ export default function ListingActions({ l, quiet, onBook }) {
       <Modal open={dialog === 'edit'} onClose={close} title={step === 'review' ? `Review changes · ${l.code}` : `Edit ${l.code}`} width={step === 'review' ? 680 : 620}
         footer={step === 'review' ? <>
           <button style={btn} onClick={() => setStep('form')}>Back to edit</button>
-          <button style={{ ...btnPrimary, opacity: busy || !editChanges.length ? 0.5 : 1 }} disabled={busy || !editChanges.length} onClick={() => save(() => erp.updateListing(l.id, { askPrice: f.askPrice, bestPrice: f.bestPrice, marketValue: f.marketValue, commission: f.commission,
+          <button style={{ ...btnPrimary, opacity: busy || !editChanges.length ? 0.5 : 1 }} disabled={busy || !editChanges.length} onClick={() => save(() => erp.updateListing(l.id, { askPrice: f.askPrice === '' ? 0 : f.askPrice, bestPrice: f.bestPrice, marketValue: f.marketValue, commission: f.commission,
             beds: f.beds, baths: f.baths, builtUp: f.builtUp, tenure: f.tenure, furnishing: f.furnishing, remarks: f.remarks,
             // An imported description shows as plain lines here; left untouched, it is saved back as it was.
             description: f.description === start.description ? l.description || '' : f.description,
@@ -156,7 +156,7 @@ export default function ListingActions({ l, quiet, onBook }) {
         </> : <>
           <button style={btn} onClick={close}>Cancel</button>
           <button style={btnPrimary} onClick={() => {
-            const gaps = missing([['Ad Price', f.askPrice], ['Owner Name', f.ownerName], ['Owner Contact', f.ownerPhone]])
+            const gaps = missing([['Owner Name', f.ownerName], ['Owner Contact', f.ownerPhone]])
             if (gaps.length) { setError(needText(gaps)); markGaps(gaps) } else { setError(null); setStep('review') }
           }}>Review changes</button>
         </>}>
@@ -165,7 +165,8 @@ export default function ListingActions({ l, quiet, onBook }) {
           <Review changes={editChanges} intro="Check the changes. The listing on the website is updated as soon as you save."
             preview={<ListingPreview l={{ ...l, ...f }} agent={m.staff[l.holderId]} photos={l.photos} videos={l.videos} cover={coverOf(photosOf(l))?.preview} />} />
         ) : <div style={grid}>
-          <FormField label="Ad Price (RM)" required><input style={field} type="number" min="0" value={f.askPrice ?? ''} onChange={set('askPrice')} /></FormField>
+          {/* Optional: many imported listings have only a best price. Left empty, the listing shows "No ad price". */}
+          <FormField label="Ad Price (RM)"><input style={field} type="number" min="0" placeholder="Not set" value={f.askPrice ?? ''} onChange={set('askPrice')} /></FormField>
           <FormField label="Best Price (RM)"><input style={field} type="number" min="0" value={f.bestPrice ?? ''} onChange={set('bestPrice')} /></FormField>
           <FormField label="Market Value (RM)"><input style={field} type="number" min="0" value={f.marketValue ?? ''} onChange={set('marketValue')} /></FormField>
           <FormField label="Commission (%)"><input style={field} type="number" min="0" step="0.25" value={f.commission ?? ''} onChange={set('commission')} /></FormField>
