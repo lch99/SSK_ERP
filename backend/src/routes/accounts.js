@@ -2,7 +2,7 @@
 //   GET  /api/accounts/<staffId>          their account: username, password set or not, locked, last sign-in
 //   POST /api/accounts/<staffId>/link     makes the account if needed and a one-time link → { username, token, purpose, expiresAt }
 //   POST /api/accounts/<staffId>/email-link { token }   e-mails that link to the person (mail/mailer.js) → { to }
-//   POST /api/accounts/links { base, branchId? }   Superadmin: accounts for every active person who has none, and a
+//   POST /api/accounts/links { base, branchId? }   Superadmin (or a Branch Partner, for their branch): accounts for every active person who has none, and a
 //                                          link for each who has no password yet, as an Excel file to send them
 const express = require('express');
 const db = require('../db/connection');
@@ -84,12 +84,15 @@ router.post('/:staffId/link', wrap(async (req, res) => {
 // Everyone at once (Superadmin): the file holds working links, so only the Superadmin makes it.
 router.post('/links', wrap(async (req, res) => {
   const v = await viewerOf(req);
-  if (!AC.managesAccess(v.role)) return res.status(403).json({ error: 'Only the Superadmin makes everyone\'s links at once.' });
+  // A Branch Partner: their own branch only, and only people whose access is no wider than theirs (a link signs in as that person).
+  const partner = v.role === AC.BRANCH_PARTNER && v.branchId != null;
+  if (!AC.managesAccess(v.role) && !partner) return res.status(403).json({ error: 'Only the Superadmin or a Branch Partner makes links at once.' });
   const base = String(req.body?.base || '');
   if (!/^https?:\/\/[^\s#]{1,200}$/.test(base)) return res.status(400).json({ error: 'Send the ERP\'s address (base) for the links.' });
-  const branchId = idOf(req.body?.branchId);
-  const people = await db('staff').where('status', 'active').modify(b => { if (branchId) b.where('branch_id', branchId); })
-    .orderBy('id').select('id', 'name', 'code', 'username', 'branch_id', 'status', 'phone');
+  const branchId = partner ? Number(v.branchId) : idOf(req.body?.branchId);
+  const people = (await db('staff').where('status', 'active').modify(b => { if (branchId) b.where('branch_id', branchId); })
+    .orderBy('id').select('id', 'name', 'code', 'username', 'branch_id', 'status', 'phone', 'type'))
+    .filter(s => !partner || AC.covers(v.policy, v.role, AC.roleForType(s.type)));
   const branches = new Map((await db('branches').select('id', 'name')).map(b => [b.id, b.name]));
   const rows = [['Code', 'Name', 'Branch', 'Phone', 'Username', 'Link to set the password', 'Link works until']];
   let made = 0, links = 0;

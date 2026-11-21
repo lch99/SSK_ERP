@@ -198,6 +198,13 @@ export const createUser = body => request('/users', { method: 'POST', body })
 export const updateUser = (id, body) => request(`/users/${id}`, { method: 'PUT', body })
 export const resetUserPassword = (id, password) => request(`/users/${id}/password`, { method: 'POST', body: { password } })
 export const unlockUser = id => request(`/users/${id}/unlock`, { method: 'POST' })
+export const getBranchOptions = () => request('/users/branch-options')
+export const createBranchWithManager = body => request('/users/branch', { method: 'POST', body })
+// A Branch Partner's own branch (routes/myBranch.js).
+export const getMyBranch = () => request('/my-branch')
+export const saveMyBranchDetails = body => request('/my-branch/details', { method: 'PUT', body })
+export const importMyBranchAgents = rows => request('/my-branch/agents', { method: 'POST', body: { rows } })
+export const saveMyBranchBm = staffId => request('/my-branch/bm-account', { method: 'PUT', body: { staffId } })
 
 // ERP records. The demo makes them up from the saved Setup and keeps them in
 // this browser (src/demo/erpApi.js); the server reads them from its tables and

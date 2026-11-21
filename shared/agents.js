@@ -104,7 +104,10 @@ const rounded = v => /^\d(\.\d+)?e\+\d+$/i.test(text(v));     // 9.00101E+11: Ex
 // Returns { agents, errors }: agents carry `ref` (a temporary id: -1, -2, …)
 // and `upline` (another row's ref, or an existing agent's id); errors are
 // { line, text } with the spreadsheet row number.
-export function checkAgents(rows, setup, existing = []) {
+// others: agents saved elsewhere in the company (a Branch Partner's import, which sees one branch):
+// checked for the same IC no. (the same person in two branches), never by name (namesakes are
+// common, and the partner can't fix another branch's record) and never matched as an upline.
+export function checkAgents(rows, setup, existing = [], { others = [] } = {}) {
   const errors = [];
   const branches = setup.branches || [];
   const roles = positionsOf(setup);
@@ -161,10 +164,11 @@ export function checkAgents(rows, setup, existing = []) {
 
   // Who is who: the new rows plus the agents already saved (when adding).
   const people = [...existing.map(a => ({ ...a, ref: a.id, line: null })), ...agents];
-  const where = p => (p.line ? `row ${p.line}` : `${p.name} (already saved)`);
+  const everyone = [...people, ...others.map(a => ({ ...a, ref: `other-${a.id}`, line: null, elsewhere: true }))];
+  const where = p => (p.line ? `row ${p.line}` : p.elsewhere ? `${p.name} (already saved, in another branch)` : `${p.name} (already saved)`);
   for (const a of agents) {
     if (a.ic) {
-      const twin = people.find(p => p !== a && p.ic && same(p.ic, a.ic));
+      const twin = everyone.find(p => p !== a && p.ic && same(p.ic, a.ic));
       if (twin && (twin.line == null || twin.line < a.line)) errors.push({ line: a.line, text: `same IC no. as ${where(twin)}.` });
     }
     if (a.name) {

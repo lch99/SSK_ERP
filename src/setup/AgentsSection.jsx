@@ -22,7 +22,8 @@ const ddmmyyyy = iso => (iso ? iso.split('-').reverse().join('/') : '')
 // list), fill it in Excel, upload it. Rows are checked against Setup before
 // anything is saved; problems point at the spreadsheet's own row numbers.
 
-export default function AgentsSection({ setup, save, step, done }) {
+// addOnly (a Branch Partner's My branch page): an upload only adds to the saved agents; nothing is replaced or removed here.
+export default function AgentsSection({ setup, save, step, done, addOnly = false, hint }) {
   const fb = useFeedback()
   const saved = setup.agents || []
   // An upload being looked at: { source, table: readAgentTable() result, mode }.
@@ -35,7 +36,7 @@ export default function AgentsSection({ setup, save, step, done }) {
     const read = A.readAgentTable(table)
     if (read.error) return setReadError(read.error)
     if (!read.rows.length) return setReadError(`${source} has the column names but no agents under them.`)
-    setPending({ source, read, mode: 'replace' })
+    setPending({ source, read, mode: addOnly ? 'add' : 'replace' })
     setPaste(false)
   }
   const openFile = async file => {
@@ -61,7 +62,7 @@ export default function AgentsSection({ setup, save, step, done }) {
   const roleName = code => positionsOf(setup).find(r => r.code === code)?.name
   return (
     <Section id="agents" step={step} title="Agents" done={done} dirty={!!pending} onReset={() => setPending(null)}
-      hint={<>Bring in your whole team at once from Excel, instead of keying in each person. Positions, uplines and tiers are matched to what you set up in the previous steps. You can also skip this and add agents later in H.R Portal.</>}
+      hint={hint || <>Bring in your whole team at once from Excel, instead of keying in each person. Positions, uplines and tiers are matched to what you set up in the previous steps. You can also skip this and add agents later in H.R Portal.</>}
       errors={checked?.errors.length ? [`${checked.errors.length} row${checked.errors.length === 1 ? '' : 's'} to fix (listed above), or leave them out.`] : []}
       onSave={() => save('agents', pending ? { mode: pending.mode, rows: pending.read.rows } : { mode: 'add', rows: [] })}>
 
@@ -101,9 +102,11 @@ export default function AgentsSection({ setup, save, step, done }) {
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
                   <h3 style={{ fontSize: 15, margin: 0, flex: '1 1 200px' }}>Your team <span style={{ fontWeight: 500, color: C.muted, fontSize: 13 }}>· {saved.length} agent{saved.length === 1 ? '' : 's'}</span></h3>
                   <button style={{ ...btn, fontSize: 13, padding: '5px 11px' }} onClick={() => download(exportList(setup), 'Agents.xlsx', XLSX_TYPE)}>Download as Excel</button>
-                  <button style={{ ...btn, fontSize: 13, padding: '5px 11px' }} onClick={removeAll}>Remove all</button>
+                  {!addOnly && <button style={{ ...btn, fontSize: 13, padding: '5px 11px' }} onClick={removeAll}>Remove all</button>}
                 </div>
-                <p style={{ fontSize: 12.5, color: C.muted, margin: '0 0 8px' }}>To change many at once: download, edit in Excel, and upload it again to replace the list.</p>
+                <p style={{ fontSize: 12.5, color: C.muted, margin: '0 0 8px' }}>{addOnly
+                  ? 'An upload adds new people to this list. To change someone already here, open them in All agents.'
+                  : 'To change many at once: download, edit in Excel, and upload it again to replace the list.'}</p>
                 <TeamTree setup={setup} people={saved.map(a => ({ ...a, key: a.id, upline: a.uplineId }))} roleName={roleName} />
               </>
             ) : (
@@ -122,7 +125,7 @@ export default function AgentsSection({ setup, save, step, done }) {
               {checked.errors.length > 0 && <> · <span style={{ color: C.err, fontWeight: 600 }}>{badLines.size} to fix</span></>}
               {pending.read.unknown.length > 0 && <span style={{ color: C.muted }}> · not used: {pending.read.unknown.join(', ')}</span>}
             </span>
-            {saved.length > 0 && (
+            {saved.length > 0 && !addOnly && (
               <select style={sel} value={pending.mode} aria-label="What to do with the saved agents" onChange={e => setPending({ ...pending, mode: e.target.value })}>
                 <option value="replace">Replace the {saved.length} saved agents</option>
                 <option value="add">Add to the {saved.length} saved agents</option>
@@ -149,7 +152,7 @@ export default function AgentsSection({ setup, save, step, done }) {
           <h3 style={{ fontSize: 15, margin: '18px 0 8px' }}>Preview</h3>
           <TeamTree setup={setup} people={[...(pending.mode === 'add' ? saved.map(a => ({ ...a, key: a.id, upline: a.uplineId, old: true })) : []),
             ...checked.agents.map(a => ({ ...a, key: a.ref, bad: badLines.has(a.line) }))]} roleName={roleName} />
-          <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>Nothing is saved until you press Save &amp; continue.</p>
+          <p style={{ fontSize: 12.5, color: C.muted, margin: '10px 0 0' }}>Nothing is saved until you press {addOnly ? 'Save' : <>Save &amp; continue</>}.</p>
         </>
       )}
     </Section>

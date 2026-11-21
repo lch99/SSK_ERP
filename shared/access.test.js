@@ -153,3 +153,28 @@ describe('an agent\'s own access switches', () => {
     expect(A.recordRefusal(p, 'admin-staff', 'deleteListing', [2], data, null)).toBe(null)
   })
 })
+
+describe('Branch Partner', () => {
+  it('a manager sign-in is a Branch Partner: one branch, the senior admin\'s levels', () => {
+    expect(A.roleForUser({ role: 'manager' })).toBe('branch-partner')
+    expect(A.scopeOf(policy, 'branch-partner')).toBe('branch')
+    for (const area of ['deals', 'payouts', 'staff']) expect(A.allows(policy, 'branch-partner', area, 'full')).toBe(true)
+  })
+  it('opens My branch and Sign-in accounts, but not Setup or Roles & access', () => {
+    expect(A.opens(policy, 'branch-partner', 'my-branch')).toBe(true)
+    expect(A.opens(policy, 'branch-partner', 'users')).toBe(true)
+    expect(A.opens(policy, 'branch-partner', 'setup')).toBe(false)
+    expect(A.opens(policy, 'branch-partner', 'access')).toBe(false)
+    expect(A.opens(policy, 'superadmin', 'my-branch')).toBe(false)
+    expect(A.opens(policy, 'admin-staff', 'users')).toBe(false)
+  })
+  it('makes links only for people whose access is no wider than theirs', () => {
+    expect(A.covers(policy, 'branch-partner', 'staff')).toBe(true)
+    expect(A.covers(policy, 'branch-partner', 'admin-staff2')).toBe(true)
+    for (const r of ['admin-staff', 'account', 'superadmin']) expect(A.covers(policy, 'branch-partner', r)).toBe(false)
+  })
+  it('a saved policy from before the role gets it with the recommended levels', () => {
+    const saved = { 'admin-staff': { scope: 'all', levels: {} } }
+    expect(A.tidyPolicy(saved)['branch-partner'].scope).toBe('branch')
+  })
+})

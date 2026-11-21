@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { listUsers, createUser, updateUser, resetUserPassword, unlockUser, getBranches, downloadAllLinks } from '../api.js'
+import { listUsers, createUser, updateUser, resetUserPassword, unlockUser, getBranches, downloadAllLinks, getBranchOptions, createBranchWithManager } from '../api.js'
+import { validateBranches } from '../../shared/payout.js'
 import { download } from '../setup/sheet.js'
 import { ROLES, roleMeta, validateUser, validatePassword, PASSWORD_MIN } from '../../shared/roles.js'
 import { C, inp, sel, btn, btnPrimary, th, td, label } from '../styles.js'
 import { ErrorList } from '../setup/Section.jsx'
 import { Dialog } from '../auth/AuthScreens.jsx'
 import { useFeedback } from '../erp/feedback.jsx'
+import { useErp } from '../erp/ErpContext.jsx'
 import { date } from '../erp/format.js'
 import { errorList, errorText } from '../errors.js'
 
@@ -14,11 +16,14 @@ const fmtWhen = s => (s ? `${date(String(s).slice(0, 10))}, ${String(s).slice(11
 
 export default function UsersPage({ me }) {
   const fb = useFeedback()
+  // The rest of the ERP reads branches from its own copy of Setup: refreshed when a branch is added here.
+  const erp = useErp()
   const [data, setData] = useState(null)
   const [branches, setBranches] = useState([])
   const [error, setError] = useState(null)
   const [editing, setEditing] = useState(null)      // user object, or {} for new
   const [resetting, setResetting] = useState(null)
+  const [addingBranch, setAddingBranch] = useState(false)
   const [showInactive, setShowInactive] = useState(false)
 
   const load = () => Promise.all([listUsers(), getBranches()])
@@ -62,6 +67,7 @@ export default function UsersPage({ me }) {
             <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} /> Show deactivated ({hiddenCount})
           </label>
         )}
+        {me.role === 'superadmin' && <button style={btn} onClick={() => setAddingBranch(true)}>+ New branch and partner</button>}
         <button style={btnPrimary} onClick={() => setEditing({})}>+ Add user</button>
       </div>
 
@@ -107,7 +113,92 @@ export default function UsersPage({ me }) {
       {editing && <UserDialog me={me} user={editing} branches={branches} assignable={data.assignableRoles}
         onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load() }} />}
       {resetting && <ResetDialog user={resetting} onClose={() => setResetting(null)} onSaved={() => { setResetting(null); load() }} />}
+      {addingBranch && <NewBranchDialog branches={branches} onClose={() => setAddingBranch(false)}
+        onSaved={r => { setAddingBranch(false); fb.toast(`${r.branch.name} added; ${r.user.name} can sign in as ${r.user.username}`); load(); erp?.reload?.() }} />}
     </div>
+  )
+}
+
+// A new branch and its Branch Partner in one go. The partner signs in to the empty branch,
+// sets it up on My branch (details, agents, staff, sign-in links), then works there as normal.
+function NewBranchDialog({ branches, onClose, onSaved }) {
+  const [b, setB] = useState({ name: '', code: '', address: '', phone: '' })
+  const [m, setM] = useState({ name: '', username: '', password: '' })
+  const [plans, setPlans] = useState(null)
+  const [planId, setPlanId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [serverErrors, setServerErrors] = useState([])
+  useEffect(() => {
+    getBranchOptions().then(r => { setPlans(r.plans); setPlanId(r.plans[0]?.id ?? '') }).catch(e => setServerErrors(errorList(e)))
+  }, [])
+
+  const branch = { ...b, code: b.code.trim().toUpperCase() }
+  const account = { ...m, username: m.username.trim().toLowerCase(), role: 'manager', branchId: 0 }
+  // Checked against the branches already there, so a name or code already used shows up now.
+  const branchErrors = validateBranches([...branches, branch]).filter(e => !/^Add at least/.test(e))
+  const errors = [...branchErrors, ...validateUser(account, { isNew: true })]
+  const touched = b.name || b.code || m.name || m.username
+
+  async function save() {
+    setBusy(true)
+    setServerErrors([])
+    try {
+      onSaved(await createBranchWithManager({ branch, planId: planId === '' ? null : Number(planId), manager: { name: m.name, username: account.username, password: m.password } }))
+    } catch (e) {
+      setServerErrors(errorList(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const row = { display: 'block', marginBottom: 12 }
+  const full = { ...inp, width: '100%' }
+  const head = { fontSize: 13, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4, margin: '4px 0 10px' }
+  return (
+    <Dialog onClose={onClose} width={480}>
+      <h2 style={{ fontSize: 18, margin: '0 0 6px' }}>New branch and partner</h2>
+      <p style={{ fontSize: 13, color: C.muted, margin: '0 0 16px', lineHeight: 1.45 }}>
+        The partner signs in to the new, empty branch and sets it up themselves on <b>My branch</b>: its details, agents, office staff
+        and everyone's sign-in. Then they run it as normal. They see only this branch.
+      </p>
+
+      <div style={head}>Branch</div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <label style={{ ...row, flex: 1 }}><span style={label}>Branch name</span>
+          <input style={full} value={b.name} onChange={e => setB({ ...b, name: e.target.value })} autoFocus /></label>
+        <label style={{ ...row, width: 96 }}><span style={label}>Code</span>
+          <input style={full} value={b.code} maxLength={4} placeholder="e.g. KP" onChange={e => setB({ ...b, code: e.target.value.toUpperCase() })} /></label>
+      </div>
+      <p style={{ fontSize: 12, color: C.muted, margin: '-6px 0 12px', lineHeight: 1.4 }}>The code goes into case and voucher numbers: keep it short, and don't change it once deals exist.</p>
+      <label style={row}><span style={label}>Address</span>
+        <input style={full} value={b.address} onChange={e => setB({ ...b, address: e.target.value })} /></label>
+      <label style={row}><span style={label}>Phone</span>
+        <input style={full} value={b.phone} onChange={e => setB({ ...b, phone: e.target.value })} /></label>
+      <label style={row}><span style={label}>Payout plan</span>
+        <select style={{ ...sel, width: '100%' }} value={planId} disabled={!plans} onChange={e => setPlanId(e.target.value)}>
+          {(plans || []).map(p => <option key={p.id} value={p.id}>{p.name}{p.standard ? ' (company standard)' : ''}</option>)}
+        </select>
+        {plans && !plans.length && <span style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 4 }}>No payout plans yet; set them in Setup.</span>}
+      </label>
+
+      <div style={{ ...head, marginTop: 16 }}>Branch Partner</div>
+      <label style={row}><span style={label}>Name</span>
+        <input style={full} value={m.name} onChange={e => setM({ ...m, name: e.target.value })} /></label>
+      <label style={row}><span style={label}>Username</span>
+        <input style={full} value={m.username} autoCapitalize="none" onChange={e => setM({ ...m, username: e.target.value.toLowerCase() })} /></label>
+      <label style={row}><span style={label}>Starting password (at least {PASSWORD_MIN} characters)</span>
+        <input style={full} type="text" value={m.password} autoComplete="off" onChange={e => setM({ ...m, password: e.target.value })} />
+        <span style={{ display: 'block', fontSize: 12, color: C.muted, marginTop: 4 }}>Give it to them privately; they can change it after signing in.</span>
+      </label>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button style={{ ...btnPrimary, opacity: errors.length || busy || !plans ? 0.5 : 1 }} disabled={errors.length > 0 || busy || !plans} onClick={save}>
+          {busy ? 'Saving…' : 'Create branch and account'}
+        </button>
+        <button style={btn} onClick={onClose}>Cancel</button>
+      </div>
+      <ErrorList errors={[...(touched ? errors : []), ...serverErrors]} />
+    </Dialog>
   )
 }
 

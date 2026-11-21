@@ -161,6 +161,14 @@ async function checkBefore(q, name, args, data, v) {
     const touched = OWN_LOCKED.filter(k => k in fields && s && JSON.stringify(fields[k]) !== JSON.stringify(s[k]));
     if (touched.length && args[0] === v.staffId) throw refuse('You cannot change your own account type, status, branch or access switches.');
     if (touched.includes('type') && !AC.allows(v.policy, v.role, 'staff', 'full')) throw refuse('Changing an account type needs Full on Agents & staff.');
+    // Not to a type wider than the maker's own (e.g. a Branch Partner making someone Accounting, who sees every branch).
+    if (touched.includes('type') && !AC.covers(v.policy, v.role, AC.roleForType(fields.type))) {
+      throw refuse(`Your role cannot make someone ${AC.roleOf(AC.roleForType(fields.type))?.label || 'that account type'}: it has more access than yours.`);
+    }
+    // A role that sees one branch keeps its people in it.
+    if (touched.includes('branchId') && v.scope !== 'all' && Number(fields.branchId) !== Number(v.branchId)) {
+      throw refuse('You can only keep people in your own branch. Ask the Superadmin to move someone to another branch.');
+    }
   }
   if (name === 'deleteStaff' && args[0] === v.staffId) throw refuse('You cannot delete your own record.');
   // Owner requests: an agent needs Vendor Requests switched on (shared/access.js switchedOff).

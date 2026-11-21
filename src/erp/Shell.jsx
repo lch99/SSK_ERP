@@ -6,6 +6,7 @@ import Footer from '../brand/Footer.jsx'
 import { DEMO, loadSampleSetup } from '../api.js'
 import SetupPage from '../setup/SetupPage.jsx'
 import UsersPage from '../users/UsersPage.jsx'
+import MyBranchPage from '../users/MyBranchPage.jsx'
 import { ErrorList } from '../setup/Section.jsx'
 import { ErpProvider, useErp, useRoute, useMedia } from './ErpContext.jsx'
 import { MENU, MODULE } from './help.js'
@@ -57,7 +58,7 @@ const PAGES = {
   deals: Deals, projects: Projects, commission: Commission, reports: Reports, 'money-in': MoneyIn, payouts: Payouts, 'money-out': MoneyOut,
   staff: Staff, invoices: Invoices, salary: Salary, 'my-pay': MyPay, videos: Videos, settings: Profile, system: System, 'org-chart': OrgChart, 'old-records': OldRecords, access: Access,
 }
-const OWN = { setup: SetupPage, users: UsersPage }
+const OWN = { setup: SetupPage, users: UsersPage, 'my-branch': MyBranchPage }
 
 // "g" then a letter jumps to a page (shown in the shortcuts list, "?").
 const JUMPS = [

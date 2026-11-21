@@ -220,7 +220,8 @@ const STEPS = {
     const existing = body?.mode === 'add' ? state.agents || [] : [];
     const rows = (Array.isArray(body?.rows) ? body.rows : []).map((r, i) => ({ line: Number(r.line) || i + 2, cells: r.cells || {} }));
     if (rows.length > 5000) throw new SetupError(['Up to 5,000 agents at a time.']);
-    const { agents, errors } = A.checkAgents(rows, state, existing);
+    // others (a Branch Partner's import, db/setupStore.js): the company's agents outside the branch, for the same-IC check.
+    const { agents, errors } = A.checkAgents(rows, state, existing, { others: Array.isArray(body?.others) ? body.others : [] });
     check(errors.slice(0, 50).map(A.errorText).concat(errors.length > 50 ? [`…and ${errors.length - 50} more rows to fix.`] : []));
     let nextId = state.nextId;
     const idOf = new Map(agents.map(a => [a.ref, nextId++]));

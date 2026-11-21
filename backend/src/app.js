@@ -54,6 +54,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/access', accessRouter);
 app.use('/api/erp', erpRouter);
 app.use('/api/accounts', accountsRouter);
+app.use('/api/my-branch', require('./routes/myBranch'));
 // What the website reads (public fields only; no sign-in but for saved listings).
 app.use('/api/public', publicRouter);
 // An address under /api that the API doesn't have: a refusal in JSON like every other (Express's own is a web page).

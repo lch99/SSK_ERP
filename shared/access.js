@@ -54,6 +54,11 @@ export const ROLES = [
     scope: 'all', levels: FULL },
   { key: 'admin-staff', label: 'Admin (Level 2)', type: 'admin-staff', desc: 'Senior office admin: runs the whole office, including approvals.',
     scope: 'all', levels: row('full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'view', 'none') },
+  // A partner who runs a branch of their own (a sign-in account, not a staff account type): what the
+  // senior admin does, plus setting the branch up (its people, accounts and details), in that branch
+  // only. The Superadmin picks its payout plan when adding the branch.
+  { key: 'branch-partner', label: 'Branch Partner', type: null, desc: 'Runs their own branch as a partner of the company: sets it up (agents, office staff, sign-in accounts, branch details) and runs all its work, approvals included. Sees nothing of other branches.',
+    scope: 'branch', levels: row('full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'view', 'none') },
   { key: 'admin-staff2', label: 'Admin (Level 1)', type: 'admin-staff2', desc: 'Branch admin: keys in the day-to-day work but cannot approve or pay.',
     scope: 'branch', levels: row('edit', 'edit', 'edit', 'view', 'edit', 'view', 'edit', 'view', 'edit', 'edit', 'view', 'view', 'none', 'none') },
   { key: 'account', label: 'Accounting', type: 'account', desc: 'Money in and out, payouts and salary for every branch.',
@@ -68,13 +73,14 @@ export const ROLES = [
     scope: 'branch', levels: row('edit', 'view', 'none', 'view', 'none', 'none', 'none', 'none', 'none', 'none', 'view', 'none', 'none', 'none') },
 ]
 export const ROLE_KEYS = ROLES.map(r => r.key)
+export const BRANCH_PARTNER = 'branch-partner'
 export const roleOf = key => ROLES.find(r => r.key === key)
 // The role that goes with a staff account type (Agent when unknown).
 export const roleForType = type => ROLES.find(r => r.type === type)?.key || 'staff'
 
 // The role of a signed-in account: its staff account type when it has one,
 // else its sign-in role (shared/roles.js) mapped to the nearest account type.
-const SIGN_IN = { superadmin: 'superadmin', manager: 'admin-staff', accountant: 'account', admin: 'admin-staff2', staff: 'staff', tech: 'tech' }
+const SIGN_IN = { superadmin: 'superadmin', manager: 'branch-partner', accountant: 'account', admin: 'admin-staff2', staff: 'staff', tech: 'tech' }
 export const roleForUser = user => (user?.type ? roleForType(user.type) : SIGN_IN[user?.role] || 'staff')
 
 // The recommended policy: { [role]: { scope, levels: { [area]: level } } }.
@@ -212,7 +218,7 @@ export function pathNeeds(path) {
   }
   return best && { area: best.area, level: best.level }
 }
-// May `role` open the page at `path`? Setup, Roles & access and sign-in users are the Superadmin's.
+// May `role` open the page at `path`? Setup and Roles & access are the Superadmin's.
 // Pages and lists a person's own access switch opens (their staff record's `access`, set on their page):
 // as in the current ERP, an agent sees owner requests only with Vendor Requests on, and the landlord
 // checks only with Landlord Verification on. The office follows Roles & access.
@@ -229,7 +235,10 @@ export function switchedOff(role, access, path) {
 
 export function opens(policy, role, path) {
   const first = String(path).replace(/^\/+/, '').split('/')[0]
-  if (first === 'setup' || first === 'access' || first === 'users') return managesAccess(role)
+  if (first === 'setup' || first === 'access') return managesAccess(role)
+  // Sign-in accounts: the Superadmin's, and a Branch Partner's for their own branch. My branch: the partner's.
+  if (first === 'users') return managesAccess(role) || role === BRANCH_PARTNER
+  if (first === 'my-branch') return role === BRANCH_PARTNER
   const n = pathNeeds(path)
   return !n || allows(policy, role, n.area, n.level)
 }

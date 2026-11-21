@@ -105,6 +105,8 @@ export const MODULES = [
   { key: 'system', label: 'System', icon: 'setup', home: 'system', items: [
     { label: 'Settings', was: 'System Settings / System Preference Portal', path: 'system' },
     { label: 'Setup', path: 'setup', perm: 'setup.edit' },
+    // A Branch Partner's own set-up (shared/access.js opens it for that role only).
+    { label: 'My branch', path: 'my-branch', needsSignIn: true },
     { label: 'Automatic rules', was: 'Sys-tasks / cron', path: 'system/rules' },
     { section: 'Users', was: 'H.R Portal' },
     { label: 'Office staff', was: 'All Agent/Staff / Admin / Accounting', path: 'staff/office' },

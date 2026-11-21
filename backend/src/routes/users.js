@@ -20,7 +20,8 @@ const out = u => ({
 const fail = (res, status, error) => res.status(status).json({ error, errors: [error] });
 const wrap = fn => (req, res, next) => fn(req, res).catch(next);
 
-async function cleanInput(body, { isNew }) {
+// newBranch: the branch is made with the account (POST /branch), so it isn't looked up.
+async function cleanInput(body, { isNew, newBranch = false }) {
   const role = body?.role;
   const scoped = R.roleMeta(role).branchScoped;
   const u = {
@@ -31,7 +32,7 @@ async function cleanInput(body, { isNew }) {
     password: body?.password || undefined,
   };
   const errors = R.validateUser(u, { isNew });
-  if (!errors.length && u.branchId != null && !(await db('branches').where('id', u.branchId).first())) {
+  if (!errors.length && !newBranch && u.branchId != null && !(await db('branches').where('id', u.branchId).first())) {
     errors.push('That branch no longer exists.');
   }
   return { u, errors };
@@ -68,6 +69,47 @@ router.post('/', wrap(async (req, res) => {
     return realId;
   });
   res.status(201).json({ user: out(await db('users').where('id', id).first()) });
+}));
+
+// A new branch and its Branch Partner (sign-in role 'manager'), saved together (superadmin only).
+// The partner signs in to the empty branch, sets it up on My branch, then keeps working there.
+// body: { branch: { name, code, address, phone }, planId, manager: { name, username, password } }.
+const setupStore = require('../db/setupStore');
+const { ValidationError } = require('../db/errors');
+const P = require('../../../shared/payout.js');
+const onlySuperadmin = (req, res, next) => (R.can(req.user, 'setup.edit') ? next() : fail(res, 403, 'Only a superadmin can add a branch.'));
+
+// The payout plans to pick from (the first is the Standard plan).
+router.get('/branch-options', onlySuperadmin, wrap(async (req, res) => {
+  const { plans } = await setupStore.loadState();
+  res.json({ plans: plans.map((p, i) => ({ id: p.id, name: P.planLabel(p, i), standard: i === 0 })) });
+}));
+
+router.post('/branch', onlySuperadmin, wrap(async (req, res) => {
+  const b = req.body?.branch || {};
+  const branch = { name: String(b.name || '').trim(), code: String(b.code || '').trim().toUpperCase(),
+    address: String(b.address || '').trim(), phone: String(b.phone || '').trim() };
+  const m = req.body?.manager || {};
+  // The branch has no id yet: check the account as if it had one.
+  const { u, errors } = await cleanInput({ ...m, role: 'manager', branchId: 0 }, { isNew: true, newBranch: true });
+  const all = [...P.validateBranches([branch]), ...errors];
+  if (all.length) return res.status(400).json({ error: all[0], errors: all });
+  if (await db('users').where('username', u.username).first()) return fail(res, 400, `The username "${u.username}" is taken.`);
+  const hash = await bcrypt.hash(u.password, 12);
+  let userId;
+  try {
+    const saved = await setupStore.addBranch({ ...branch, manager: u.name }, { planId: req.body?.planId ?? null, then: async (trx, branchId) => {
+      await audit(req, { action: 'update', entity: 'setup.branches', detail: { added: { name: branch.name, code: branch.code } } }, trx);
+      const [newId] = await trx('users').insert({ username: u.username, name: u.name, role: 'manager', branch_id: branchId, password_hash: hash });
+      userId = typeof newId === 'object' ? newId.id : newId;
+      await audit(req, { action: 'create', entity: 'user', entityId: userId, detail: { username: u.username, role: 'manager', branchId } }, trx);
+    } });
+    res.status(201).json({ branch: saved, user: out(await db('users').where('id', userId).first()) });
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.errors[0], errors: err.errors });
+    if (err.code === 'ER_DUP_ENTRY') return fail(res, 400, `The username "${u.username}" is taken.`);
+    throw err;
+  }
 }));
 
 async function loadManaged(req, res) {
