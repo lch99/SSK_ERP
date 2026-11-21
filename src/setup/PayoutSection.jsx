@@ -198,6 +198,18 @@ function ExistingSection({ setup, save, step, done, switching }) {
         </div>
       </Group>
 
+      {(() => {
+        // Branches paying on their own numbers (their partners set them on My branch); the rest pay on these.
+        const own = setup.branches.filter(b => ST.branchRulesOf(st, b.id))
+        return own.length > 0 && (
+          <Group title="Branches on their own rates" note="Set by each branch's partner on My branch, within this standard. Every other branch pays on the values above.">
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.6 }}>
+              {own.map(b => <li key={b.id}><b>{b.name}</b>: {ST.describeOwnRules(ST.standardFor({ standard: st }, b.id))}</li>)}
+            </ul>
+          </Group>
+        )
+      })()}
+
       <Example st={st} />
       {when.ui}
     </Section>
@@ -205,7 +217,7 @@ function ExistingSection({ setup, save, step, done, switching }) {
 }
 
 // One worked example per position: what a side of RM 10,000 pays with a full chain above.
-function Example({ st }) {
+export function Example({ st }) {
   if (ST.validateStandard(st).length) return null
   const ladder = [...st.positions].filter(p => p.rank !== '' && p.rank != null).sort((a, b) => a.rank - b.rank)
   const rows = ladder.slice(0, 4).map(p => {

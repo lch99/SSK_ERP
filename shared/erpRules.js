@@ -130,9 +130,11 @@ function existingClose(setup, standard, staffById, deal, net, on, listingOf) {
       return
     }
     const earner = staffById[side.staffId]
-    const out = ST.existingSide({ standard, amount: base, earnerId: earner.id, creatorId: side.side === 'listing' ? listing?.creatorId ?? null : null,
+    // Each side on its earner's branch's numbers (its own, else the company's), as tiers are under the CMS.
+    const st = ST.standardFor(setup, earner.branchId)
+    const out = ST.existingSide({ standard: st, amount: base, earnerId: earner.id, creatorId: side.side === 'listing' ? listing?.creatorId ?? null : null,
       staffById, bmId: ST.branchManagerFor(standard, side.side, { deal, earner }) })
-    sides.push({ side: side.side, staffId: earner.id, sharePct: side.pct, base, tierId: null, agentRate: out.agentRate, totalPct: Number(standard.cap), company: out.company })
+    sides.push({ side: side.side, staffId: earner.id, sharePct: side.pct, base, tierId: null, agentRate: out.agentRate, totalPct: Number(st.cap), company: out.company })
     for (const l of out.lines) lines.push({ ...l, side: side.side, base, tierId: null })
   })
   return { sides, lines }

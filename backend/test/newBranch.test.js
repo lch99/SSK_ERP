@@ -202,3 +202,74 @@ test('a branch added from Users leaves Setup\'s checklist as it was', async () =
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.deepEqual(JSON.parse((await db('settings').where('key', 'setup').first()).value).confirmed, confirmed);
 });
+
+test('commission, existing standard: the partner sets their branch\'s own rates from a date; earlier E-Forms keep theirs', async () => {
+  const { localToday, addDays } = require('../src/db/days');
+  const today = localToday();
+  const ST = require('../../shared/standard.js');
+  // The Superadmin's other branch has its own numbers too: the partner never sees them.
+  const std = (await boss('GET', '/setup')).body.standard;
+  assert.equal((await boss('PUT', '/setup/standard', { ...std, branchRules: { [desaId]: { cap: 91 } } })).status, 200);
+
+  const rules = { cap: 92, positions: [{ code: 'AG', rate: 75 }], bands: [{ code: 'AM', upTo: 92 }] };
+  const noDate = await partner('PUT', '/my-branch/commission', { own: true, rules });
+  assert.equal(noDate.status, 400);
+  assert.match(noDate.body.error, /date the new rates start/);
+  const past = await partner('PUT', '/my-branch/commission', { own: true, rules, from: addDays(today, -1) });
+  assert.equal(past.status, 400);
+  assert.match(past.body.error, /today at the earliest/);
+  const bad = await partner('PUT', '/my-branch/commission', { own: true, rules: { ...rules, cap: 150 }, from: today });
+  assert.equal(bad.status, 400);
+
+  const r = await partner('PUT', '/my-branch/commission', { own: true, rules, from: today });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(Object.keys(r.body.standard.branchRules).map(Number), [kepong.id]);
+  assert.equal(r.body.rulesSince, today);
+  const st = ST.standardFor(r.body, kepong.id);
+  assert.deepEqual([st.cap, st.positions.find(p => p.code === 'AG').rate, st.positions.find(p => p.code === 'TL').rate], [92, 75, 85]);
+  // Setup: the rules until today kept for earlier E-Forms (Kepong on the company's then), Taman Desa's untouched.
+  const setup = (await boss('GET', '/setup')).body;
+  assert.equal(setup.ruleHistory.at(-1).until, today);
+  assert.equal(ST.branchRulesOf(setup.ruleHistory.at(-1).standard, kepong.id), null);
+  assert.equal(ST.branchRulesOf(setup.standard, desaId).cap, 91);
+  // The Superadmin saving the standard keeps the branches' numbers.
+  assert.equal((await boss('PUT', '/setup/standard', { ...setup.standard, branchRules: undefined })).status, 200);
+  assert.equal(ST.branchRulesOf((await boss('GET', '/setup')).body.standard, kepong.id).cap, 92);
+
+  // Back to the company's, correcting today's change (it starts today): no second start date.
+  const back = await partner('PUT', '/my-branch/commission', { own: false, from: today });
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  const after = (await boss('GET', '/setup')).body;
+  assert.equal(ST.branchRulesOf(after.standard, kepong.id), null);
+  assert.equal(after.ruleHistory.length, setup.ruleHistory.length);
+});
+
+test('commission, CMS: the partner makes their branch\'s own tier plan, or goes back to the company\'s', async () => {
+  const { localToday, addDays } = require('../src/db/days');
+  const later = addDays(localToday(), 1);
+  assert.equal((await boss('PUT', '/setup/standard', { kind: 'cms' })).status, 200);
+  const view = (await partner('GET', '/my-branch')).body;
+  assert.deepEqual([view.plans.map(p => p.name), view.planShared], [['Standard', 'Desa plan'], true]);
+
+  const tiers = [{ name: 'K1', title: 'Kepong Associate', basis: 'lifetime', threshold: 0, agentRate: 65, totals: { sale: 90, rental: 90 } }];
+  const clash = await partner('PUT', '/my-branch/commission', { own: true, name: 'Desa plan', tiers, from: later });
+  assert.equal(clash.status, 400);
+  assert.match(clash.body.error, /already called "Desa plan"/);
+  const wrong = await partner('PUT', '/my-branch/commission', { own: true, name: 'Kepong plan', tiers: [{ ...tiers[0], agentRate: 95 }], from: later });
+  assert.equal(wrong.status, 400);
+
+  const r = await partner('PUT', '/my-branch/commission', { own: true, name: 'Kepong plan', tiers, from: later });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.plans.map(p => p.name), r.body.planShared], [['Standard', 'Kepong plan'], false]);
+  let plans = (await boss('GET', '/setup')).body.plans;
+  assert.deepEqual(plans.map(p => [p.name, p.branchIds]), [['Standard', []], ['Desa plan', [desaId]], ['Kepong plan', [kepong.id]]]);
+  assert.equal((await boss('GET', '/setup')).body.ruleHistory.at(-1).until, later);
+
+  // A rename alone moves no money: no date needed.
+  assert.equal((await partner('PUT', '/my-branch/commission', { own: true, name: 'Kepong tiers', tiers: r.body.plans[1].tiers })).status, 200);
+  // Back to the company's Standard plan (correcting the change that starts tomorrow); Taman Desa's plan untouched.
+  const back = await partner('PUT', '/my-branch/commission', { own: false, from: later });
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  plans = (await boss('GET', '/setup')).body.plans;
+  assert.deepEqual(plans.map(p => [p.name, p.branchIds]), [['Standard', []], ['Desa plan', [desaId]]]);
+});

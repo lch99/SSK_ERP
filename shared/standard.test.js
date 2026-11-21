@@ -157,3 +157,59 @@ describe('the existing standard in Setup and on a close', () => {
     expect(lines.reduce((t, l) => t + l.amount, 0)).toBe(9000)
   })
 })
+
+describe('a branch on its own numbers (a Branch Partner\'s, within the existing standard)', () => {
+  const company = ST.standardOf({ standard: { kind: 'existing' } })
+  const own = { cap: 92, rates: { AG: 75 }, bands: { AM: 92 }, creator: { pct: 18, steps: { TL: 18 } } }
+  const setup = { standard: { ...ST.existingDefault(), kind: 'existing', branchRules: { 7: own } } }
+
+  it('takes the branch\'s numbers over the company\'s, and only for that branch', () => {
+    const st = ST.standardFor(setup, 7)
+    expect([st.cap, st.positions.find(p => p.code === 'AG').rate, st.positions.find(p => p.code === 'TL').rate]).toEqual([92, 75, 85])
+    expect(st.bands.map(b => b.upTo)).toEqual([80, 85, 88, 92])
+    expect([st.creator.pct, st.creator.holderKeeps, st.creator.steps.map(s => s.upTo)]).toEqual([18, 60, [5, 15, 18]])
+    expect(ST.validateStandard(st)).toEqual([])
+    expect(ST.moneyKeyOf(ST.standardFor(setup, 8))).toBe(ST.moneyKeyOf(company))
+    expect(ST.moneyKeyOf(ST.standardFor(setup, null))).toBe(ST.moneyKeyOf(company))
+  })
+
+  it('keeps what it changed in the shape Setup stores, and the positions stay the company\'s', () => {
+    const st = ST.standardFor(setup, 7)
+    expect(ST.moneyKeyOf(ST.standardFor({ standard: { ...setup.standard, branchRules: { 7: ST.ownRulesOf(st) } } }, 7))).toBe(ST.moneyKeyOf(st))
+    expect(st.positions.map(p => [p.code, p.rank])).toEqual(company.positions.map(p => [p.code, p.rank]))
+  })
+
+  it('pays each side on its earner\'s branch: own numbers in that branch, the company\'s elsewhere', () => {
+    let s = S.emptyState()
+    s = S.applyStep(s, 'branches', { branches: [{ name: 'Taman Desa', code: 'TD' }, { name: 'Kepong', code: 'KP' }] })
+    const [td, kp] = s.branches.map(b => b.id)
+    s = S.applyStep(s, 'standard', { ...ST.existingDefault(), kind: 'existing', branchManagers: { [td]: 90, [kp]: 91 }, branchRules: { [kp]: { cap: 92, rates: { AG: 75 }, bands: { AM: 92 } } } })
+    const staff = {
+      1: { id: 1, role: 'AG', uplineId: 2, branchId: kp, status: 'active' },   // Kepong: closes the deal
+      2: { id: 2, role: 'TL', uplineId: null, branchId: kp, status: 'active' },
+      3: { id: 3, role: 'AG', uplineId: 4, branchId: td, status: 'active' },   // Taman Desa: holds the listing
+      4: { id: 4, role: 'TL', uplineId: null, branchId: td, status: 'active' },
+    }
+    const deal = { agentId: 1, holderId: 3, listingId: 77, branchId: td, type: 'sale', date: '2026-12-01' }
+    const { sides, lines } = payoutForClose(S.view(s), staff, deal, 10000, () => ({ lifetime: 0, yearly: 0 }), '2026-12-02', null, () => ({ id: 77, creatorId: 3 }))
+    const of = sd => lines.filter(l => l.side === sd).map(l => [l.role ?? 'SALARY', l.staffId, l.pct])
+    // Kepong's agent: 75 own rate, PTL band nobody below TL holds… the TL takes 80–85, and the BM the rest up to Kepong's 92.
+    expect(of('sales')).toEqual([['SALARY', 1, 75], ['PTL', 2, 5], ['TL', 2, 5], ['BM', 91, 7]])
+    expect(sides.find(x => x.side === 'sales').totalPct).toBe(92)
+    // Taman Desa's holder: the company's numbers (70, up to 90).
+    expect(of('listing')).toEqual([['SALARY', 3, 70], ['PTL', 4, 10], ['TL', 4, 5], ['BM', 90, 5]])
+    expect(sides.find(x => x.side === 'listing').totalPct).toBe(90)
+  })
+
+  it('Setup keeps branches\' numbers when the Superadmin saves the standard, and drops removed branches\'', () => {
+    let s = S.emptyState()
+    s = S.applyStep(s, 'branches', { branches: [{ name: 'Taman Desa', code: 'TD' }, { name: 'Kepong', code: 'KP' }] })
+    const [td, kp] = s.branches.map(b => b.id)
+    s = S.applyStep(s, 'standard', { ...ST.existingDefault(), kind: 'existing', branchRules: { [kp]: own } })
+    s = S.applyStep(s, 'standard', { ...ST.existingDefault(), kind: 'existing', cap: 90 })
+    expect(ST.branchRulesOf(S.view(s).standard, kp)).toEqual(own)
+    s = S.applyStep(s, 'branches', { branches: [s.branches.find(b => b.id === td)] })
+    s = S.applyStep(s, 'standard', { ...ST.existingDefault(), kind: 'existing' })
+    expect(S.view(s).standard.branchRules).toEqual({})
+  })
+})

@@ -10,6 +10,7 @@ const db = require('./connection');
 const S = require('../../../shared/setupState.js');
 const P = require('../../../shared/payout.js');
 const A = require('../../../shared/agents.js');
+const ST = require('../../../shared/standard.js');
 const { ValidationError, isInUse } = require('./errors');
 const { take, highestCode, forUpdate } = require('./counters');
 const { parseJson } = require('./records');
@@ -179,10 +180,14 @@ const branchView = (state, branchId) => {
   const ownPlans = i > 0 ? [plans[0], { ...plans[i], branchIds: [branchId] }] : plans.slice(0, 1);
   const bm = state.standard?.branchManagers?.[branchId] ?? state.standard?.branchManagers?.[String(branchId)];
   const numbering = state.numbering && { ...state.numbering, branches: state.numbering.branches?.[branchId] ? { [branchId]: state.numbering.branches[branchId] } : {} };
+  const rules = ST.branchRulesOf(state.standard, branchId);
   const narrow = { ...state, branches: state.branches.filter(b => b.id === branchId), plans: ownPlans, bankAccounts: [], ruleHistory: [],
     ...(numbering ? { numbering } : {}),
-    ...(state.standard ? { standard: { ...state.standard, branchManagers: bm == null ? {} : { [branchId]: bm } } } : {}) };
-  return { ...S.view(narrow), agents: state.agents.filter(a => a.branchId === branchId) };
+    ...(state.standard ? { standard: { ...state.standard, branchManagers: bm == null ? {} : { [branchId]: bm }, branchRules: rules ? { [branchId]: rules } : {} } } : {}) };
+  return { ...S.view(narrow), agents: state.agents.filter(a => a.branchId === branchId),
+    // planShared: the branch is on a company plan other branches use too (so not its own to edit);
+    // rulesSince: when the rules in force started (a change must start after it).
+    planShared: i > 0 && (plans[i].branchIds || []).some(b => Number(b) !== branchId), rulesSince: P.rulesSince(state) };
 };
 const loadBranchSetup = async (branchId, q = db) => branchView(await loadState(q), Number(branchId));
 
@@ -253,6 +258,95 @@ async function setBranchManager(branchId, staffId, { then } = {}) {
   });
 }
 
+// ── A branch's own commission schema ─────────────────────────────────────────
+// Within the company's payout standard, as Setup has it, a branch pays on the company's numbers
+// (the default) or on its own, set by its partner on My branch:
+//   existing standard: its own rates, paid-out share, band ends and creator's part (standard.branchRules)
+//   CMS: its own tier plan (Setup's plans: the Standard plan unless a branch has another)
+// body: { own: false } back to the company's; { own: true, rules } (existing) or { own: true, name, tiers } (CMS).
+// A change to what is paid starts on an E-Form date `from`, today at the earliest; earlier E-Forms keep
+// the rules in force on their date (Setup's rule history). `from` equal to the start of the rules in
+// force (still to come) corrects them instead.
+function withOwnRules(state, id, edited) {
+  const st = state.standard || {};
+  const branchRules = { ...(st.branchRules || {}) };
+  delete branchRules[id];
+  delete branchRules[String(id)];
+  if (edited) {
+    const num = v => (v === '' || v == null ? '' : Number(v));
+    const base = ST.standardFor(state, null);
+    const merged = { ...base, cap: num(edited.cap ?? base.cap),
+      positions: base.positions.map(p => ({ ...p, rate: num(edited.positions?.find(x => x.code === p.code)?.rate ?? p.rate) })),
+      bands: base.bands.map(b => ({ ...b, upTo: num(edited.bands?.find(x => x.code === b.code)?.upTo ?? b.upTo) })),
+      creator: { ...base.creator, pct: num(edited.creator?.pct ?? base.creator.pct), holderKeeps: num(edited.creator?.holderKeeps ?? base.creator.holderKeeps),
+        steps: base.creator.steps.map(s => ({ ...s, upTo: num(edited.creator?.steps?.find(x => x.from === s.from)?.upTo ?? s.upTo) })) } };
+    const errors = ST.validateStandard(merged);
+    if (errors.length) throw new S.SetupError(errors);
+    branchRules[id] = ST.ownRulesOf(merged);
+  }
+  return { ...state, standard: { ...st, branchRules } };
+}
+
+function withOwnPlan(state, branch, edited) {
+  const id = branch.id;
+  const plans = state.plans || [];
+  if (!plans.length) throw new S.SetupError(["The company's tiers aren't set up yet, so there is no plan to start from."]);
+  // The branch's own plan: one only it is on. A plan shared with other branches is the company's.
+  const ownIdx = plans.findIndex((p, j) => j > 0 && (p.branchIds || []).length === 1 && Number(p.branchIds[0]) === id);
+  const off = plans.map((p, j) => (j === 0 ? p : { ...p, branchIds: (p.branchIds || []).filter(b => Number(b) !== id) }));
+  if (!edited) return { ...state, plans: off.filter((_, j) => j !== ownIdx) };
+  // Checked and put in ladder order as Setup's plans step does, against this branch alone.
+  const draft = { id: ownIdx > 0 ? plans[ownIdx].id : null, name: String(edited.name || '').trim() || `${branch.name} plan`, branchIds: [id],
+    tiers: Array.isArray(edited.tiers) ? edited.tiers : [] };
+  const checked = S.applySteps({ ...state, branches: [branch], agents: [], plans: ownIdx > 0 ? [plans[0], plans[ownIdx]] : [plans[0]] },
+    [['plans', { plans: [plans[0], draft] }]]);
+  const plan = checked.plans[1];
+  if (off.some((p, j) => j !== ownIdx && P.planLabel(p, j).toLowerCase() === plan.name.toLowerCase())) {
+    throw new S.SetupError([`Another plan is already called "${plan.name}". Pick another name.`]);
+  }
+  return { ...state, plans: ownIdx > 0 ? off.map((p, j) => (j === ownIdx ? plan : p)) : [...off, plan], nextId: Math.max(state.nextId, checked.nextId) };
+}
+
+const planMoneyKey = (s, id) => {
+  const plans = s.plans || [];
+  const p = plans[P.planIndexFor(plans, id)];
+  return JSON.stringify(P.sortTiers(p?.tiers || []).map(t => [t.basis, Number(t.threshold), Number(t.agentRate),
+    P.DEAL_TYPES.map(dt => String(t.totals?.[dt] ?? ''))]));
+};
+
+async function setBranchCommission(branchId, body, { today, then } = {}) {
+  return db.transaction(async trx => {
+    const before = await loadState(trx, { lock: true });
+    const id = Number(branchId);
+    const branch = before.branches.find(b => b.id === id);
+    if (!branch) throw new ValidationError(['That branch no longer exists.']);
+    const existing = ST.standardOf(before).kind === 'existing';
+    const own = body?.own === true;
+    const change = s => (existing ? withOwnRules(s, id, own ? body.rules : null) : withOwnPlan(s, branch, own ? body : null));
+    const moneyOf = s => (existing ? ST.moneyKeyOf(ST.standardFor(s, id)) : planMoneyKey(s, id));
+    let after, from = null;
+    try {
+      after = change(before);
+      if (moneyOf(after) !== moneyOf(before)) {
+        from = String(body?.from || '');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) throw new S.SetupError(['Pick the date the new rates start.']);
+        if (from < today) throw new S.SetupError(['The new rates can start today at the earliest: earlier E-Forms keep the rates in force on their date.']);
+        // A new start date keeps the rules in force until then for earlier E-Forms.
+        if (from !== P.rulesSince(before)) after = change(S.applySteps(before, [['rules-from', { from }]]));
+      }
+    } catch (err) {
+      if (err instanceof S.SetupError) throw new ValidationError(err.errors);
+      throw err;
+    }
+    after = { ...after, confirmed: before.confirmed };
+    // Under the CMS, a tier an agent was placed on that their branch's plan no longer has is cleared, as Setup does.
+    if (!existing) after = S.tidyAgents(after);
+    await saveState(trx, before, after);
+    if (then) await then(trx, { own, from, standard: existing ? 'existing' : 'cms' });
+    return branchView(await loadState(trx), id);
+  });
+}
+
 // The whole Setup replaced by `state` (the demo-data script uses it with the sample).
 async function replaceState(state) {
   return db.transaction(async trx => {
@@ -262,5 +356,5 @@ async function replaceState(state) {
   });
 }
 
-module.exports = { ValidationError, loadState, loadSetup, saveSteps, addBranch, loadBranchSetup, updateBranchDetails, importBranchAgents, setBranchManager,
+module.exports = { ValidationError, loadState, loadSetup, saveSteps, addBranch, loadBranchSetup, updateBranchDetails, importBranchAgents, setBranchManager, setBranchCommission,
   replaceState, AGENT_TYPES };

@@ -71,8 +71,46 @@ export function standardOf(s) {
   if (!st || st.kind !== 'existing') return { kind: 'cms' };
   const d = EXISTING_DEFAULT;
   return { kind: 'existing', cap: st.cap ?? d.cap, positions: st.positions || d.positions, bands: st.bands || d.bands,
-    creator: { ...d.creator, ...st.creator }, branchManagers: st.branchManagers || {} };
+    creator: { ...d.creator, ...st.creator }, branchManagers: st.branchManagers || {}, branchRules: st.branchRules || {} };
 }
+
+// ── A branch's own rates ─────────────────────────────────────────────────────
+// A branch may pay on its own numbers (its Branch Partner sets them on My branch), else on the
+// company's. `branchRules`: { [branchId]: { cap, rates: { [position]: % }, bands: { [band]: up to % },
+// creator: { pct, holderKeeps, steps: { [position]: up to % } } } }, each value optional. The
+// positions, bands and their order stay the company's, so a chain across branches still lines up.
+export function branchRulesOf(standard, branchId) {
+  const r = standard?.branchRules;
+  return branchId == null || !r ? null : r[branchId] ?? r[String(branchId)] ?? null;
+}
+
+// The existing standard a branch pays on: the company's, with the branch's own numbers over it.
+export function standardFor(setup, branchId) {
+  const st = standardOf(setup);
+  const own = st.kind === 'existing' ? branchRulesOf(st, branchId) : null;
+  if (!own) return st;
+  const pick = (map, key, fallback) => (map && map[key] !== undefined && map[key] !== null ? map[key] : fallback);
+  return { ...st, cap: pick(own, 'cap', st.cap),
+    positions: st.positions.map(p => ({ ...p, rate: pick(own.rates, p.code, p.rate) })),
+    bands: st.bands.map(b => ({ ...b, upTo: pick(own.bands, b.code, b.upTo) })),
+    creator: { ...st.creator, pct: pick(own.creator, 'pct', st.creator.pct), holderKeeps: pick(own.creator, 'holderKeeps', st.creator.holderKeeps),
+      steps: st.creator.steps.map(s => ({ ...s, upTo: pick(own.creator?.steps, s.from, s.upTo) })) } };
+}
+
+// What a branch keeps as its own, from the standard it edited (standardFor's shape).
+export function ownRulesOf(st) {
+  return { cap: st.cap, rates: Object.fromEntries(st.positions.map(p => [p.code, p.rate])),
+    bands: Object.fromEntries(st.bands.map(b => [b.code, b.upTo])),
+    creator: { pct: st.creator.pct, holderKeeps: st.creator.holderKeeps, steps: Object.fromEntries(st.creator.steps.map(s => [s.from, s.upTo])) } };
+}
+
+// One line for a branch's own numbers: paid-out share and each position's rate.
+export const describeOwnRules = st => `${st.cap}% paid out · ${st.positions.map(p => `${p.code} ${p.rate}%`).join(' · ')}`;
+
+// The numbers that decide what a side pays (to tell a real change from none).
+export const moneyKeyOf = st => JSON.stringify(st.kind !== 'existing' ? null
+  : [Number(st.cap), st.positions.map(p => Number(p.rate)), st.bands.map(b => Number(b.upTo)),
+    Number(st.creator.pct), Number(st.creator.holderKeeps), st.creator.steps.map(s => Number(s.upTo))]);
 
 export function validateStandard(st) {
   if (st?.kind === 'cms') return [];

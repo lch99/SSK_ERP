@@ -57,7 +57,7 @@ export const ROLES = [
   // A partner who runs a branch of their own (a sign-in account, not a staff account type): what the
   // senior admin does, plus setting the branch up (its people, accounts and details), in that branch
   // only. The Superadmin picks its payout plan when adding the branch.
-  { key: 'branch-partner', label: 'Branch Partner', type: null, desc: 'Runs their own branch as a partner of the company: sets it up (agents, office staff, sign-in accounts, branch details) and runs all its work, approvals included. Sees nothing of other branches.',
+  { key: 'branch-partner', label: 'Branch Partner', type: null, desc: 'Runs their own branch as a partner of the company: sets it up (agents, office staff, sign-in accounts, branch details, its own commission rates or the company\'s) and runs all its work, approvals included. Sees nothing of other branches.',
     scope: 'branch', levels: row('full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'full', 'view', 'none') },
   { key: 'admin-staff2', label: 'Admin (Level 1)', type: 'admin-staff2', desc: 'Branch admin: keys in the day-to-day work but cannot approve or pay.',
     scope: 'branch', levels: row('edit', 'edit', 'edit', 'view', 'edit', 'view', 'edit', 'view', 'edit', 'edit', 'view', 'view', 'none', 'none') },

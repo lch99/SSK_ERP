@@ -199,6 +199,9 @@ const STEPS = {
         steps: (Array.isArray(body.creator?.steps) ? body.creator.steps : []).map(s => ({ from: str(s.from).toUpperCase(), upTo: pct(s.upTo) })) },
       branchManagers: Object.fromEntries(Object.entries(managers).filter(([b, id]) => branchIds.has(Number(b)) && id != null && id !== '')
         .map(([b, id]) => [Number(b), Number(id)])),
+      // Branches' own numbers (their partners set them on My branch): kept when not sent.
+      branchRules: Object.fromEntries(Object.entries(body.branchRules === undefined ? state.standard?.branchRules || {} : body.branchRules || {})
+        .filter(([b, r]) => branchIds.has(Number(b)) && r && typeof r === 'object')),
     };
     check(ST.validateStandard(standard));
     return { ...state, standard };
@@ -268,7 +271,7 @@ export function applyStep(saved, step, body) {
 // Keep imported agents in line with the rest of Setup: a removed branch takes
 // its agents with it; a position, tier or upline that no longer exists is
 // cleared (a negotiator, placed by lifetime commission, with no upline).
-function tidyAgents(state) {
+export function tidyAgents(state) {
   if (!state.agents?.length) return state;
   const branchIds = new Set(state.branches.map(b => b.id));
   const kept = state.agents.filter(a => branchIds.has(a.branchId));

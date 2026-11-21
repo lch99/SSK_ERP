@@ -93,8 +93,8 @@ export const closeType = c => (!c.full ? 'Partial Close' : c.partNo > 1 ? 'Balan
 // Where a person stands on their tier ladder, from their tier credit: `lifetime`
 // (with their opening balance) and `yearly` (a staff record's $.credit on the server's lists).
 export function tierStanding(s, lifetime, yearly, setup) {
-  // Under the existing standard a person's position is what sets their rate: it stands in for a tier.
-  const standard = ST.standardOf(setup)
+  // Under the existing standard a person's position is what sets their rate (their branch's own, if it has one): it stands in for a tier.
+  const standard = ST.standardFor(setup, s.branchId)
   if (standard.kind === 'existing' || !P.tiersFor(setup, s.branchId).length) {
     const pos = (standard.positions || []).find(p => p.code === s.role)
     const tier = { id: null, name: pos?.code || '—', title: pos?.name || (standard.kind === 'existing' ? 'No position' : 'No tiers'), agentRate: pos?.rate ?? '', threshold: 0, basis: 'lifetime' }

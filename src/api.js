@@ -205,6 +205,7 @@ export const getMyBranch = () => request('/my-branch')
 export const saveMyBranchDetails = body => request('/my-branch/details', { method: 'PUT', body })
 export const importMyBranchAgents = rows => request('/my-branch/agents', { method: 'POST', body: { rows } })
 export const saveMyBranchBm = staffId => request('/my-branch/bm-account', { method: 'PUT', body: { staffId } })
+export const saveMyBranchCommission = body => request('/my-branch/commission', { method: 'PUT', body })
 
 // ERP records. The demo makes them up from the saved Setup and keeps them in
 // this browser (src/demo/erpApi.js); the server reads them from its tables and

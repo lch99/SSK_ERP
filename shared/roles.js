@@ -3,7 +3,7 @@
 
 export const ROLES = [
   { value: 'superadmin', label: 'Superadmin',     branchScoped: false, desc: 'Everything, every branch. The only role that can change Setup.' },
-  { value: 'manager',    label: 'Branch Partner', branchScoped: true,  desc: 'Runs their own branch as a partner: sets it up (agents, staff, accounts, branch details) on My branch, sees all its work and approves its deals. Nothing of other branches.' },
+  { value: 'manager',    label: 'Branch Partner', branchScoped: true,  desc: 'Runs their own branch as a partner: sets it up on My branch (details, agents, staff, accounts, its commission rates or the company\'s, BM profit), sees all its work and approves its deals. Nothing of other branches.' },
   { value: 'accountant', label: 'Accountant',     branchScoped: false, desc: 'Accounts and finance reports for every branch.' },
   { value: 'admin',      label: 'Admin',          branchScoped: true,  desc: 'Day-to-day office work for one branch. Cannot approve.' },
   { value: 'staff',      label: 'Office Staff',   branchScoped: true,  desc: 'Enters and views their own branch\'s records.' },

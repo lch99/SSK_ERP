@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getMyBranch, saveMyBranchDetails, importMyBranchAgents, saveMyBranchBm, downloadAllLinks } from '../api.js'
 import * as P from '../../shared/payout.js'
-import { standardOf } from '../../shared/standard.js'
+import { standardOf, branchRulesOf } from '../../shared/standard.js'
+import BranchCommission from './BranchCommission.jsx'
 import { C, inp, sel, btn, label } from '../styles.js'
 import Section, { ErrorList } from '../setup/Section.jsx'
 import AgentsSection from '../setup/AgentsSection.jsx'
@@ -26,6 +27,9 @@ export default function MyBranchPage() {
   if (!branch) return <div style={{ padding: 24 }}><ErrorList errors={['Your branch no longer exists. Ask the Superadmin.']} /></div>
 
   const plan = setup.plans?.[P.planIndexFor(setup.plans, branch.id)]
+  const paysOn = standardOf(setup).kind === 'existing'
+    ? (branchRulesOf(setup.standard, branch.id) ? `${branch.name}'s own rates` : "the company's rates")
+    : plan ? P.planLabel(plan, setup.plans.indexOf(plan)) : P.STANDARD_PLAN
   const fresh = s => { setSetup(s); erp?.reload?.() }
   async function links() {
     // As on Users: a fresh link cancels the one sent before, so ask first.
@@ -48,8 +52,8 @@ export default function MyBranchPage() {
     <div style={{ maxWidth: 1080, margin: '0 auto', padding: '24px 16px' }}>
       <h1 style={{ fontSize: 22, margin: '0 0 4px' }}>My branch: {branch.name} <span style={{ color: C.muted, fontWeight: 500 }}>({branch.code})</span></h1>
       <p style={{ fontSize: 13, color: C.muted, margin: '0 0 16px' }}>
-        Payout plan: <b>{plan ? P.planLabel(plan, setup.plans.indexOf(plan)) : P.STANDARD_PLAN}</b> · {setup.agents.length} agent{setup.agents.length === 1 ? '' : 's'}.
-        The branch name, code and payout plan are set by the company; ask the Superadmin to change them.
+        Commission: <b>{paysOn}</b> · {setup.agents.length} agent{setup.agents.length === 1 ? '' : 's'}.
+        The branch name and code are set by the company; ask the Superadmin to change them.
       </p>
 
       <ol style={{ listStyle: 'none', margin: '0 0 16px', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(230px, 100%), 1fr))', gap: 10 }}>
@@ -72,6 +76,8 @@ export default function MyBranchPage() {
       <AgentsSection key={setup.agents.length} setup={setup} step={2} done={setup.agents.length > 0} addOnly
         hint={<>Bring in your whole team at once from Excel. Everyone goes into {branch.name}; positions, uplines and tiers are matched to the company's. You can also add agents one at a time in All agents.</>}
         save={async (_step, body) => { fresh(await importMyBranchAgents(body.rows)); fb.toast(`${body.rows.length} agent${body.rows.length === 1 ? '' : 's'} added`) }} />
+      {/* Keyed by the saved values so a save (or reload) starts the editor from what was saved. */}
+      <BranchCommission key={JSON.stringify([setup.standard?.branchRules, setup.plans?.map(p => p.id), setup.rulesSince])} setup={setup} branch={branch} onSaved={fresh} />
       {standardOf(setup).kind === 'existing' && <BmSection setup={setup} branch={branch} onSaved={fresh} />}
     </div>
   )

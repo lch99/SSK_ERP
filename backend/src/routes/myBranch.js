@@ -4,6 +4,7 @@
 //   PUT  /details   { address, phone, manager }: the branch's details (name and code stay the Superadmin's)
 //   POST /agents    { rows }: their agent list from Excel, added to their branch
 //   PUT  /bm-account { staffId }: who receives their branch's BM profit (an agent of the branch, or nobody)
+//   PUT  /commission { own, rules | name + tiers, from }: the branch's commission schema (company's or its own)
 // Sign-in links for the whole branch are POST /api/accounts/links (routes/accounts.js).
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
@@ -13,6 +14,7 @@ const { audit } = require('../db/audit');
 const store = require('../db/setupStore');
 const { ValidationError } = require('../db/errors');
 const AC = require('../../../shared/access.js');
+const { localToday } = require('../db/days');
 
 const router = express.Router();
 router.use(requireAuth, downtimeGate());
@@ -44,6 +46,16 @@ router.post('/agents', wrap(async (req, res) => {
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
   res.json(await store.importBranchAgents(req.branchId, rows, {
     then: (trx, n) => audit(req, { action: 'update', entity: 'setup.agents', entityId: req.branchId, detail: { mode: 'add', rows: n } }, trx),
+  }));
+}));
+
+// The branch's commission schema: the company's, or its own within the company's payout standard
+// (db/setupStore.js setBranchCommission). A change to what is paid starts on an E-Form date, today at the earliest.
+router.put('/commission', wrap(async (req, res) => {
+  res.json(await store.setBranchCommission(req.branchId, req.body, {
+    today: localToday(),
+    then: (trx, d) => audit(req, { action: 'update', entity: d.standard === 'existing' ? 'setup.standard' : 'setup.tiers', entityId: req.branchId,
+      detail: { branchRules: d.own ? 'own' : 'company', from: d.from } }, trx),
   }));
 }));
 
